@@ -71,7 +71,7 @@ export async function isYtDlpAvailable() {
 /**
  * Check if the YouTube cookies file exists.
  *
- * @returns {Promise<{exists: boolean, path: string}>}
+ * @returns {Promise<{exists: boolean, path: string, sizeBytes: number}>}
  */
 export async function getCookiesStatus() {
   try {
@@ -81,6 +81,17 @@ export async function getCookiesStatus() {
   } catch {
     return { exists: false, path: YT_COOKIES_PATH, sizeBytes: 0 };
   }
+}
+
+/**
+ * Save cookies file content to config/yt-cookies.txt.
+ *
+ * @param {Buffer} content
+ * @returns {Promise<void>}
+ */
+export async function saveCookiesFile(content) {
+  await fs.mkdir(PATHS.config, { recursive: true });
+  await fs.writeFile(YT_COOKIES_PATH, content, { mode: 0o600 });
 }
 
 /**

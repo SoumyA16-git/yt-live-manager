@@ -4,6 +4,8 @@
 
 import { Router } from 'express';
 import busboy from 'busboy';
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   listVideos,
   getVideo,
@@ -20,6 +22,7 @@ import {
   getDownloadStatus,
   cancelDownload,
   getCookiesStatus,
+  saveCookiesFile,
 } from '../ytdlp-manager.js';
 import { logger } from '../logger.js';
 
@@ -81,6 +84,55 @@ export function createVideosRouter() {
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
+  });
+
+  // POST /api/videos/upload-cookies — save yt-cookies.txt to config dir
+  router.post('/upload-cookies', (req, res) => {
+    const contentType = req.headers['content-type'] || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return res.status(400).json({ error: 'Expected multipart/form-data' });
+    }
+
+    let bb;
+    try {
+      bb = busboy({ headers: req.headers, limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
+    } catch (err) {
+      return res.status(400).json({ error: 'Invalid multipart request' });
+    }
+
+    let chunks = [];
+    let fileErr = null;
+    let gotFile = false;
+
+    bb.on('file', (_field, stream, info) => {
+      const { filename } = info;
+      const ext = path.extname(filename).toLowerCase();
+      if (!['.txt', '.cookie', '.cookies', ''].includes(ext)) {
+        stream.resume();
+        fileErr = 'Invalid file. Please upload a Netscape cookies .txt file.';
+        return;
+      }
+      gotFile = true;
+      stream.on('data', (d) => chunks.push(d));
+      stream.on('error', (e) => { fileErr = e.message; });
+    });
+
+    bb.on('finish', async () => {
+      if (fileErr) return res.status(400).json({ error: fileErr });
+      if (!gotFile || chunks.length === 0) return res.status(400).json({ error: 'No file received' });
+      try {
+        const content = Buffer.concat(chunks);
+        await saveCookiesFile(content);
+        const status = await getCookiesStatus();
+        logger.info('ytdlp.cookies_uploaded', `yt-cookies.txt saved (${status.sizeBytes} bytes)`);
+        res.json({ success: true, sizeBytes: status.sizeBytes });
+      } catch (err) {
+        res.status(500).json({ error: err.message });
+      }
+    });
+
+    bb.on('error', (err) => res.status(500).json({ error: err.message }));
+    req.pipe(bb);
   });
 
   // GET /api/videos/:id

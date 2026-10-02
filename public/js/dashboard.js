@@ -824,6 +824,42 @@ function setupYouTubeDownload() {
   if (tabUploadBtn) tabUploadBtn.addEventListener('click', () => switchIngestTab('upload'));
   if (tabYtBtn)     tabYtBtn.addEventListener('click',     () => switchIngestTab('youtube'));
 
+  // Wire cookies file upload button
+  const cookiesFileInput   = document.getElementById('cookies-file-input');
+  const cookiesUploadStatus = document.getElementById('cookies-upload-status');
+  if (cookiesFileInput) {
+    cookiesFileInput.addEventListener('change', async () => {
+      const file = cookiesFileInput.files?.[0];
+      if (!file) return;
+      if (cookiesUploadStatus) cookiesUploadStatus.textContent = 'Uploading...';
+      try {
+        const formData = new FormData();
+        formData.append('file', file, file.name);
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/videos/upload-cookies');
+        xhr.onload = () => {
+          cookiesFileInput.value = '';
+          if (xhr.status === 200) {
+            if (cookiesUploadStatus) cookiesUploadStatus.textContent = 'Cookies saved!';
+            const banner = document.getElementById('yt-cookies-banner');
+            if (banner) setTimeout(() => { banner.style.display = 'none'; }, 1500);
+          } else {
+            let msg = 'Upload failed';
+            try { msg = JSON.parse(xhr.responseText)?.error || msg; } catch { /**/ }
+            if (cookiesUploadStatus) cookiesUploadStatus.textContent = `Error: ${msg}`;
+          }
+        };
+        xhr.onerror = () => {
+          cookiesFileInput.value = '';
+          if (cookiesUploadStatus) cookiesUploadStatus.textContent = 'Network error';
+        };
+        xhr.send(formData);
+      } catch (err) {
+        if (cookiesUploadStatus) cookiesUploadStatus.textContent = `Error: ${err.message}`;
+      }
+    });
+  }
+
   btnYtDownload.addEventListener('click', async () => {
     const url = (ytUrlInput?.value || '').trim();
     if (!url) {
