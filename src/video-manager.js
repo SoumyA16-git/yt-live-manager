@@ -76,7 +76,33 @@ let _incomingDir = PATHS.videosIncoming;
  */
 export async function listVideos() {
   const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
-  return data?.videos ?? [];
+  const videos = data?.videos ?? [];
+  let changed = false;
+
+  let settings = {};
+  try {
+    settings = getSettings() || {};
+  } catch { /* use defaults */ }
+
+  const evaluatedVideos = videos.map(v => {
+    if (v.probe) {
+      const freshCompat = evaluateCompatibility(v.probe, settings);
+      if (!v.compatibility || v.compatibility.status !== freshCompat.status ||
+          JSON.stringify(v.compatibility.reasons) !== JSON.stringify(freshCompat.reasons)) {
+        v.compatibility = freshCompat;
+        changed = true;
+      }
+    }
+    return v;
+  });
+
+  if (changed) {
+    saveVideosIndex(evaluatedVideos).catch(err => {
+      logger.warn('video.cache_save_failed', `Could not update videos.json cache: ${err.message}`);
+    });
+  }
+
+  return evaluatedVideos;
 }
 
 /**

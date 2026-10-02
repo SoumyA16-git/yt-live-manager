@@ -23,6 +23,7 @@ import {
 import { getSettings, getStreamKey } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
 import { getVideo, resolveVideoPath, listVideos, setActiveVideo } from './video-manager.js';
+import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage } from './usage-manager.js';
 import { logger } from './logger.js';
 import PATHS from './lib/paths.js';
@@ -158,7 +159,8 @@ export async function evaluateStartGates() {
 
   // 6. Mode Selection Resolution
   const modePref = settings.stream?.modePreference || 'auto';
-  const compat = videoMeta.compatibility || {};
+  // Fresh evaluation using probe and current settings to guarantee real-time accuracy
+  const compat = videoMeta.probe ? evaluateCompatibility(videoMeta.probe, settings) : (videoMeta.compatibility || {});
   const allowTranscode = settings.stream?.allowTranscode !== false;
   let selectedMode = 'transcode';
 

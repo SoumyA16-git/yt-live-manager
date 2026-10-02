@@ -9,6 +9,7 @@
 
 import fs from 'node:fs/promises';
 import { readJSON, writeJSON } from '../src/lib/atomic-json.js';
+import { evaluateCompatibility } from '../src/ffprobe-manager.js';
 import PATHS from '../src/lib/paths.js';
 
 const dryRun = process.argv.includes('--dry-run');
@@ -86,14 +87,45 @@ async function main() {
     console.error('[WARN] Failed to auto-migrate settings flags:', err.message);
   }
 
-  // Clear any stale pre-flight errors in stream-state.json
+  // Re-evaluate video compatibility in data/videos.json with latest rules/settings
+  try {
+    const { data: vData } = await readJSON(PATHS.videosIndex, [], null);
+    const { data: sData } = await readJSON(PATHS.settings, [], null);
+    if (vData && Array.isArray(vData.videos) && vData.videos.length > 0) {
+      let vUpdated = false;
+      const settings = sData || {};
+      for (const v of vData.videos) {
+        if (v.probe) {
+          const fresh = evaluateCompatibility(v.probe, settings);
+          if (v.compatibility?.status !== fresh.status ||
+              JSON.stringify(v.compatibility?.reasons) !== JSON.stringify(fresh.reasons)) {
+            v.compatibility = fresh;
+            vUpdated = true;
+          }
+        }
+      }
+      if (vUpdated) {
+        if (!dryRun) {
+          await writeJSON(PATHS.videosIndex, vData);
+          console.log('[MIGRATE] data/videos.json: Re-evaluated video compatibility with updated rules (Stream-Copy Ready).');
+        } else {
+          console.log('[DRY-RUN] data/videos.json: Would re-evaluate video compatibility with updated rules.');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[WARN] Failed to re-evaluate videos.json in migration:', err.message);
+  }
+
+  // Clear any stale pre-flight errors or reconnecting loops in stream-state.json
   try {
     const { data: st } = await readJSON(PATHS.streamState, [], null);
     if (st) {
       let stateChanged = false;
-      if (st.status === 'ERROR' && st.lastError && ['E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO', 'E_CONFIG_INVALID'].includes(st.lastError.code)) {
+      if (st.status === 'ERROR' || st.status === 'RECONNECTING') {
         st.lastError = null;
         st.status = 'STOPPED';
+        st.reconnect = null;
         stateChanged = true;
       }
       // If maintenance mode was left active from previous update/script run, clear it
@@ -105,9 +137,9 @@ async function main() {
       if (stateChanged) {
         if (!dryRun) {
           await writeJSON(PATHS.streamState, st);
-          console.log('[MIGRATE] data/stream-state.json: Cleared stale error/maintenance state.');
+          console.log('[MIGRATE] data/stream-state.json: Cleared stale error/reconnecting state.');
         } else {
-          console.log('[DRY-RUN] data/stream-state.json: Would clear stale error/maintenance state.');
+          console.log('[DRY-RUN] data/stream-state.json: Would clear stale error/reconnecting state.');
         }
       }
     }
