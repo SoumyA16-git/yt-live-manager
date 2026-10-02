@@ -515,30 +515,30 @@ function updateLiveBitratePreview() {
   previewTbMonth.textContent = `${m.withOverhead.tbPer30Days.toFixed(3)} TB/30d`;
 }
 
-// ─── YouTube Import Tab Switcher (must be global for onclick) ─────────────────
+// ─── Video Ingest Tab Switcher ──────────────────────────────────────────────────────
 
-window.switchIngestTab = function switchIngestTab(tab) {
-  const uploadZone   = document.getElementById('upload-zone');
-  const ytPanel      = document.getElementById('yt-import-panel');
-  const tabUpload    = document.getElementById('tab-upload');
-  const tabYoutube   = document.getElementById('tab-youtube');
+function switchIngestTab(tab) {
+  const uploadZone = document.getElementById('upload-zone');
+  const ytPanel    = document.getElementById('yt-import-panel');
+  const tabUpload  = document.getElementById('tab-upload');
+  const tabYt      = document.getElementById('tab-youtube');
 
   if (tab === 'youtube') {
     uploadZone.style.display = 'none';
     ytPanel.style.display    = 'block';
-    tabUpload.style.background  = 'transparent';
-    tabUpload.style.color       = 'var(--text-secondary)';
-    tabYoutube.style.background = 'var(--accent-red, #e53935)';
-    tabYoutube.style.color      = '#fff';
+    tabUpload.style.background = 'transparent';
+    tabUpload.style.color      = 'var(--text-muted)';
+    tabYt.style.background     = 'var(--accent-rose)';
+    tabYt.style.color          = '#fff';
   } else {
     uploadZone.style.display = '';
     ytPanel.style.display    = 'none';
-    tabUpload.style.background  = 'var(--accent-primary)';
-    tabUpload.style.color       = '#fff';
-    tabYoutube.style.background = 'transparent';
-    tabYoutube.style.color      = 'var(--text-secondary)';
+    tabUpload.style.background = 'var(--accent-primary)';
+    tabUpload.style.color      = 'var(--bg-canvas)';
+    tabYt.style.background     = 'transparent';
+    tabYt.style.color          = 'var(--text-muted)';
   }
-};
+}
 
 // ─── Upload Handling ──────────────────────────────────────────────────────────
 
@@ -708,20 +708,47 @@ function _clearYtPoll() {
   if (_ytPollTimer) { clearInterval(_ytPollTimer); _ytPollTimer = null; }
 }
 
+// SVG icon paths for each stage
+const _ytStageIcons = {
+  fetching_info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  downloading:   '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M5 20h14"/>',
+  converting:    '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/>',
+  completed:     '<polyline points="20 6 9 17 4 12"/>',
+  error:         '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  cancelled:     '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+};
+
+const _ytStageColors = {
+  fetching_info: 'var(--accent-cyan)',
+  downloading:   'var(--accent-primary)',
+  converting:    'var(--accent-amber)',
+  completed:     'var(--accent-emerald)',
+  error:         'var(--accent-rose)',
+  cancelled:     'var(--text-muted)',
+};
+
+const _ytStageLabels = {
+  fetching_info: 'Fetching video info...',
+  downloading:   'Downloading from YouTube...',
+  converting:    'Converting to 1080x1920 30fps...',
+  completed:     'Download & conversion complete',
+  error:         'Failed',
+  cancelled:     'Cancelled',
+};
+
 function _updateYtProgress(status) {
   if (!status) return;
 
-  const stageLabels = {
-    fetching_info: '🔍 Fetching video info...',
-    downloading:   '⬇️ Downloading from YouTube...',
-    converting:    '🎬 Converting to 1080×1920 30fps...',
-    completed:     '✅ Done!',
-    error:         '❌ Failed',
-    cancelled:     '🚫 Cancelled',
-  };
+  const stage = status.stage || 'fetching_info';
+  const label = _ytStageLabels[stage] || stage;
+  const color = _ytStageColors[stage] || 'var(--accent-cyan)';
+  const iconPath = _ytStageIcons[stage] || _ytStageIcons.fetching_info;
 
-  const label = stageLabels[status.stage] || status.stage;
-  if (ytDlStageText) ytDlStageText.textContent = label;
+  const stageIcon = document.getElementById('yt-stage-icon');
+  const stageLabel = document.getElementById('yt-stage-label');
+  if (stageIcon)  stageIcon.innerHTML = iconPath;
+  if (stageLabel) stageLabel.textContent = label;
+  if (ytDlStageText) ytDlStageText.style.color = color;
   if (ytDlTitle)     ytDlTitle.textContent = status.videoTitle || '';
 
   const pct = Math.round(status.percent || 0);
@@ -747,9 +774,7 @@ async function _pollYtDownloadStatus() {
       _clearYtPoll();
 
       if (status.stage === 'completed') {
-        if (ytDlStageText) ytDlStageText.textContent = '✅ Download & conversion complete!';
-        if (ytDlPct)       ytDlPct.textContent = '100%';
-        if (ytDlFill)      ytDlFill.style.width = '100%';
+        _updateYtProgress({ ...status, stage: 'completed', percent: 100 });
         if (btnYtDownload) btnYtDownload.disabled = false;
 
         await fetchVideos();
@@ -757,14 +782,13 @@ async function _pollYtDownloadStatus() {
         if (status.videoId) {
           setTimeout(() => {
             const wantActive = confirm(
-              `✅ "${status.videoTitle || 'YouTube Video'}" has been downloaded & converted.\n\nWould you like to set it as the active live stream video now?`
+              `"${status.videoTitle || 'YouTube Video'}" downloaded & converted.\n\nSet it as the active live stream video now?`
             );
             if (wantActive) {
               apiPost(`/api/videos/${status.videoId}/select`, { restart: false })
                 .then(() => fetchVideos())
                 .catch((err) => alert(`Could not set active video: ${err.message}`));
             }
-            // Hide progress after confirmation
             if (ytDlProgressBox) {
               setTimeout(() => { ytDlProgressBox.style.display = 'none'; }, 1500);
             }
@@ -772,7 +796,8 @@ async function _pollYtDownloadStatus() {
         }
 
       } else if (status.stage === 'error') {
-        if (ytDlStageText) { ytDlStageText.style.color = 'var(--accent-red, #e53935)'; ytDlStageText.textContent = `❌ Error: ${status.error || 'Unknown failure'}`; }
+        _updateYtProgress({ ...status, stage: 'error' });
+        if (ytDlDetails) ytDlDetails.textContent = status.error || 'Unknown failure';
         if (btnYtDownload) btnYtDownload.disabled = false;
 
       } else if (status.stage === 'cancelled') {
@@ -788,6 +813,12 @@ async function _pollYtDownloadStatus() {
 function setupYouTubeDownload() {
   if (!btnYtDownload) return;
 
+  // Wire tab buttons via event listeners
+  const tabUploadBtn = document.getElementById('tab-upload');
+  const tabYtBtn     = document.getElementById('tab-youtube');
+  if (tabUploadBtn) tabUploadBtn.addEventListener('click', () => switchIngestTab('upload'));
+  if (tabYtBtn)     tabYtBtn.addEventListener('click',     () => switchIngestTab('youtube'));
+
   btnYtDownload.addEventListener('click', async () => {
     const url = (ytUrlInput?.value || '').trim();
     if (!url) {
@@ -798,11 +829,8 @@ function setupYouTubeDownload() {
 
     // Reset progress UI
     if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
-    if (ytDlStageText)   { ytDlStageText.style.color = 'var(--accent-cyan)'; ytDlStageText.textContent = '🔍 Starting...'; }
-    if (ytDlPct)         ytDlPct.textContent  = '0%';
-    if (ytDlFill)        ytDlFill.style.width = '0%';
-    if (ytDlTitle)       ytDlTitle.textContent = '';
-    if (ytDlDetails)     ytDlDetails.textContent = 'Connecting...';
+    _updateYtProgress({ stage: 'fetching_info', percent: 0, videoTitle: '', speed: '', eta: '' });
+    if (ytDlDetails)  ytDlDetails.textContent = 'Connecting...';
     btnYtDownload.disabled = true;
 
     try {
@@ -814,10 +842,9 @@ function setupYouTubeDownload() {
       btnYtDownload.disabled = false;
       const msg = err.message || 'Failed to start download';
       if (err.code === 'E_YTDLP_MISSING') {
-        alert(`yt-dlp is not installed on the server.\n\nRun: bash update.sh\non your VPS to install it.`);
+        alert('yt-dlp is not installed on the server.\n\nRun: bash update.sh\non your VPS to install it.');
       } else if (err.code === 'E_JOB_RUNNING') {
         alert('A download is already in progress. Wait for it to finish or cancel it first.');
-        // Resume polling for the existing job
         if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
         _clearYtPoll();
         _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
@@ -838,13 +865,12 @@ function setupYouTubeDownload() {
     });
   }
 
-  // On init: check if a job is already running (e.g. after page refresh)
+  // On init: resume polling if a job is already running (e.g. after page refresh)
   apiGet('/api/videos/download-status').then((status) => {
     if (status?.active) {
       if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
       _updateYtProgress(status);
-      // Also switch to YouTube tab
-      window.switchIngestTab('youtube');
+      switchIngestTab('youtube');
       _clearYtPoll();
       _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
     }

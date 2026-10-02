@@ -234,15 +234,17 @@
         <div class="panel-body" id="body-videos">
           <!-- Video Ingestion Tab Switcher -->
           <div id="video-ingest-tabs" style="display: flex; gap: 0; margin-bottom: 0.6rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); overflow: hidden;">
-            <button id="tab-upload" class="ingest-tab active" onclick="switchIngestTab('upload')" style="flex:1; padding: 0.45rem 0.5rem; font-size: 0.75rem; font-weight: 600; background: var(--accent-primary); color: #fff; border: none; cursor: pointer; transition: background 0.2s;">
-              📁 File Upload
+            <button id="tab-upload" style="flex:1; display:flex; align-items:center; justify-content:center; gap:0.35rem; padding: 0.45rem 0.5rem; font-size: 0.75rem; font-weight: 600; background: var(--accent-primary); color: var(--bg-canvas); border: none; cursor: pointer; transition: background 0.2s, color 0.2s;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              File Upload
             </button>
-            <button id="tab-youtube" class="ingest-tab" onclick="switchIngestTab('youtube')" style="flex:1; padding: 0.45rem 0.5rem; font-size: 0.75rem; font-weight: 600; background: transparent; color: var(--text-secondary); border: none; cursor: pointer; transition: background 0.2s;">
-              ▶️ YouTube URL
+            <button id="tab-youtube" style="flex:1; display:flex; align-items:center; justify-content:center; gap:0.35rem; padding: 0.45rem 0.5rem; font-size: 0.75rem; font-weight: 600; background: transparent; color: var(--text-muted); border: none; border-left: 1px solid var(--border-subtle); cursor: pointer; transition: background 0.2s, color 0.2s;">
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
+              YouTube URL
             </button>
           </div>
 
-          <!-- Mobile-Friendly Upload Trigger / Dropzone -->
+          <!-- File Upload Dropzone -->
           <div id="upload-zone" class="upload-dropzone">
             <svg class="icon icon-lg" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Tap or Drag Vertical MP4 Video Here</div>
@@ -253,36 +255,43 @@
 
           <!-- YouTube URL Import Panel -->
           <div id="yt-import-panel" style="display: none;">
-            <div style="background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
-              <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
-                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
-                Download from YouTube · Auto-converts to 1080×1920 30fps vertical
+            <div style="background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.55rem;">
+              <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.4rem; letter-spacing: 0.04em; text-transform: uppercase;">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
+                Download from YouTube &mdash; auto-converts to 1080&times;1920 30fps
               </div>
               <div style="display: flex; gap: 0.4rem;">
                 <input type="url" id="yt-url-input" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false"
-                  style="flex: 1; padding: 0.4rem 0.6rem; font-size: 0.775rem; font-family: var(--font-mono); background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); color: var(--text-main); outline: none; min-width: 0;">
-                <button id="btn-yt-download" style="padding: 0.4rem 0.75rem; font-size: 0.75rem; font-weight: 700; background: var(--accent-red, #e53935); color: #fff; border: none; border-radius: var(--radius-xs); cursor: pointer; white-space: nowrap; transition: opacity 0.2s;">
+                  style="flex: 1; padding: 0.45rem 0.65rem; font-size: 0.775rem; font-family: var(--font-mono); background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); color: var(--text-main); outline: none; min-width: 0; transition: border-color 0.15s;">
+                <button id="btn-yt-download" style="display:flex; align-items:center; gap:0.3rem; padding: 0.45rem 0.85rem; font-size: 0.75rem; font-weight: 700; background: var(--accent-rose); color: #fff; border: none; border-radius: var(--radius-xs); cursor: pointer; white-space: nowrap; transition: opacity 0.2s;">
+                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   Download
                 </button>
               </div>
               <div style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-mono);">
-                Supports: youtube.com/watch, youtu.be, /shorts/, /live/ links
+                Supports: youtube.com/watch &nbsp;&bull;&nbsp; youtu.be &nbsp;&bull;&nbsp; /shorts/ &nbsp;&bull;&nbsp; /live/
               </div>
             </div>
 
             <!-- YT Download Progress -->
             <div id="yt-dl-progress-box" style="display: none; margin-top: 0.5rem;" class="progress-container">
               <div class="progress-header">
-                <span id="yt-dl-stage-text" style="color: var(--accent-cyan); font-weight: 600; font-size: 0.775rem;">Fetching info...</span>
-                <span id="yt-dl-pct" style="font-family: var(--font-mono); font-weight: 700; font-size: 0.8rem;">0%</span>
+                <span id="yt-dl-stage-text" style="display:flex; align-items:center; gap:0.3rem; color: var(--accent-cyan); font-weight: 600; font-size: 0.775rem;">
+                  <svg id="yt-stage-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <span id="yt-stage-label">Fetching info...</span>
+                </span>
+                <span id="yt-dl-pct" style="font-family: var(--font-mono); font-weight: 700; font-size: 0.8rem; color: var(--text-main);">0%</span>
               </div>
-              <div style="font-size: 0.7rem; color: var(--text-secondary); font-family: var(--font-mono); margin-bottom: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="yt-dl-title"></div>
+              <div id="yt-dl-title" style="font-size: 0.7rem; color: var(--text-secondary); font-family: var(--font-mono); margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
               <div class="progress-track">
-                <div id="yt-dl-fill" class="progress-fill" style="width: 0%; background: linear-gradient(90deg, var(--accent-red, #e53935), var(--accent-amber));"></div>
+                <div id="yt-dl-fill" class="progress-fill" style="width: 0%; background: linear-gradient(90deg, var(--accent-rose), var(--accent-amber));"></div>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem;">
                 <span id="yt-dl-details" style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">Waiting...</span>
-                <button id="btn-cancel-yt-dl" style="font-size: 0.65rem; padding: 0.2rem 0.45rem; background: transparent; border: 1px solid var(--accent-red, #e53935); color: var(--accent-red, #e53935); border-radius: var(--radius-xs); cursor: pointer;">Cancel</button>
+                <button id="btn-cancel-yt-dl" style="display:flex; align-items:center; gap:0.25rem; font-size: 0.65rem; padding: 0.2rem 0.5rem; background: transparent; border: 1px solid var(--border-muted); color: var(--text-muted); border-radius: var(--radius-xs); cursor: pointer; transition: border-color 0.15s, color 0.15s;">
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  Cancel
+                </button>
               </div>
             </div>
           </div>
