@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "stream": {
+    "videoId": "",
+    "modePreference": "auto",
+    "allowTranscode": true,
+    "autoResume": true,
+    "resolution": "1080x1920",
+    "fps": 30,
+    "videoBitrateMbps": 8,
+    "audioBitrateKbps": 128,
+    "audioSampleRate": 44100,
+    "keyframeSeconds": 2,
+    "keyframeMaxSeconds": 4,
+    "x264Preset": "veryfast",
+    "loopStrategy": "stream_loop",
+    "copyMinMbps": 2,
+    "copyMaxMbps": 12,
+    "stallSeconds": 30,
+    "slowSeconds": 60,
+    "minSpeed": 0.90,
+    "startupTimeoutSeconds": 30,
+    "stopGraceSeconds": 8
+  },
+  "youtube": {
+    "rtmpsUrl": "rtmps://a.rtmps.youtube.com:443/live2",
+    "streamKey": "",
+    "title": "",
+    "label": ""
+  },
+  "youtubeGuidance": {
+    "recommendedMbps": [3, 9]
+  },
+  "bandwidth": {
+    "monthlyAllowanceTB": 10,
+    "safetyLimitTB": 9,
+    "unitBase": 1000,
+    "overheadPercent": 10,
+    "warningThresholds": [70, 80, 90, 95],
+    "accounting": {
+      "resetDay": 1,
+      "resetHour": 0,
+      "timezone": "UTC"
+    },
+    "persistIntervalSeconds": 30,
+    "oci": {
+      "enabled": false,
+      "maxAgeHours": 24
+    }
+  },
+  "recovery": {
+    "strategy": "exponential",
+    "baseDelaySeconds": 10,
+    "factor": 2,
+    "maxDelaySeconds": 300,
+    "jitterPercent": 10,
+    "stableAfterSeconds": 120,
+    "maxConsecutiveFailures": 20,
+    "onThresholdExceeded": "slow_retry",
+    "slowRetryCooldownSeconds": 600
+  },
+  "scheduler": {
+    "mode": "continuous",
+    "timezone": "Asia/Kolkata",
+    "windows": []
+  },
+  "uploads": {
+    "maxBytes": 4294967296,
+    "allowedExtensions": [".mp4", ".mov", ".m4v", ".mkv"],
+    "diskReserveBytes": 5368709120
+  },
+  "disk": {
+    "warnPercent": 80,
+    "criticalPercent": 90,
+    "emergencyPercent": 95
+  },
+  "logs": {
+    "level": "info",
+    "maxFileMB": 10,
+    "maxFiles": 5
+  },
+  "backups": {
+    "keep": 20,
+    "minIntervalSeconds": 3600
+  },
+  "ui": {
+    "pollSeconds": 3
+  }
+}

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — 24×7 YouTube Vertical Live Manager</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at 50% 20%, #1a2234 0%, #0a0d14 70%);
+    }
+    .login-card {
+      background: rgba(22, 29, 43, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: var(--radius-lg);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 420px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    .login-brand {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .login-brand h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+    .login-brand p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+    .error-box {
+      display: none;
+      background: rgba(244, 63, 94, 0.15);
+      border: 1px solid rgba(244, 63, 94, 0.4);
+      color: #fb7185;
+      padding: 0.75rem;
+      border-radius: var(--radius-md);
+      font-size: 0.85rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="logo-badge">YT LIVE 24×7</div>
+      <h1>Sign In to Manager</h1>
+      <p>Secure Administration Dashboard</p>
+    </div>
+
+    <div id="error-message" class="error-box"></div>
+
+    <form id="login-form">
+      <div class="form-group" style="margin-bottom: 1rem;">
+        <label for="username">Username</label>
+        <input type="text" id="username" class="form-control" placeholder="Admin username" required autofocus autocomplete="username">
+      </div>
+
+      <div class="form-group" style="margin-bottom: 1.5rem;">
+        <label for="password">Password</label>
+        <input type="password" id="password" class="form-control" placeholder="••••••••••••" required autocomplete="current-password">
+      </div>
+
+      <button type="submit" id="btn-login" class="btn btn-primary" style="width: 100%;">
+        Sign In
+      </button>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const errBox = document.getElementById('error-message');
+    const btn = document.getElementById('btn-login');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errBox.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Verifying...';
+
+      const username = document.getElementById('username').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+          window.location.href = '/index.html';
+        } else {
+          errBox.textContent = data.error || 'Invalid credentials';
+          errBox.style.display = 'block';
+        }
+      } catch (err) {
+        errBox.textContent = 'Network or server error';
+        errBox.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign In';
+      }
+    });
+  </script>
+</body>
+</html>

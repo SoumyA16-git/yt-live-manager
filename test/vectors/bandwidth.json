@@ -1,0 +1,44 @@
+[
+  {
+    "videoBitrateMbps": 6,
+    "audioBitrateKbps": 128,
+    "overheadPercent": 10,
+    "unitBase": 1000,
+    "expected": {
+      "totalMbps": 6.128,
+      "gbPerHour": 2.7576,
+      "gbPerDay": 66.1824,
+      "gbPer30Days": 1985.472,
+      "tbPer30Days": 1.985472,
+      "tbPer30DaysWithOverhead": 2.1840192
+    }
+  },
+  {
+    "videoBitrateMbps": 8,
+    "audioBitrateKbps": 128,
+    "overheadPercent": 10,
+    "unitBase": 1000,
+    "expected": {
+      "totalMbps": 8.128,
+      "gbPerHour": 3.6576,
+      "gbPerDay": 87.7824,
+      "gbPer30Days": 2633.472,
+      "tbPer30Days": 2.633472,
+      "tbPer30DaysWithOverhead": 2.8968192
+    }
+  },
+  {
+    "videoBitrateMbps": 10,
+    "audioBitrateKbps": 128,
+    "overheadPercent": 10,
+    "unitBase": 1000,
+    "expected": {
+      "totalMbps": 10.128,
+      "gbPerHour": 4.5576,
+      "gbPerDay": 109.3824,
+      "gbPer30Days": 3281.472,
+      "tbPer30Days": 3.281472,
+      "tbPer30DaysWithOverhead": 3.6096192
+    }
+  }
+]

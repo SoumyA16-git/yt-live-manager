@@ -1,0 +1,26 @@
+# Runtime data — never committed
+config/settings.json
+data/
+videos/
+logs/
+backups/
+
+# Environment / secrets
+.env
+.env.*
+/etc/yt-live-manager/
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Test artifacts
+test/tmp/

@@ -1,0 +1,34 @@
+[Unit]
+Description=24×7 YouTube Vertical Live Streaming Manager
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=ytlive
+Group=ytlive
+WorkingDirectory=/opt/yt-live-manager
+ExecStart=/usr/bin/node /opt/yt-live-manager/src/server.js
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=control-group
+KillSignal=SIGTERM
+LimitNOFILE=4096
+UMask=0077
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/opt/yt-live-manager/config /opt/yt-live-manager/data /opt/yt-live-manager/videos /opt/yt-live-manager/logs /opt/yt-live-manager/backups
+EnvironmentFile=/etc/yt-live-manager/env
+
+[Install]
+WantedBy=multi-user.target
