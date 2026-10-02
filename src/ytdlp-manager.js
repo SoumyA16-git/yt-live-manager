@@ -15,6 +15,9 @@ import { logger } from './logger.js';
 import { importConvertedVideo } from './video-manager.js';
 import { probeMedia } from './ffprobe-manager.js';
 
+// Cookies file path — user exports browser cookies here for YouTube auth
+const YT_COOKIES_PATH = path.join(PATHS.config, 'yt-cookies.txt');
+
 // ─── Module State ─────────────────────────────────────────────────────────────
 
 let _currentJob = null;
@@ -63,6 +66,49 @@ export async function isYtDlpAvailable() {
     p.on('error', () => resolve(false));
     p.on('close', (code) => resolve(code === 0));
   });
+}
+
+/**
+ * Check if the YouTube cookies file exists.
+ *
+ * @returns {Promise<{exists: boolean, path: string}>}
+ */
+export async function getCookiesStatus() {
+  try {
+    await fs.access(YT_COOKIES_PATH);
+    const stat = await fs.stat(YT_COOKIES_PATH);
+    return { exists: true, path: YT_COOKIES_PATH, sizeBytes: stat.size };
+  } catch {
+    return { exists: false, path: YT_COOKIES_PATH, sizeBytes: 0 };
+  }
+}
+
+/**
+ * Build base yt-dlp args — includes cookies file if present.
+ * Also spoofs browser User-Agent to avoid bot detection on server IPs.
+ *
+ * @returns {Promise<string[]>}
+ */
+async function _buildYtDlpBaseArgs() {
+  const args = [
+    '--no-playlist',
+    '--no-warnings',
+    // Spoof browser to bypass YouTube bot detection on datacenter IPs
+    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    '--add-header', 'Accept-Language:en-US,en;q=0.9',
+    '--extractor-args', 'youtube:player_client=web,web_creator',
+  ];
+
+  // Use cookies file if it exists (required for most VPS/datacenter IPs)
+  const cookiesStatus = await getCookiesStatus();
+  if (cookiesStatus.exists && cookiesStatus.sizeBytes > 10) {
+    args.push('--cookies', YT_COOKIES_PATH);
+    logger.info('ytdlp.using_cookies', `Using YouTube cookies from ${YT_COOKIES_PATH}`);
+  } else {
+    logger.warn('ytdlp.no_cookies', 'No yt-cookies.txt found. YouTube may block download from server IP. See DEPLOYMENT.md.');
+  }
+
+  return args;
 }
 
 /**
@@ -280,9 +326,10 @@ async function _executePipeline(jobId, url, autoSetActive) {
 /**
  * Fetch YouTube video title using yt-dlp --print.
  */
-function _getVideoTitle(url, jobId) {
+async function _getVideoTitle(url, jobId) {
+  const baseArgs = await _buildYtDlpBaseArgs();
   return new Promise((resolve, reject) => {
-    const proc = spawn('yt-dlp', ['--print', '%(title)s', '--no-warnings', '--no-playlist', url], {
+    const proc = spawn('yt-dlp', [...baseArgs, '--print', '%(title)s', url], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -307,13 +354,13 @@ function _getVideoTitle(url, jobId) {
 /**
  * Download raw video stream using yt-dlp with real-time progress parsing.
  */
-function _downloadVideo(url, outputPath, jobId) {
+async function _downloadVideo(url, outputPath, jobId) {
+  const baseArgs = await _buildYtDlpBaseArgs();
   return new Promise((resolve, reject) => {
     const args = [
+      ...baseArgs,
       '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
-      '--no-playlist',
       '--newline',
-      '--no-warnings',
       '--merge-output-format', 'mp4',
       '-o', outputPath,
       url,

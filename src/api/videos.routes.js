@@ -19,6 +19,7 @@ import {
   startYouTubeDownload,
   getDownloadStatus,
   cancelDownload,
+  getCookiesStatus,
 } from '../ytdlp-manager.js';
 import { logger } from '../logger.js';
 
@@ -66,6 +67,17 @@ export function createVideosRouter() {
     try {
       const cancelled = await cancelDownload();
       res.json({ success: true, cancelled });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/videos/cookies-status
+  router.get('/cookies-status', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const status = await getCookiesStatus();
+      res.json(status);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

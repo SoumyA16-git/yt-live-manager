@@ -530,6 +530,11 @@ function switchIngestTab(tab) {
     tabUpload.style.color      = 'var(--text-muted)';
     tabYt.style.background     = 'var(--accent-rose)';
     tabYt.style.color          = '#fff';
+    // Check cookies status and show warning if missing
+    apiGet('/api/videos/cookies-status').then((s) => {
+      const banner = document.getElementById('yt-cookies-banner');
+      if (banner) banner.style.display = s?.exists ? 'none' : 'block';
+    }).catch(() => {});
   } else {
     uploadZone.style.display = '';
     ytPanel.style.display    = 'none';

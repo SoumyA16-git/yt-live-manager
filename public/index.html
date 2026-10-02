@@ -255,6 +255,16 @@
 
           <!-- YouTube URL Import Panel -->
           <div id="yt-import-panel" style="display: none;">
+            <!-- Cookies Warning Banner -->
+            <div id="yt-cookies-banner" style="display:none; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); border-radius: var(--radius-xs); padding: 0.6rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.7rem; color: #fbbf24; font-family: var(--font-mono); line-height: 1.5;">
+              <div style="display:flex; align-items:center; gap:0.4rem; font-weight:700; margin-bottom:0.3rem;">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                YouTube cookies not configured
+              </div>
+              Server IPs get blocked by YouTube. Export cookies from your browser and upload to the server:<br>
+              <code style="color: var(--accent-cyan);">scp yt-cookies.txt ubuntu@VPS_IP:/opt/yt-live-manager/config/yt-cookies.txt</code><br>
+              <span style="color: var(--text-muted);">See DEPLOYMENT.md → "YouTube URL Direct Import" for full instructions.</span>
+            </div>
             <div style="background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.55rem;">
               <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.4rem; letter-spacing: 0.04em; text-transform: uppercase;">
                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
