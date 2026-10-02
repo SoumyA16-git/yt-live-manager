@@ -673,9 +673,17 @@ async function init() {
     }
 
     try {
-      await apiPut('/api/settings', patch);
+      const res = await apiPut('/api/settings', patch);
       modalSettings.classList.remove('open');
       await refreshAll();
+
+      if (res.requiresRestart) {
+        const isLive = statusText.textContent === 'RUNNING' || statusText.textContent === 'STARTING';
+        if (isLive && confirm('Settings saved! You modified parameters that require an FFmpeg restart. Restart the live stream now to apply changes?')) {
+          await apiPost('/api/stream/restart');
+          await fetchStatus();
+        }
+      }
     } catch (err) {
       const detail = err.errors && err.errors.length > 0
         ? err.errors.join('\n• ')

@@ -8,6 +8,7 @@ import {
   saveSettings,
   getStreamKey,
 } from '../config-manager.js';
+import { validateSettings } from '../lib/validate.js';
 import { verifyPassword } from '../auth.js';
 import { logger } from '../logger.js';
 
@@ -52,9 +53,11 @@ export function createSettingsRouter(envConfig) {
       delete patch.youtube.streamKey;
     }
 
+    const { requiresRestart } = validateSettings(patch, { partial: true });
+
     try {
       const updated = await saveSettings(patch);
-      res.json({ success: true, settings: updated });
+      res.json({ success: true, settings: updated, requiresRestart: Boolean(requiresRestart) });
     } catch (err) {
       if (err.code === 'E_VALIDATION') {
         const errorDetail = err.errors && err.errors.length > 0 ? err.errors.join('; ') : err.message;
