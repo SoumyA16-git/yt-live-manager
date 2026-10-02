@@ -367,7 +367,7 @@ async function openSettings() {
       : 'No stream key configured';
 
     cfgModePref.value = settings.stream?.modePreference || 'auto';
-    cfgBitrate.value  = settings.stream?.videoBitrateMbps || 8;
+    cfgBitrate.value  = settings.stream?.videoBitrateMbps || 4;
     cfgSafetyLimit.value = settings.bandwidth?.safetyLimitTB || 9;
     cfgOverhead.value = settings.bandwidth?.overheadPercent || 10;
 
@@ -379,7 +379,7 @@ async function openSettings() {
 }
 
 function updateLiveBitratePreview() {
-  const videoMbps = parseFloat(cfgBitrate.value) || 8;
+  const videoMbps = parseFloat(cfgBitrate.value) || 4;
   const overhead  = parseFloat(cfgOverhead.value) || 10;
 
   const m = calculateBitrateMetrics({

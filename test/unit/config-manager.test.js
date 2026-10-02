@@ -42,7 +42,7 @@ describe('config-manager — loadSettings', () => {
 
     const cfg = await loadSettings();
     assert.equal(cfg.stream.fps, 30);
-    assert.equal(cfg.stream.videoBitrateMbps, 8);
+    assert.equal(cfg.stream.videoBitrateMbps, 4);
     assert.equal(cfg.bandwidth.monthlyAllowanceTB, 10);
     assert.equal(cfg.bandwidth.safetyLimitTB, 9);
   });

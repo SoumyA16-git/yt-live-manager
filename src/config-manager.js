@@ -34,7 +34,7 @@ export const DEFAULTS = Object.freeze({
     autoResume:            true,
     resolution:            '1080x1920',
     fps:                   30,
-    videoBitrateMbps:      8,
+    videoBitrateMbps:      4,
     audioBitrateKbps:      128,
     audioSampleRate:       44100,
     keyframeSeconds:       2,
