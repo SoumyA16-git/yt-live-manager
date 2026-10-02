@@ -6,7 +6,7 @@
  * Live bandwidth preview in settings (calc.js).
  */
 
-import { initSession, apiGet, apiPost, apiPut, apiDelete } from './api.js';
+import { initSession, getCsrfToken, apiGet, apiPost, apiPut, apiDelete } from './api.js';
 import { calculateBitrateMetrics, formatBytes } from './calc.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -444,6 +444,10 @@ function handleFileUpload(file) {
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/videos/upload');
+  const csrf = getCsrfToken();
+  if (csrf) {
+    xhr.setRequestHeader('X-CSRF-Token', csrf);
+  }
 
   xhr.upload.onprogress = (e) => {
     if (e.lengthComputable) {
@@ -506,22 +510,42 @@ function stopPolling() {
 // ─── Main Bootstrap ───────────────────────────────────────────────────────────
 
 async function init() {
-  const user = await initSession();
-  if (!user) return;
+  // 1. Settings Modal Controls
+  btnOpenSettings.addEventListener('click', openSettings);
+  btnCloseSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
+  btnCancelSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
 
-  userDisplay.textContent = user.username || 'Admin';
-
-  // PRD §15.2: Pause polling when the browser tab is hidden
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') {
-      stopPolling();
-    } else {
-      refreshAll();
-      startPolling();
-    }
+  // 2. Collapsible Panels support
+  document.querySelectorAll('.panel-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const targetId = btn.getAttribute('data-target');
+      const body = document.getElementById(targetId);
+      if (body) {
+        const isCollapsed = body.classList.toggle('collapsed');
+        btn.classList.toggle('collapsed', isCollapsed);
+        btn.setAttribute('aria-expanded', !isCollapsed);
+      }
+    });
   });
 
-  // Attach button handlers
+  document.querySelectorAll('.collapsible-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('label')) return;
+      const targetId = header.getAttribute('data-target');
+      const body = document.getElementById(targetId);
+      const btn = header.querySelector('.panel-toggle-btn');
+      if (body) {
+        const isCollapsed = body.classList.toggle('collapsed');
+        if (btn) {
+          btn.classList.toggle('collapsed', isCollapsed);
+          btn.setAttribute('aria-expanded', !isCollapsed);
+        }
+      }
+    });
+  });
+
+  // 3. Primary Stream Action Handlers
   btnStart.addEventListener('click', async () => {
     btnStart.disabled = true;
     try {
@@ -577,11 +601,7 @@ async function init() {
 
   btnRefreshLogs.addEventListener('click', fetchLogs);
 
-  // Settings
-  btnOpenSettings.addEventListener('click', openSettings);
-  btnCloseSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
-  btnCancelSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
-
+  // 4. Live Calculator & Key Reveal inside Settings Form
   cfgBitrate.addEventListener('input', updateLiveBitratePreview);
   cfgOverhead.addEventListener('input', updateLiveBitratePreview);
 
@@ -633,37 +653,25 @@ async function init() {
     }
   });
 
-  // Collapsible Panels support
-  document.querySelectorAll('.panel-toggle-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const targetId = btn.getAttribute('data-target');
-      const body = document.getElementById(targetId);
-      if (body) {
-        const isCollapsed = body.classList.toggle('collapsed');
-        btn.classList.toggle('collapsed', isCollapsed);
-        btn.setAttribute('aria-expanded', !isCollapsed);
-      }
-    });
-  });
-
-  document.querySelectorAll('.collapsible-header').forEach(header => {
-    header.addEventListener('click', (e) => {
-      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('label')) return;
-      const targetId = header.getAttribute('data-target');
-      const body = document.getElementById(targetId);
-      const btn = header.querySelector('.panel-toggle-btn');
-      if (body) {
-        const isCollapsed = body.classList.toggle('collapsed');
-        if (btn) {
-          btn.classList.toggle('collapsed', isCollapsed);
-          btn.setAttribute('aria-expanded', !isCollapsed);
-        }
-      }
-    });
-  });
-
   setupUploads();
+
+  // 5. Authenticate Session
+  const user = await initSession();
+  if (!user) return;
+
+  userDisplay.textContent = user.username || 'Admin';
+
+  // 6. Tab Visibility Watcher
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      stopPolling();
+    } else {
+      refreshAll();
+      startPolling();
+    }
+  });
+
+  // 7. Initial Data Fetch & Start Background Polling
   await refreshAll();
   startPolling();
 }
