@@ -74,7 +74,7 @@ const STREAM_SCHEMA = {
   modePreference:        { type: 'string', enum: ['auto', 'copy', 'transcode'] },
   allowTranscode:        { type: 'boolean' },
   autoResume:            { type: 'boolean' },
-  resolution:            { type: 'string', enum: ['1080x1920'] },
+  resolution:            { type: 'string', pattern: /^(\d{3,4}x\d{3,4}|auto)$/ },
   fps:                   { type: 'number', integer: true, enum: [24, 25, 30, 60] },
   videoBitrateMbps:      { type: 'number', min: 1, max: 50 },
   audioBitrateKbps:      { type: 'number', integer: true, min: 32, max: 320 },

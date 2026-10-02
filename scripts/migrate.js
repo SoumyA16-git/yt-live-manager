@@ -69,6 +69,10 @@ async function main() {
         data.stream.copyMaxMbps = 4.0;
         healed = true;
       }
+      if (data.stream.keyframeMaxSeconds === undefined || data.stream.keyframeMaxSeconds < 6.0) {
+        data.stream.keyframeMaxSeconds = 6.0;
+        healed = true;
+      }
       if (healed) {
         if (!dryRun) {
           await writeJSON(PATHS.settings, data);

@@ -211,4 +211,19 @@ describe('ffprobe-manager — evaluateCompatibility matrix', () => {
     assert.equal(res.status, 'REQUIRES_TRANSCODING');
     assert.ok(res.reasons.includes('BITRATE_TOO_HIGH'));
   });
+
+  test('accepts 480x854 vertical 9:16 video (Main profile, 973 kbps) directly for stream copy', () => {
+    const v480Meta = {
+      ...idealMeta,
+      width: 480,
+      height: 854,
+      videoProfile: 'main',
+      videoBitrate: 973_189,
+      maxKeyframeIntervalSec: 5.133,
+    };
+    const res = evaluateCompatibility(v480Meta, {});
+    assert.equal(res.status, 'COMPATIBLE');
+    assert.equal(res.modeAllowed.copy, true);
+    assert.equal(res.reasons.length, 0);
+  });
 });

@@ -172,14 +172,18 @@ export function evaluateCompatibility(meta, settings = {}) {
   const targetFps   = streamCfg.fps ?? 30;
   const copyMinMbps = streamCfg.copyMinMbps ?? 0.1;
   const copyMaxMbps = streamCfg.copyMaxMbps ?? 4.0;
-  const keyframeMax = streamCfg.keyframeMaxSeconds ?? 4.0;
+  const keyframeMax = streamCfg.keyframeMaxSeconds ?? 6.0;
 
-  // 1. Resolution Check
+  // 1. Resolution Check: exact target match OR any vertical portrait resolution (e.g. 480x854, 720x1280, 1080x1920)
   const currentRes = `${meta.width}x${meta.height}`;
-  if (currentRes !== targetRes) {
+  const isExactMatch = currentRes === targetRes;
+  const isVerticalAspect = meta.height > meta.width && Math.abs((meta.width / meta.height) - (9 / 16)) < 0.05;
+  const isResolutionSupported = isExactMatch || isVerticalAspect;
+
+  if (!isResolutionSupported) {
     reasons.push('RES_MISMATCH');
     const orient = meta.width > meta.height ? 'landscape' : 'portrait';
-    explanations.push(`Resolution is ${currentRes} (${orient}). Required: ${targetRes}.`);
+    explanations.push(`Resolution is ${currentRes} (${orient}). Required: ${targetRes} or 9:16 vertical (e.g. 1080x1920, 720x1280, 480x854).`);
   }
 
   // 2. Video Codec Check: h264, profile baseline/main/high
