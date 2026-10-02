@@ -139,6 +139,9 @@ mkdir -p "${CONFIG_DIR}"
 echo "--> Copying application files..."
 CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cp -ru "${CURRENT_DIR}/package.json" "${INSTALL_DIR}/"
+if [[ -f "${CURRENT_DIR}/package-lock.json" ]]; then
+  cp -ru "${CURRENT_DIR}/package-lock.json" "${INSTALL_DIR}/"
+fi
 cp -ru "${CURRENT_DIR}/src" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/public" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/scripts" "${INSTALL_DIR}/"
@@ -157,7 +160,11 @@ fi
 # 8. Dependencies
 echo "--> Installing production npm dependencies..."
 cd "${INSTALL_DIR}"
-npm ci --omit=dev
+if [[ -f "${INSTALL_DIR}/package-lock.json" ]]; then
+  npm ci --omit=dev
+else
+  npm install --omit=dev
+fi
 
 # 9. Admin Credentials & Environment File
 if [[ ! -f "${ENV_FILE}" ]]; then

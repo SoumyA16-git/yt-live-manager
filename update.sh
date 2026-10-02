@@ -35,6 +35,9 @@ mkdir -p "${ROLLBACK_DIR}"
 cp -r "${INSTALL_DIR}/src" "${ROLLBACK_DIR}/"
 cp -r "${INSTALL_DIR}/public" "${ROLLBACK_DIR}/"
 cp "${INSTALL_DIR}/package.json" "${ROLLBACK_DIR}/"
+if [[ -f "${INSTALL_DIR}/package-lock.json" ]]; then
+  cp "${INSTALL_DIR}/package-lock.json" "${ROLLBACK_DIR}/"
+fi
 
 rollback() {
   echo ""
@@ -43,6 +46,9 @@ rollback() {
   cp -r "${ROLLBACK_DIR}/src" "${INSTALL_DIR}/"
   cp -r "${ROLLBACK_DIR}/public" "${INSTALL_DIR}/"
   cp "${ROLLBACK_DIR}/package.json" "${INSTALL_DIR}/"
+  if [[ -f "${ROLLBACK_DIR}/package-lock.json" ]]; then
+    cp "${ROLLBACK_DIR}/package-lock.json" "${INSTALL_DIR}/"
+  fi
   systemctl start yt-live-manager
   rm -rf "${ROLLBACK_DIR}"
   echo "Rollback restored previous version. Review logs via: journalctl -u yt-live-manager -n 50"
@@ -56,11 +62,18 @@ cp -ru "${CURRENT_DIR}/src" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/public" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/scripts" "${INSTALL_DIR}/"
 cp -u "${CURRENT_DIR}/package.json" "${INSTALL_DIR}/"
+if [[ -f "${CURRENT_DIR}/package-lock.json" ]]; then
+  cp -u "${CURRENT_DIR}/package-lock.json" "${INSTALL_DIR}/"
+fi
 
 # 4. Dependency Update
 echo "--> Updating npm dependencies..."
 cd "${INSTALL_DIR}"
-npm ci --omit=dev
+if [[ -f "${INSTALL_DIR}/package-lock.json" ]]; then
+  npm ci --omit=dev
+else
+  npm install --omit=dev
+fi
 
 # 5. Schema Migration Check
 echo "--> Checking schema migrations..."
