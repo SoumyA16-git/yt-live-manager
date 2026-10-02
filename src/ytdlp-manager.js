@@ -104,10 +104,10 @@ async function _buildYtDlpBaseArgs() {
   const args = [
     '--no-playlist',
     '--no-warnings',
-    // Spoof browser to bypass YouTube bot detection on datacenter IPs
-    '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
-    '--add-header', 'Accept-Language:en-US,en;q=0.9',
-    '--extractor-args', 'youtube:player_client=web,web_creator',
+    // ios client has the most reliable format availability across all video types
+    // including live streams, age-restricted, and region-locked content
+    '--extractor-args', 'youtube:player_client=ios,web',
+    '--compat-options', 'no-live-chat', // Skip live chat download for live streams
   ];
 
   // Use cookies file if it exists (required for most VPS/datacenter IPs)
@@ -370,12 +370,19 @@ async function _downloadVideo(url, outputPath, jobId) {
   return new Promise((resolve, reject) => {
     const args = [
       ...baseArgs,
-      // Prefer best quality up to 1080p to avoid downloading 4K unnecessarily
-      // Falls back progressively if format not available
-      '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][ext=mp4]/best',
+      // Best quality up to 1080p — wide fallback chain handles live streams,
+      // pre-muxed streams, and formats where separate video+audio aren’t available
+      '-f', [
+        'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]',
+        'bestvideo[height<=1080]+bestaudio[ext=m4a]',
+        'bestvideo[height<=1080]+bestaudio',
+        'best[height<=1080][ext=mp4]',
+        'best[height<=1080]',
+        'best',
+      ].join('/'),
       '--merge-output-format', 'mp4',
       '--newline',
-      '--no-part',                  // No .part temp files — cleaner on failure/cancel
+      '--no-part',                   // No .part temp files — cleaner on failure/cancel
       '--concurrent-fragments', '4', // Parallel chunk downloads — 2-4x faster on VPS
       '-o', outputPath,
       url,
