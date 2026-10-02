@@ -60,8 +60,11 @@ const activeVideoName  = document.getElementById('active-video-name');
 const uploadZone       = document.getElementById('upload-zone');
 const fileInput        = document.getElementById('file-input');
 const uploadBox        = document.getElementById('upload-progress-box');
+const uploadStatusText = document.getElementById('upload-status-text');
 const uploadPct        = document.getElementById('upload-pct');
 const uploadFill       = document.getElementById('upload-fill');
+const uploadBytesText  = document.getElementById('upload-bytes-text');
+const uploadSpeedText  = document.getElementById('upload-speed-text');
 const videosList       = document.getElementById('videos-list');
 const videoCountBadge  = document.getElementById('video-count-badge');
 
@@ -448,46 +451,131 @@ function setupUploads() {
 }
 
 function handleFileUpload(file) {
+  if (!file) return;
+
+  // 1. Client-side sanity checks
+  if (file.size === 0) {
+    alert('The selected file is empty (0 bytes). Please choose a valid video.');
+    return;
+  }
+
+  const allowedExts = ['.mp4', '.mov', '.m4v', '.mkv'];
+  const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
+  if (!allowedExts.includes(ext)) {
+    alert(`File "${file.name}" has an unsupported format. Supported formats: ${allowedExts.join(', ')}`);
+    return;
+  }
+
+  const maxBytes = 4 * 1024 * 1024 * 1024; // 4 GiB
+  if (file.size > maxBytes) {
+    alert(`File is too large (${formatBytes(file.size)}). Maximum supported file size is 4 GiB.`);
+    return;
+  }
+
   const formData = new FormData();
   formData.append('file', file);
 
+  // Initialize UI state
   uploadBox.style.display = 'block';
-  uploadPct.textContent = 'Uploading...';
-  uploadFill.style.width = '30%';
+  uploadFill.style.width = '0%';
+  uploadPct.textContent = '0%';
+  if (uploadStatusText) uploadStatusText.textContent = `Uploading ${file.name}...`;
+  if (uploadBytesText)  uploadBytesText.textContent  = `0 MB / ${formatBytes(file.size)}`;
+  if (uploadSpeedText)  uploadSpeedText.textContent  = 'Calculating speed...';
+
+  const startTime = Date.now();
+  let lastLoaded = 0;
+  let lastTime = startTime;
+  let currentSpeed = 0;
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/videos/upload');
+  xhr.timeout = 3600000; // 60 minutes timeout for large files
+
   const csrf = getCsrfToken();
   if (csrf) {
     xhr.setRequestHeader('X-CSRF-Token', csrf);
   }
 
   xhr.upload.onprogress = (e) => {
-    if (e.lengthComputable) {
-      const pct = Math.round((e.loaded / e.total) * 100);
+    if (e.lengthComputable && e.total > 0) {
+      const now = Date.now();
+      const timeDelta = (now - lastTime) / 1000;
+
+      // Update speed every 500ms
+      if (timeDelta >= 0.5) {
+        const bytesDelta = e.loaded - lastLoaded;
+        currentSpeed = bytesDelta / timeDelta;
+        lastLoaded = e.loaded;
+        lastTime = now;
+      }
+
+      const pct = Math.min(99, Math.round((e.loaded / e.total) * 100));
       uploadPct.textContent = `${pct}%`;
       uploadFill.style.width = `${pct}%`;
+
+      const remainingBytes = e.total - e.loaded;
+      const etaSec = currentSpeed > 0 ? Math.ceil(remainingBytes / currentSpeed) : 0;
+      const speedMB = (currentSpeed / (1024 * 1024)).toFixed(1);
+      const etaStr = etaSec > 60 ? `${Math.ceil(etaSec / 60)}m` : `${etaSec}s`;
+
+      if (uploadBytesText) {
+        uploadBytesText.textContent = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
+      }
+      if (uploadSpeedText) {
+        uploadSpeedText.textContent = currentSpeed > 0 ? `${speedMB} MB/s · ETA: ${etaStr}` : 'Uploading...';
+      }
+
+      if (e.loaded >= e.total) {
+        uploadPct.textContent = '100%';
+        uploadFill.style.width = '100%';
+        if (uploadStatusText) uploadStatusText.textContent = 'Processing & validating video on server...';
+        if (uploadSpeedText)  uploadSpeedText.textContent  = 'Probing codecs & preparing live stream rotation...';
+      }
     }
   };
 
   xhr.onload = async () => {
-    uploadBox.style.display = 'none';
     fileInput.value = '';
     if (xhr.status === 201) {
-      await fetchVideos();
+      if (uploadStatusText) uploadStatusText.textContent = 'Upload complete! Video activated.';
+      if (uploadSpeedText)  uploadSpeedText.textContent  = 'Live stream updated seamlessly.';
+      setTimeout(() => {
+        uploadBox.style.display = 'none';
+      }, 1500);
+      await refreshAll();
     } else {
+      uploadBox.style.display = 'none';
+      let errorMsg = 'Upload failed';
       try {
         const err = JSON.parse(xhr.responseText);
-        alert(`Upload error: ${err.error || 'Upload failed'}`);
+        errorMsg = err.error || err.message || errorMsg;
       } catch {
-        alert('Upload failed');
+        if (xhr.status === 413) errorMsg = 'File exceeds server size limit.';
+        else if (xhr.status === 507) errorMsg = 'Insufficient server disk space.';
+        else if (xhr.status === 415) errorMsg = 'Unsupported video format.';
+        else if (xhr.status === 422) errorMsg = 'Video contains no decodable video stream.';
       }
+      alert(`Upload failed (HTTP ${xhr.status}):\n${errorMsg}`);
     }
   };
 
   xhr.onerror = () => {
     uploadBox.style.display = 'none';
-    alert('Upload network error');
+    fileInput.value = '';
+    alert('Upload network error: The connection to the server was interrupted. Please try again.');
+  };
+
+  xhr.ontimeout = () => {
+    uploadBox.style.display = 'none';
+    fileInput.value = '';
+    alert('Upload timed out: The upload took longer than 60 minutes.');
+  };
+
+  xhr.onabort = () => {
+    uploadBox.style.display = 'none';
+    fileInput.value = '';
+    alert('Upload was cancelled.');
   };
 
   xhr.send(formData);

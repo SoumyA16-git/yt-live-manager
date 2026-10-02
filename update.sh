@@ -62,6 +62,7 @@ cp -ru "${CURRENT_DIR}/src" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/public" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/scripts" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/systemd" "${INSTALL_DIR}/"
+cp -ru "${CURRENT_DIR}/nginx" "${INSTALL_DIR}/"
 cp -u "${CURRENT_DIR}/package.json" "${INSTALL_DIR}/"
 if [[ -f "${CURRENT_DIR}/package-lock.json" ]]; then
   cp -u "${CURRENT_DIR}/package-lock.json" "${INSTALL_DIR}/"

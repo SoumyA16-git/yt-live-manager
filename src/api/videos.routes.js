@@ -56,6 +56,7 @@ export function createVideosRouter() {
       bb = busboy({
         headers: req.headers,
         limits: { fileSize: maxBytes, files: 1 },
+        highWaterMark: 2 * 1024 * 1024, // 2MB stream buffer for high-throughput upload
       });
     } catch (err) {
       return res.status(400).json({ error: `Busboy initialization failed: ${err.message}` });
@@ -63,6 +64,17 @@ export function createVideosRouter() {
 
     let uploadPromise = null;
     let fileHandled = false;
+
+    req.on('aborted', () => {
+      logger.warn('video.upload_aborted', 'Client aborted video upload');
+    });
+
+    req.on('error', (err) => {
+      logger.error('video.upload_req_error', err.message);
+      if (!res.headersSent) {
+        res.status(500).json({ error: `Upload transmission error: ${err.message}` });
+      }
+    });
 
     bb.on('file', (name, fileStream, info) => {
       fileHandled = true;

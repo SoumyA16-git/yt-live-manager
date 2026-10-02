@@ -230,11 +230,15 @@
           <!-- Upload Progress -->
           <div id="upload-progress-box" style="display: none;" class="progress-container">
             <div class="progress-header">
-              <span style="color: var(--accent-primary); font-weight: 600;">Uploading file to server...</span>
-              <span id="upload-pct" style="font-family: var(--font-mono);">0%</span>
+              <span id="upload-status-text" style="color: var(--accent-primary); font-weight: 600;">Uploading file to server...</span>
+              <span id="upload-pct" style="font-family: var(--font-mono); font-weight: 700;">0%</span>
             </div>
             <div class="progress-track">
               <div id="upload-fill" class="progress-fill" style="width: 0%;"></div>
+            </div>
+            <div id="upload-details-text" style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 0.35rem; display: flex; justify-content: space-between;">
+              <span id="upload-bytes-text">0 MB / 0 MB</span>
+              <span id="upload-speed-text">0 MB/s</span>
             </div>
           </div>
 

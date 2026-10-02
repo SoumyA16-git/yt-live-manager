@@ -109,7 +109,7 @@ async function saveVideosIndex(videos) {
  * @param {number} requiredBytes
  * @param {number} [reserveBytes]
  */
-export async function checkDiskSpace(requiredBytes, reserveBytes = 5 * 1024 * 1024 * 1024) {
+export async function checkDiskSpace(requiredBytes, reserveBytes = 500 * 1024 * 1024) {
   if (typeof fs.statfs !== 'function') return true; // Node older than 18.15 or unsupported FS
 
   try {
@@ -167,12 +167,15 @@ export async function processUpload(fileStream, fileInfo) {
 
   // Pre-check disk space if Content-Length was known
   if (fileInfo.sizeBytes > 0) {
-    const reserve = settings.uploads?.diskReserveBytes ?? 5 * 1024 * 1024 * 1024;
+    const reserve = settings.uploads?.diskReserveBytes ?? 500 * 1024 * 1024;
     await checkDiskSpace(fileInfo.sizeBytes, reserve);
   }
 
-  // Stream directly to disk in .incoming
-  const outStream = fsSync.createWriteStream(tempPath, { mode: 0o600 });
+  // Stream directly to disk in .incoming with 2MB buffer for high-speed writes
+  const outStream = fsSync.createWriteStream(tempPath, {
+    mode: 0o600,
+    highWaterMark: 2 * 1024 * 1024,
+  });
   try {
     await pipeline(fileStream, outStream);
   } catch (err) {
