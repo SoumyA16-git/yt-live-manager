@@ -7,258 +7,388 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div id="disconnect-banner">⚠️ Connection to server lost. Reconnecting...</div>
+  <!-- Offline Disconnect Banner -->
+  <div id="disconnect-banner">
+    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <span>Connection lost. Reconnecting to live controller...</span>
+  </div>
 
+  <!-- Header -->
   <header>
-    <div class="logo-group">
-      <div class="logo-badge">LIVE 24×7</div>
-      <div class="brand-title">YouTube Vertical Stream Manager</div>
-    </div>
-    <div class="header-actions">
-      <span id="user-display" style="font-size: 0.85rem; color: var(--text-secondary);">Admin</span>
-      <button id="btn-open-settings" class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">⚙ Settings</button>
-      <button id="btn-logout" class="btn btn-outline" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;">Logout</button>
+    <div class="header-container">
+      <div class="logo-group">
+        <span class="logo-badge">24×7</span>
+        <h1 class="brand-title">
+          <svg class="icon icon-md" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
+          YT Live Manager
+        </h1>
+        <span class="brand-tag">Console</span>
+      </div>
+      <div class="header-actions">
+        <span id="user-display" class="header-user">admin</span>
+        <button id="btn-open-settings" class="btn btn-secondary btn-sm" title="Open Configuration Settings">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </button>
+        <button id="btn-logout" class="btn btn-outline btn-sm" title="Sign Out">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 
   <main class="container">
-    <!-- PRD §15.4 "Is my stream healthy?" Panel -->
-    <section class="verdict-panel">
-      <div class="verdict-info">
-        <div>
-          <span style="font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600;">System Health Verdict</span>
-          <div style="display: flex; align-items: center; gap: 0.75rem; margin-top: 0.25rem;">
-            <div id="verdict-badge" class="verdict-badge healthy">HEALTHY</div>
-            <div id="verdict-reasons" class="verdict-reasons">All stream gates & encoders operating normally</div>
-          </div>
-        </div>
-      </div>
-      <div id="verdict-quick-stats" style="display: flex; gap: 1.5rem; font-size: 0.85rem; color: var(--text-secondary);">
-        <div>Stream: <strong id="quick-status" style="color: var(--text-primary);">STOPPED</strong></div>
-        <div>Uptime: <strong id="quick-uptime" style="color: var(--text-primary);">0s</strong></div>
-        <div>Usage: <strong id="quick-usage" style="color: var(--text-primary);">0 GB</strong></div>
-      </div>
-    </section>
 
-    <!-- Main Dashboard Grid -->
-    <div class="dashboard-grid">
-      <!-- 1. Stream Status Card -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">📡 Stream Status</span>
-          <span id="reachability-badge" style="font-size: 0.75rem; color: var(--status-live);">● YouTube Reachable</span>
+    <!-- 1. Sticky Primary Control Deck (Pinned at top on mobile & desktop) -->
+    <section class="sticky-control-deck">
+      <div class="deck-status-row">
+        <div class="status-indicator-group">
+          <div class="status-pill-lg">
+            <div id="status-dot" class="status-dot"></div>
+            <span id="status-text" class="status-text">STOPPED</span>
+          </div>
+          <span id="reachability-badge" class="reachability-pill">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            Checking ingest...
+          </span>
         </div>
-        <div class="status-indicator">
-          <div id="status-dot" class="status-dot"></div>
-          <span id="status-text">STOPPED</span>
-        </div>
-        <div class="metrics-grid">
-          <div class="metric-item">
-            <div class="metric-label">Mode</div>
-            <div id="metric-mode" class="metric-value">auto (copy)</div>
+
+        <div class="deck-meta-stats">
+          <div class="deck-stat-item">
+            <span>Uptime:</span>
+            <span id="quick-uptime" class="deck-stat-val">0d 0h</span>
           </div>
-          <div class="metric-item">
-            <div class="metric-label">FFmpeg PID</div>
-            <div id="metric-pid" class="metric-value">—</div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-label">FPS</div>
-            <div id="metric-fps" class="metric-value">0</div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-label">Speed</div>
-            <div id="metric-speed" class="metric-value">0.00x</div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-label">Output Bitrate</div>
-            <div id="metric-bitrate" class="metric-value">0 kb/s</div>
-          </div>
-          <div class="metric-item">
-            <div class="metric-label">Restarts</div>
-            <div id="metric-restarts" class="metric-value">0 session / 0 total</div>
+          <div class="deck-stat-item">
+            <span>Month Used:</span>
+            <span id="quick-usage" class="deck-stat-val">0 GB</span>
           </div>
         </div>
-        <div id="last-error-box" style="display: none; font-size: 0.75rem; color: #f87171; background: rgba(248,113,113,0.1); padding: 0.5rem; border-radius: var(--radius-sm);"></div>
       </div>
 
-      <!-- 2. Controls Card -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">🎮 Stream Controls</span>
+      <!-- Action Buttons Row -->
+      <div class="deck-actions-row">
+        <button id="btn-start" class="btn btn-primary" title="Start live streaming">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          START
+        </button>
+        <button id="btn-stop" class="btn btn-danger" disabled title="Stop live streaming">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+          STOP
+        </button>
+        <button id="btn-restart" class="btn btn-secondary" disabled title="Restart streaming engine">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          RESTART
+        </button>
+      </div>
+
+      <!-- Secondary Sub-Row: Verdict & Master Kill Switch -->
+      <div class="deck-subrow">
+        <div class="verdict-box">
+          <span id="verdict-badge" class="verdict-badge healthy">HEALTHY</span>
+          <span id="verdict-reasons" class="verdict-reasons">All stream gates & encoders operational</span>
+          <span id="quick-status" style="display: none;">STOPPED</span>
         </div>
-        <p style="font-size: 0.85rem; color: var(--text-secondary);">Direct control over the 24×7 stream state machine.</p>
-        <div class="control-buttons">
-          <button id="btn-start" class="btn btn-primary" style="flex: 1;">▶ Start Stream</button>
-          <button id="btn-stop" class="btn btn-danger" style="flex: 1;">⏹ Stop</button>
-          <button id="btn-restart" class="btn btn-secondary">↺ Restart</button>
-        </div>
-        <div style="border-top: 1px solid var(--border-color); padding-top: 0.75rem; display: flex; gap: 1rem;">
-          <label style="font-size: 0.8rem; display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="chk-disabled"> Master Kill Switch (Disable)
+
+        <div class="toggle-group">
+          <span>Master Stream Lock</span>
+          <label class="switch" title="Master streaming disable lock">
+            <input type="checkbox" id="chk-disabled">
+            <span class="slider"></span>
           </label>
         </div>
       </div>
+    </section>
 
-      <!-- 3. Bandwidth Card -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">📊 Bandwidth & Accounting</span>
-          <span id="period-badge" style="font-size: 0.75rem; color: var(--text-muted);">Period: 2026-10</span>
-        </div>
-        <div id="bw-alert-banner" class="bw-alert-banner" style="display: none;"></div>
-        <div class="progress-container">
-          <div class="progress-header">
-            <span>Safety Limit Usage</span>
-            <span id="bw-safety-text">0.00 / 9.00 TB (0%)</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div id="bw-safety-fill" class="progress-bar-fill" style="width: 0%;"></div>
-          </div>
-        </div>
-        <div class="progress-container">
-          <div class="progress-header">
-            <span>OCI 10 TB Allowance</span>
-            <span id="bw-allowance-text">0.00 / 10.00 TB (0%)</span>
-          </div>
-          <div class="progress-bar-bg">
-            <div id="bw-allowance-fill" class="progress-bar-fill" style="width: 0%;"></div>
+    <!-- 2. Main Dashboard Collapsible Grid -->
+    <div class="dashboard-grid">
+
+      <!-- Panel A: Stream Telemetry & Performance -->
+      <div class="card" id="panel-telemetry">
+        <div class="collapsible-header" data-target="body-telemetry">
+          <span class="card-title">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Stream Telemetry
+          </span>
+          <div class="header-right">
+            <button class="panel-toggle-btn" data-target="body-telemetry" aria-label="Toggle Telemetry Panel">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
           </div>
         </div>
-        <div id="bw-forecast-sentence" class="forecast-sentence">
-          Calculating remaining safe streaming hours...
-        </div>
-        <div style="display: flex; gap: 0.5rem;">
-          <button id="btn-adjust-bw" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">Adjust Offset</button>
-          <button id="btn-unlock-bw" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;">Safety Unlock</button>
+
+        <div class="panel-body" id="body-telemetry">
+          <div class="kpi-grid cols-3">
+            <div class="kpi-card">
+              <span class="kpi-label">Mode</span>
+              <span id="metric-mode" class="kpi-val">copy</span>
+              <span class="kpi-sub">Zero CPU</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">Encoder FPS</span>
+              <span id="metric-fps" class="kpi-val">0</span>
+              <span class="kpi-sub">Target 30/60</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">Encode Speed</span>
+              <span id="metric-speed" class="kpi-val">0.00x</span>
+              <span class="kpi-sub">1.00x is Realtime</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">Bitrate</span>
+              <span id="metric-bitrate" class="kpi-val">0 kb/s</span>
+              <span class="kpi-sub">Output Rate</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">FFmpeg PID</span>
+              <span id="metric-pid" class="kpi-val">—</span>
+              <span class="kpi-sub">Process ID</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">Restarts</span>
+              <span id="metric-restarts" class="kpi-val">0 / 0</span>
+              <span class="kpi-sub">Session / Total</span>
+            </div>
+          </div>
+
+          <div id="last-error-box" style="display: none; background: var(--status-error-bg); border: 1px solid rgba(244, 63, 94, 0.35); color: #fca5a5; padding: 0.6rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; font-family: var(--font-mono);"></div>
         </div>
       </div>
 
-      <!-- 4. Video Library Card -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">🎬 Video Source Library</span>
+      <!-- Panel B: Monthly Bandwidth Accounting & Quota -->
+      <div class="card" id="panel-bandwidth">
+        <div class="collapsible-header" data-target="body-bandwidth">
+          <span class="card-title">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-cyan);"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Bandwidth Accounting
+          </span>
+          <div class="header-right">
+            <span id="period-badge" style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);">Period: 2026-10</span>
+            <button class="panel-toggle-btn" data-target="body-bandwidth" aria-label="Toggle Bandwidth Panel">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
         </div>
-        <div id="active-video-summary" style="font-size: 0.85rem; color: var(--text-secondary); background: rgba(255,255,255,0.02); padding: 0.6rem; border-radius: var(--radius-md);">
-          Active Source: <strong id="active-video-name" style="color: var(--text-primary);">None selected</strong>
-        </div>
-        <div id="upload-zone" class="upload-zone">
-          <p style="font-size: 0.85rem; font-weight: 600;">Drag & drop video or click to upload</p>
-          <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">MP4, MOV, MKV up to 4 GiB</p>
-          <input type="file" id="file-input" style="display: none;" accept=".mp4,.mov,.m4v,.mkv">
-        </div>
-        <div id="upload-progress-box" style="display: none;" class="progress-container">
-          <div class="progress-header"><span>Uploading...</span><span id="upload-pct">0%</span></div>
-          <div class="progress-bar-bg"><div id="upload-fill" class="progress-bar-fill" style="width: 0%;"></div></div>
-        </div>
-        <div id="videos-list" class="video-list"></div>
-      </div>
 
-      <!-- 5. System Health Card -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">💻 Server Metrics</span>
-          <span style="font-size: 0.75rem; color: var(--text-muted);">OCI Ampere A1</span>
-        </div>
-        <div class="metrics-grid">
-          <div class="metric-item">
-            <div class="metric-label">CPU Usage</div>
-            <div id="metric-cpu" class="metric-value">0%</div>
+        <div class="panel-body" id="body-bandwidth">
+          <div id="bw-alert-banner" class="bw-alert-banner"></div>
+
+          <!-- Safety Limit Meter -->
+          <div class="progress-container">
+            <div class="progress-header">
+              <span style="color: var(--text-secondary); font-weight: 600;">Safety Limit (9 TB)</span>
+              <span id="bw-safety-text" style="font-family: var(--font-mono); color: var(--text-main);">0 GB / 9.00 TB (0%)</span>
+            </div>
+            <div class="progress-track">
+              <div id="bw-safety-fill" class="progress-fill" style="width: 0%;"></div>
+            </div>
           </div>
-          <div class="metric-item">
-            <div class="metric-label">RAM Usage</div>
-            <div id="metric-ram" class="metric-value">0%</div>
+
+          <!-- Monthly Free Allowance Meter -->
+          <div class="progress-container">
+            <div class="progress-header">
+              <span style="color: var(--text-muted);">OCI Free Allowance (10 TB)</span>
+              <span id="bw-allowance-text" style="font-family: var(--font-mono); color: var(--text-muted);">0 GB / 10.00 TB (0%)</span>
+            </div>
+            <div class="progress-track">
+              <div id="bw-allowance-fill" class="progress-fill" style="width: 0%; background: var(--text-muted);"></div>
+            </div>
           </div>
-          <div class="metric-item">
-            <div class="metric-label">Disk Storage</div>
-            <div id="metric-disk" class="metric-value">0%</div>
+
+          <!-- Projection Forecast Box -->
+          <div id="bw-forecast-sentence" class="forecast-box">
+            Calculating bandwidth projection forecast...
           </div>
-          <div class="metric-item">
-            <div class="metric-label">System Uptime</div>
-            <div id="metric-uptime" class="metric-value">0d 0h</div>
-          </div>
-        </div>
-        <div id="dir-sizes-breakdown" style="font-size: 0.75rem; color: var(--text-muted);">
-          Videos: <span id="dir-videos">0 MB</span> · Logs: <span id="dir-logs">0 MB</span> · Backups: <span id="dir-backups">0 MB</span>
         </div>
       </div>
 
-      <!-- 6. Recent Logs Card -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">📋 Application Logs</span>
-          <button id="btn-refresh-logs" class="btn btn-outline" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;">Refresh</button>
+      <!-- Panel C: Video Library & Media Switcher (Span 2 on Desktop) -->
+      <div class="card grid-span-2" id="panel-videos">
+        <div class="collapsible-header" data-target="body-videos">
+          <span class="card-title">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-emerald);"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+            Video Library
+          </span>
+          <div class="header-right">
+            <span id="active-video-name" style="font-size: 0.725rem; font-family: var(--font-mono); color: var(--status-live);">Active: None</span>
+            <button class="panel-toggle-btn" data-target="body-videos" aria-label="Toggle Video Library Panel">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
         </div>
-        <div id="log-viewer" class="log-viewer">
-          <div class="log-line info">Connecting to log stream...</div>
+
+        <div class="panel-body" id="body-videos">
+          <!-- Mobile-Friendly Upload Trigger / Dropzone -->
+          <div id="upload-zone" class="upload-dropzone">
+            <svg class="icon icon-lg" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Tap or Drag Vertical MP4 Video Here</div>
+            <div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps</div>
+            <input type="file" id="file-input" accept=".mp4,.mov,.m4v,.mkv" style="display: none;">
+          </div>
+
+          <!-- Upload Progress -->
+          <div id="upload-progress-box" style="display: none;" class="progress-container">
+            <div class="progress-header">
+              <span style="color: var(--accent-primary); font-weight: 600;">Uploading file to server...</span>
+              <span id="upload-pct" style="font-family: var(--font-mono);">0%</span>
+            </div>
+            <div class="progress-track">
+              <div id="upload-fill" class="progress-fill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- Video Catalog Cards -->
+          <div id="videos-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 250px; overflow-y: auto;">
+            <div style="font-size: 0.775rem; color: var(--text-muted); text-align: center; padding: 1.25rem;">No videos in library. Upload one above.</div>
+          </div>
         </div>
       </div>
+
+      <!-- Panel D: Server Resources & Storage Vitals -->
+      <div class="card" id="panel-system">
+        <div class="collapsible-header" data-target="body-system">
+          <span class="card-title">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-amber);"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+            Server Hardware
+          </span>
+          <div class="header-right">
+            <span id="metric-uptime" style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);">Uptime: 0d 0h</span>
+            <button class="panel-toggle-btn" data-target="body-system" aria-label="Toggle Server Panel">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-body" id="body-system">
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <span class="kpi-label">CPU Usage</span>
+              <span id="metric-cpu" class="kpi-val">0.0%</span>
+              <span class="kpi-sub">Target &lt; 4%</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">RAM Usage</span>
+              <span id="metric-ram" class="kpi-val">0%</span>
+              <span class="kpi-sub">1 GB Instance</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">Disk Storage</span>
+              <span id="metric-disk" class="kpi-val">0%</span>
+              <span class="kpi-sub">Root Volume</span>
+            </div>
+            <div class="kpi-card">
+              <span class="kpi-label">Video Files</span>
+              <span id="dir-videos" class="kpi-val">0 MB</span>
+              <span class="kpi-sub">Library Size</span>
+            </div>
+          </div>
+
+          <div style="font-size: 0.725rem; font-family: var(--font-mono); color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
+            <span>Logs: <span id="dir-logs" style="color: var(--text-secondary);">0 MB</span></span>
+            <span>Backups: <span id="dir-backups" style="color: var(--text-secondary);">0 MB</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel E: Application & Stream Logs (Full Width) -->
+      <div class="card grid-span-3" id="panel-logs">
+        <div class="collapsible-header" data-target="body-logs">
+          <span class="card-title">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--text-secondary);"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            Application Logs
+          </span>
+          <div class="header-right">
+            <button id="btn-refresh-logs" class="btn btn-outline btn-sm" title="Refresh Log Tail">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              Refresh
+            </button>
+            <button class="panel-toggle-btn" data-target="body-logs" aria-label="Toggle Logs Panel">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="panel-body" id="body-logs">
+          <div id="log-viewer" class="log-viewer">
+            <div class="log-line info">Connecting to server telemetry stream...</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </main>
 
-  <!-- Settings Modal -->
+  <!-- Settings Modal (Cloudflare Console Style) -->
   <div id="modal-settings" class="modal-backdrop">
-    <div class="modal-content">
+    <div class="modal-card">
       <div class="modal-header">
-        <h2 style="font-size: 1.15rem;">Configuration Settings</h2>
-        <button id="btn-close-settings" class="btn btn-outline" style="padding: 0.2rem 0.5rem;">✕</button>
+        <h2 style="font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 0.5rem;">
+          <svg class="icon icon-md" viewBox="0 0 24 24" style="color: var(--accent-primary);"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Stream & Engine Configuration
+        </h2>
+        <button id="btn-close-settings" class="btn btn-outline btn-sm" aria-label="Close dialog">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
       </div>
 
-      <form id="settings-form" style="display: flex; flex-direction: column; gap: 1rem;">
-        <!-- YouTube Ingest Section -->
-        <h3 style="font-size: 0.9rem; color: var(--accent-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 0.25rem;">YouTube Destination</h3>
+      <form id="settings-form" style="display: flex; flex-direction: column; gap: 0.85rem;">
+        <!-- YouTube Destination -->
         <div class="form-group">
-          <label for="cfg-rtmps-url">RTMPS Ingest URL</label>
-          <input type="text" id="cfg-rtmps-url" class="form-control" required>
-        </div>
-        <div class="form-group">
-          <label for="cfg-stream-key">Stream Key</label>
-          <div style="display: flex; gap: 0.5rem;">
-            <input type="password" id="cfg-stream-key" class="form-control" placeholder="••••••••••••" style="flex: 1;">
-            <button type="button" id="btn-reveal-key" class="btn btn-secondary" style="font-size: 0.75rem;">Show</button>
-          </div>
-          <small id="key-hint-text" style="color: var(--text-muted); font-size: 0.75rem;">Key configured (ends in ****)</small>
+          <label class="form-label" for="cfg-rtmps-url">RTMPS Ingest URL</label>
+          <input type="text" id="cfg-rtmps-url" class="form-control" required placeholder="rtmps://a.rtmps.youtube.com/live2">
         </div>
 
-        <!-- Stream Encoding Section -->
-        <h3 style="font-size: 0.9rem; color: var(--accent-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 0.25rem; margin-top: 0.5rem;">Encoding & Bitrate</h3>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label class="form-label" for="cfg-stream-key">YouTube Stream Key</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="password" id="cfg-stream-key" class="form-control" placeholder="••••••••••••" style="flex: 1;">
+            <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              Show
+            </button>
+          </div>
+          <span id="key-hint-text" style="color: var(--text-muted); font-size: 0.725rem; font-family: var(--font-mono);">Key configured</span>
+        </div>
+
+        <!-- Encoding & Bitrate -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div class="form-group">
-            <label for="cfg-mode-pref">Stream Mode</label>
+            <label class="form-label" for="cfg-mode-pref">Stream Mode</label>
             <select id="cfg-mode-pref" class="form-control">
-              <option value="copy">copy (zero CPU — recommended for E2.1.Micro)</option>
+              <option value="copy">copy (Zero CPU - Recommended)</option>
               <option value="auto">auto</option>
-              <option value="transcode">transcode (high CPU)</option>
+              <option value="transcode">transcode</option>
             </select>
           </div>
           <div class="form-group">
-            <label for="cfg-bitrate">Video Bitrate (Mbps)</label>
+            <label class="form-label" for="cfg-bitrate">Video Bitrate (Mbps)</label>
             <input type="number" id="cfg-bitrate" class="form-control" min="1" max="50" step="0.5" value="4">
           </div>
         </div>
 
-        <!-- Live Bandwidth Preview (PRD §6.5) -->
-        <div id="live-bw-preview" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); padding: 0.75rem; border-radius: var(--radius-md); font-size: 0.8rem;">
-          <div>Live Projection (+10% overhead):</div>
-          <strong id="preview-gb-day" style="color: var(--accent-cyan);">49.04 GB/day</strong> ·
-          <strong id="preview-tb-month" style="color: var(--accent-cyan);">1.471 TB/30d</strong>
+        <!-- Live Projection Box -->
+        <div style="background: var(--bg-canvas); border: 1px solid var(--border-subtle); padding: 0.65rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-secondary);">Projected Egress (+10% overhead):</span>
+          <span style="font-family: var(--font-mono); color: var(--accent-cyan); font-weight: 600;">
+            <span id="preview-gb-day">49.04 GB/day</span> · <span id="preview-tb-month">1.471 TB/30d</span>
+          </span>
         </div>
 
-        <!-- Safety Limit Section -->
-        <h3 style="font-size: 0.9rem; color: var(--accent-cyan); border-bottom: 1px solid var(--border-color); padding-bottom: 0.25rem; margin-top: 0.5rem;">Bandwidth Safety Limit</h3>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <!-- Safety Limit & Overhead -->
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
           <div class="form-group">
-            <label for="cfg-safety-limit">Safety Limit (TB)</label>
-            <input type="number" id="cfg-safety-limit" class="form-control" min="0.1" max="100" step="0.1" value="9">
+            <label class="form-label" for="cfg-safety-limit">Safety Limit (TB)</label>
+            <input type="number" id="cfg-safety-limit" class="form-control" min="0.001" max="10" step="0.1" value="9">
           </div>
           <div class="form-group">
-            <label for="cfg-overhead">Overhead Factor (%)</label>
-            <input type="number" id="cfg-overhead" class="form-control" min="0" max="50" value="10">
+            <label class="form-label" for="cfg-overhead">Network Overhead (%)</label>
+            <input type="number" id="cfg-overhead" class="form-control" min="0" max="50" step="1" value="10">
           </div>
         </div>
 
-        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem;">
-          <button type="button" id="btn-cancel-settings" class="btn btn-secondary">Cancel</button>
-          <button type="submit" id="btn-save-settings" class="btn btn-primary">Save Settings</button>
+        <!-- Form Actions -->
+        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+          <button type="button" id="btn-cancel-settings" class="btn btn-outline btn-sm">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Save Configuration</button>
         </div>
       </form>
     </div>

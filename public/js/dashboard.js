@@ -197,8 +197,8 @@ function renderBandwidth(data) {
     bwAlertBanner.style.display = 'block';
     bwAlertBanner.className = `bw-alert-banner ${data.alertLevel.includes('critical') || data.alertLevel === 'limit' ? 'critical' : 'warning'}`;
     bwAlertBanner.textContent = data.alertLevel === 'limit'
-      ? '🚨 Safety limit reached! Streaming stopped.'
-      : `⚠️ Bandwidth alert level: ${data.alertLevel} (${pctSafety.toFixed(1)}% of safety limit)`;
+      ? 'Safety limit reached. Streaming stopped.'
+      : `Bandwidth alert level: ${data.alertLevel} (${pctSafety.toFixed(1)}% of safety limit)`;
   } else {
     bwAlertBanner.style.display = 'none';
   }
@@ -272,19 +272,32 @@ function renderVideos(videos) {
     item.className = `video-item ${isActive ? 'active' : ''}`;
 
     const compat = v.compatibility?.status === 'COMPATIBLE' ? 'compatible' : 'transcode';
-    const compatLabel = v.compatibility?.status === 'COMPATIBLE' ? 'Compatible' : 'Needs Transcode';
+    const compatLabel = v.compatibility?.status === 'COMPATIBLE' ? 'Stream-Copy Ready' : 'Needs Transcode';
 
     item.innerHTML = `
-      <div>
-        <div style="font-weight: 600; font-size: 0.85rem; color: var(--text-primary);">${v.label || v.originalName}</div>
-        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;">
-          ${v.probe?.aspectRatio || '1080:1920'} · ${v.probe?.fps || 30}fps · ${formatBytes(v.sizeBytes)}
-          <span class="video-badge ${compat}" style="margin-left: 0.4rem;">${compatLabel}</span>
+      <div class="video-info">
+        <div class="video-name">${v.label || v.originalName}</div>
+        <div class="video-meta">
+          <span class="meta-tag">${v.probe?.aspectRatio || '1080:1920'}</span>
+          <span class="meta-tag">${v.probe?.fps || 30}fps</span>
+          <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
+          <span class="badge-tag ${compat}">${compatLabel}</span>
         </div>
       </div>
-      <div style="display: flex; gap: 0.4rem;">
-        ${!isActive ? `<button class="btn btn-outline btn-select" data-id="${v.id}" style="font-size: 0.7rem; padding: 0.2rem 0.5rem;">Select</button>` : '<span style="font-size: 0.75rem; color: var(--status-live); font-weight: 700;">ACTIVE</span>'}
-        <button class="btn btn-outline btn-delete" data-id="${v.id}" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; color: #f87171;">✕</button>
+      <div class="video-actions">
+        ${!isActive
+          ? `<button class="btn btn-secondary btn-sm btn-select" data-id="${v.id}" title="Select for streaming">
+               <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+               Select
+             </button>`
+          : `<span class="badge-tag live" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
+               <span class="status-dot live" style="width: 6px; height: 6px;"></span>
+               STREAMING
+             </span>`
+        }
+        <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video" style="color: #f43f5e; padding: 0.35rem 0.5rem;">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        </button>
       </div>
     `;
 
@@ -618,6 +631,36 @@ async function init() {
     } catch (err) {
       alert(`Save failed: ${err.message}`);
     }
+  });
+
+  // Collapsible Panels support
+  document.querySelectorAll('.panel-toggle-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const targetId = btn.getAttribute('data-target');
+      const body = document.getElementById(targetId);
+      if (body) {
+        const isCollapsed = body.classList.toggle('collapsed');
+        btn.classList.toggle('collapsed', isCollapsed);
+        btn.setAttribute('aria-expanded', !isCollapsed);
+      }
+    });
+  });
+
+  document.querySelectorAll('.collapsible-header').forEach(header => {
+    header.addEventListener('click', (e) => {
+      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('label')) return;
+      const targetId = header.getAttribute('data-target');
+      const body = document.getElementById(targetId);
+      const btn = header.querySelector('.panel-toggle-btn');
+      if (body) {
+        const isCollapsed = body.classList.toggle('collapsed');
+        if (btn) {
+          btn.classList.toggle('collapsed', isCollapsed);
+          btn.setAttribute('aria-expanded', !isCollapsed);
+        }
+      }
+    });
   });
 
   setupUploads();
