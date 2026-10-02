@@ -93,11 +93,14 @@ const cfgStreamKey     = document.getElementById('cfg-stream-key');
 const btnRevealKey     = document.getElementById('btn-reveal-key');
 const keyHintText      = document.getElementById('key-hint-text');
 const cfgModePref      = document.getElementById('cfg-mode-pref');
+const cfgAllowTranscode = document.getElementById('cfg-allow-transcode');
 const cfgBitrate       = document.getElementById('cfg-bitrate');
 const cfgSafetyLimit   = document.getElementById('cfg-safety-limit');
 const cfgOverhead      = document.getElementById('cfg-overhead');
 const previewGbDay     = document.getElementById('preview-gb-day');
 const previewTbMonth   = document.getElementById('preview-tb-month');
+
+let _currentActiveVideoId = null;
 
 // ─── Network Event Listeners ──────────────────────────────────────────────────
 
@@ -135,6 +138,10 @@ function renderStatus(data) {
   btnStop.disabled    = data.status === 'STOPPED' || data.status === 'SCHEDULED';
   btnRestart.disabled = data.status === 'STOPPED';
   chkDisabled.checked = Boolean(data.disabled);
+
+  if (data.activeVideoId) {
+    _currentActiveVideoId = data.activeVideoId;
+  }
 
   // Metrics
   metricMode.textContent     = data.streamMode || 'auto';
@@ -258,15 +265,18 @@ function renderSystem(data) {
 async function fetchVideos() {
   try {
     const data = await apiGet('/api/videos');
-    renderVideos(data.videos || []);
+    if (data.activeVideoId) {
+      _currentActiveVideoId = data.activeVideoId;
+    }
+    renderVideos(data.videos || [], data.activeVideoId);
   } catch (err) {
     console.error('Fetch videos failed:', err);
   }
 }
 
-function renderVideos(videos) {
+function renderVideos(videos, activeIdFromApi = null) {
   videosList.innerHTML = '';
-  const currentVideoId = _currentSettings?.stream?.videoId;
+  const currentVideoId = activeIdFromApi || _currentActiveVideoId || _currentSettings?.stream?.videoId;
 
   if (videoCountBadge) {
     videoCountBadge.textContent = `${videos.length} ${videos.length === 1 ? 'Video' : 'Videos'}`;
@@ -278,9 +288,11 @@ function renderVideos(videos) {
     return;
   }
 
+  let foundActive = false;
   videos.forEach(v => {
     const isActive = v.id === currentVideoId;
     if (isActive) {
+      foundActive = true;
       activeVideoName.textContent = `${v.label || v.originalName} (${v.probe?.aspectRatio || '1080:1920'})`;
     }
 
@@ -308,7 +320,7 @@ function renderVideos(videos) {
              </button>`
           : `<span class="badge-tag live" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
                <span class="status-dot live" style="width: 6px; height: 6px;"></span>
-               STREAMING
+               ACTIVE VIDEO
              </span>`
         }
         <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video" style="color: #f43f5e; padding: 0.35rem 0.5rem;">
@@ -396,6 +408,9 @@ async function openSettings() {
       : 'No stream key configured';
 
     cfgModePref.value = settings.stream?.modePreference || 'auto';
+    if (cfgAllowTranscode) {
+      cfgAllowTranscode.checked = settings.stream?.allowTranscode !== false;
+    }
     cfgBitrate.value  = settings.stream?.videoBitrateMbps || 4;
     cfgSafetyLimit.value = settings.bandwidth?.safetyLimitTB || 9;
     cfgOverhead.value = settings.bandwidth?.overheadPercent || 10;
@@ -651,9 +666,35 @@ async function init() {
     btnStart.disabled = true;
     try {
       await apiPost('/api/stream/start');
-      await fetchStatus();
+      await refreshAll();
     } catch (err) {
-      alert(`Start failed: ${err.message}`);
+      if (err.code === 'E_NEEDS_TRANSCODE') {
+        const wantsTranscode = confirm(
+          `Cannot stream in pure Copy mode:\n• ${err.message}\n\nThis video requires transcoding (e.g. 720p / non-copy format to 1080p).\n\nWould you like to switch Stream Mode to 'Auto' with Transcoding enabled and start streaming now?`
+        );
+        if (wantsTranscode) {
+          try {
+            await apiPut('/api/settings', {
+              stream: {
+                modePreference: 'auto',
+                allowTranscode: true,
+              },
+            });
+            await apiPost('/api/stream/start');
+            await refreshAll();
+            return;
+          } catch (retryErr) {
+            alert(`Start failed after mode update: ${retryErr.message}`);
+          }
+        }
+      } else if (err.code === 'E_KEY_MISSING') {
+        alert('YouTube stream key is missing. Opening Settings so you can enter your stream key.');
+        openSettings();
+      } else if (err.code === 'E_NO_VIDEO') {
+        alert('No video selected for streaming. Please upload or select a video from the library.');
+      } else {
+        alert(`Start failed: ${err.message || err.error || 'Server rejected stream start'}`);
+      }
     } finally {
       btnStart.disabled = false;
       await fetchStatus();
@@ -753,6 +794,7 @@ async function init() {
     const patch = {
       stream: {
         modePreference: cfgModePref.value,
+        allowTranscode: cfgAllowTranscode ? cfgAllowTranscode.checked : true,
         ...(Number.isFinite(bitrate) ? { videoBitrateMbps: bitrate } : {}),
       },
       youtube: {

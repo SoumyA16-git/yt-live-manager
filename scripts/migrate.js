@@ -48,6 +48,49 @@ async function main() {
   await checkAndMigrate(PATHS.bandwidthUsage, 'data/bandwidth-usage.json', 1);
   await checkAndMigrate(PATHS.videosIndex, 'data/videos.json', 1);
 
+  // Auto-heal legacy settings: ensure allowTranscode is enabled and default modePreference is auto
+  try {
+    const { data } = await readJSON(PATHS.settings, [], null);
+    if (data && data.stream) {
+      let healed = false;
+      if (data.stream.allowTranscode === undefined || data.stream.allowTranscode === false) {
+        data.stream.allowTranscode = true;
+        healed = true;
+      }
+      if (data.stream.modePreference === 'copy') {
+        data.stream.modePreference = 'auto';
+        healed = true;
+      }
+      if (healed) {
+        if (!dryRun) {
+          await writeJSON(PATHS.settings, data);
+          console.log('[MIGRATE] config/settings.json: Auto-migrated to modePreference="auto" & allowTranscode=true.');
+        } else {
+          console.log('[DRY-RUN] config/settings.json: Would migrate to modePreference="auto" & allowTranscode=true.');
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[WARN] Failed to auto-migrate settings flags:', err.message);
+  }
+
+  // Clear any stale pre-flight errors in stream-state.json
+  try {
+    const { data: st } = await readJSON(PATHS.streamState, [], null);
+    if (st && st.status === 'ERROR' && st.lastError && ['E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO'].includes(st.lastError.code)) {
+      if (!dryRun) {
+        st.lastError = null;
+        st.status = 'STOPPED';
+        await writeJSON(PATHS.streamState, st);
+        console.log('[MIGRATE] data/stream-state.json: Cleared legacy pre-flight error state.');
+      } else {
+        console.log('[DRY-RUN] data/stream-state.json: Would clear legacy pre-flight error state.');
+      }
+    }
+  } catch (err) {
+    console.error('[WARN] Failed to inspect stream-state.json:', err.message);
+  }
+
   console.log('\nMigration check complete.');
 }
 

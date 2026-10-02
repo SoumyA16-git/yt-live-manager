@@ -193,3 +193,8 @@ sudo systemctl restart yt-live-manager
 # Update application code to latest git version with automated backup & rollback
 cd /opt/yt-live-manager && sudo bash update.sh
 ```
+# 1. Pull the updates and apply the new 64MB memory limits
+cd ~/yt-live-manager && git pull origin main && sudo bash update.sh
+
+# 2. Run the Ubuntu VPS memory pruning script (frees ~250MB+ OS RAM)
+sudo bash scripts/optimize-vps.sh

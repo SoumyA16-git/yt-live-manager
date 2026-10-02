@@ -12,6 +12,7 @@ import {
   evaluateStartGates,
   setDisabled,
   setMaintenance,
+  clearConfigGateError,
 } from '../../src/stream-manager.js';
 import {
   loadSettings,
@@ -186,5 +187,66 @@ describe('stream-manager — evaluateStartGates', () => {
     assert.equal(gate.allowed, true);
     assert.equal(gate.mode, 'copy');
     assert.equal(gate.videoMeta.id, videoId);
+  });
+
+  test('auto mode resolves to transcode when source requires transcoding', async () => {
+    const sPath = path.join(tmpDir, 'settings-6.json');
+    const stPath = path.join(tmpDir, 'state-6.json');
+    const hPath  = path.join(tmpDir, 'hist-6.json');
+    const vDir   = path.join(tmpDir, 'videos-6');
+    const inDir  = path.join(tmpDir, 'incoming-6');
+    const vIndex = path.join(tmpDir, 'vindex-6.json');
+    const bDir   = path.join(tmpDir, 'backups-6');
+
+    await fs.mkdir(vDir, { recursive: true });
+
+    _setConfigPaths(sPath, bDir);
+    _setStatePaths(stPath, hPath, bDir);
+    _setVideoPaths(vDir, inDir, vIndex);
+
+    await loadSettings();
+    await loadState();
+    await setDisabled(false);
+    await setMaintenance(false);
+    await saveState({ bandwidthLock: { active: false }, desiredState: 'running' });
+
+    const videoId = 'vid_66666666';
+    const videoFile = path.join(vDir, `${videoId}.mp4`);
+    await fs.writeFile(videoFile, 'mock-video-data');
+
+    await writeJSON(vIndex, {
+      schemaVersion: 1,
+      videos: [{
+        id: videoId,
+        filename: `${videoId}.mp4`,
+        originalName: '720p_source.mp4',
+        compatibility: { status: 'REQUIRES_TRANSCODING', reasons: ['RES_MISMATCH'], modeAllowed: { copy: false, hybrid: false, transcode: true } },
+      }],
+    });
+
+    await saveSettings({
+      youtube: { streamKey: 'valid-test-key-6666' },
+      stream: { videoId, modePreference: 'auto', allowTranscode: true },
+    });
+
+    const gate = await evaluateStartGates();
+    assert.equal(gate.allowed, true);
+    assert.equal(gate.mode, 'transcode');
+    assert.equal(gate.videoMeta.id, videoId);
+
+    // Now test with modePreference: 'copy' — should block with E_NEEDS_TRANSCODE
+    await saveSettings({
+      stream: { modePreference: 'copy' },
+    });
+    const copyGate = await evaluateStartGates();
+    assert.equal(copyGate.allowed, false);
+    assert.equal(copyGate.code, 'E_NEEDS_TRANSCODE');
+
+    // Test clearConfigGateError
+    await saveState({ status: 'ERROR', lastError: { code: 'E_NEEDS_TRANSCODE', message: copyGate.reason } });
+    await clearConfigGateError();
+    const { getState } = await import('../../src/state-manager.js');
+    assert.equal(getState().status, 'STOPPED');
+    assert.equal(getState().lastError, null);
   });
 });

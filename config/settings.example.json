@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "stream": {
     "videoId": "",
-    "modePreference": "copy",
-    "allowTranscode": false,
+    "modePreference": "auto",
+    "allowTranscode": true,
     "autoResume": true,
     "resolution": "1080x1920",
     "fps": 30,

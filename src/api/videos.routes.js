@@ -24,7 +24,8 @@ export function createVideosRouter() {
   router.get('/', async (req, res) => {
     try {
       const videos = await listVideos();
-      res.json({ videos });
+      const activeVideoId = getSettings().stream?.videoId || getState().activeVideoId || null;
+      res.json({ videos, activeVideoId });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

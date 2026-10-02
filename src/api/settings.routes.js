@@ -9,6 +9,7 @@ import {
   getStreamKey,
 } from '../config-manager.js';
 import { validateSettings } from '../lib/validate.js';
+import { clearConfigGateError } from '../stream-manager.js';
 import { verifyPassword } from '../auth.js';
 import { logger } from '../logger.js';
 
@@ -57,6 +58,7 @@ export function createSettingsRouter(envConfig) {
 
     try {
       const updated = await saveSettings(patch);
+      await clearConfigGateError();
       res.json({ success: true, settings: updated, requiresRestart: Boolean(requiresRestart) });
     } catch (err) {
       if (err.code === 'E_VALIDATION') {

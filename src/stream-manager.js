@@ -22,7 +22,7 @@ import {
 } from './ffmpeg-manager.js';
 import { getSettings, getStreamKey } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
-import { getVideo, resolveVideoPath } from './video-manager.js';
+import { getVideo, resolveVideoPath, listVideos, setActiveVideo } from './video-manager.js';
 import { recordProgressBytes, flushUsage } from './usage-manager.js';
 import { logger } from './logger.js';
 import PATHS from './lib/paths.js';
@@ -129,9 +129,16 @@ export async function evaluateStartGates() {
   }
 
   // 5. Video Selected and Valid
-  const videoId = settings.stream?.videoId;
+  let videoId = settings.stream?.videoId;
   if (!videoId) {
-    return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
+    const allVideos = await listVideos();
+    if (allVideos.length === 1) {
+      videoId = allVideos[0].id;
+      await setActiveVideo(videoId);
+      logger.info('stream.auto_select_single', `Auto-selected sole library video ${videoId} for stream start`);
+    } else {
+      return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
+    }
   }
 
   const videoMeta = await getVideo(videoId);
@@ -152,15 +159,20 @@ export async function evaluateStartGates() {
   // 6. Mode Selection Resolution
   const modePref = settings.stream?.modePreference || 'auto';
   const compat = videoMeta.compatibility || {};
+  const allowTranscode = settings.stream?.allowTranscode !== false;
   let selectedMode = 'transcode';
 
   if (modePref === 'copy') {
     if (compat.status !== 'COMPATIBLE') {
-      return { allowed: false, code: 'E_NEEDS_TRANSCODE', reason: 'Source requires transcoding but copy mode was strictly requested' };
+      return {
+        allowed: false,
+        code: 'E_NEEDS_TRANSCODE',
+        reason: 'Source requires transcoding (not 1080p copy-ready) but copy mode was strictly requested. Switch to Auto or Transcode mode.',
+      };
     }
     selectedMode = compat.modeAllowed?.copy ? 'copy' : 'hybrid';
   } else if (modePref === 'transcode') {
-    if (!settings.stream?.allowTranscode) {
+    if (!allowTranscode) {
       return { allowed: false, code: 'E_TRANSCODE_FORBIDDEN', reason: 'Transcoding is disabled in settings' };
     }
     selectedMode = 'transcode';
@@ -169,7 +181,7 @@ export async function evaluateStartGates() {
     if (compat.status === 'COMPATIBLE') {
       selectedMode = compat.modeAllowed?.copy ? 'copy' : 'hybrid';
     } else {
-      if (!settings.stream?.allowTranscode) {
+      if (!allowTranscode) {
         return { allowed: false, code: 'E_NEEDS_TRANSCODE', reason: 'Source requires transcoding but allowTranscode is disabled' };
       }
       selectedMode = 'transcode';
@@ -472,5 +484,13 @@ export async function setMaintenance(active, source = 'admin') {
     if (st.status === 'MAINTENANCE') {
       await transitionState('STOPPED', 'Maintenance mode cleared');
     }
+  }
+}
+
+export async function clearConfigGateError() {
+  const state = getState();
+  if (state.status === 'ERROR' && state.lastError && ['E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO', 'E_TRANSCODE_FORBIDDEN'].includes(state.lastError.code)) {
+    await saveState({ lastError: null });
+    await transitionState('STOPPED', 'Configuration updated; cleared pre-flight error');
   }
 }

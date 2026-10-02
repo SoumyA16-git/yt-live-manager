@@ -360,15 +360,22 @@
           <div class="form-group">
             <label class="form-label" for="cfg-mode-pref">Stream Mode</label>
             <select id="cfg-mode-pref" class="form-control">
-              <option value="copy">copy (Zero CPU - Recommended)</option>
-              <option value="auto">auto</option>
-              <option value="transcode">transcode</option>
+              <option value="auto">auto (Smart: Zero CPU if compatible, Transcode if needed - Recommended)</option>
+              <option value="copy">copy (Strict Zero CPU - Incompatible videos blocked)</option>
+              <option value="transcode">transcode (Full 1080p transcode - Maximum compatibility)</option>
             </select>
           </div>
           <div class="form-group">
             <label class="form-label" for="cfg-bitrate">Video Bitrate (Mbps)</label>
             <input type="number" id="cfg-bitrate" class="form-control" min="1" max="50" step="0.5" value="4">
           </div>
+        </div>
+
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: -0.25rem;">
+          <input type="checkbox" id="cfg-allow-transcode" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;">
+          <label for="cfg-allow-transcode" class="form-label" style="margin-bottom: 0; cursor: pointer; font-size: 0.775rem;">
+            Allow Transcoding (automatically converts 720p / non-1080p videos to YouTube live format)
+          </label>
         </div>
 
         <!-- Live Projection Box -->
