@@ -458,7 +458,7 @@ function _convertVideo(inputPath, outputPath, totalDurationSec, jobId, rawBitrat
       '-g', '60',
       '-keyint_min', '60',
       '-b:v', `${targetKbps}k`,
-      '-maxrate', '4M',
+      '-maxrate', `${targetKbps}k`,
       '-bufsize', `${bufSizeKbps}k`,
       '-c:a', 'aac',
       '-b:a', '128k',

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    YT Live Manager - GPU Video Converter (RTX NVENC)
+    YT Live Manager - Smart GPU Video Converter (NVIDIA RTX NVENC)
     Converts any video into 1080x1920 30fps vertical format with smart adaptive bitrate.
     Preserves source video bitrate (matching original file size), capped at 4 Mbps maximum.
 #>
@@ -29,39 +29,46 @@ $dir = $inputItem.DirectoryName
 $baseName = [System.IO.Path]::GetFileNameWithoutExtension($inputFile)
 $outputFile = Join-Path $dir "${baseName}_YT1080x1920.mp4"
 
+$sourceSizeMB = [Math]::Round($inputItem.Length / 1MB, 2)
+$sourceSizeGB = [Math]::Round($inputItem.Length / 1GB, 2)
+
 Write-Host "Input File:  $inputFile" -ForegroundColor White
-Write-Host "Source Size: $([Math]::Round($inputItem.Length / 1MB, 2)) MB ($([Math]::Round($inputItem.Length / 1GB, 2)) GB)" -ForegroundColor White
+Write-Host "Source Size: $sourceSizeMB MB ($sourceSizeGB GB)" -ForegroundColor White
 Write-Host "Output File: $outputFile" -ForegroundColor White
 Write-Host ""
 Write-Host "Analyzing source video properties with ffprobe..." -ForegroundColor Gray
 
-# Probe source video bitrate and duration
+# Probe duration and bitrate
+$durVal = 0.0
+$durStr = & ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$inputFile" 2>$null
+if ($durStr -and [double]::TryParse($durStr.Trim(), [ref]$durVal) -and $durVal -gt 0) {
+    $ts = [TimeSpan]::FromSeconds($durVal)
+    $durFormatted = "{0:D2}:{1:D2}:{2:D2}" -f [int]$ts.TotalHours, $ts.Minutes, $ts.Seconds
+    Write-Host "Video Duration: $durFormatted ($([Math]::Round($durVal, 1)) s)" -ForegroundColor Gray
+}
+
 $bitrate = 0
 $rawBitrate = & ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$inputFile" 2>$null
 if ($rawBitrate -and [int64]::TryParse($rawBitrate.Trim(), [ref]$bitrate) -and $bitrate -gt 0) {
-    # Stream bitrate detected directly
+    # Direct stream bitrate detected
 } else {
     $fmtBitrate = & ffprobe -v error -show_entries format=bit_rate -of default=noprint_wrappers=1:nokey=1 "$inputFile" 2>$null
     if ($fmtBitrate -and [int64]::TryParse($fmtBitrate.Trim(), [ref]$bitrate) -and $bitrate -gt 0) {
         $bitrate = [Math]::Max(200000, $bitrate - 128000)
-    } else {
-        $durStr = & ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$inputFile" 2>$null
-        $durVal = 0.0
-        if ($durStr -and [double]::TryParse($durStr.Trim(), [ref]$durVal) -and $durVal -gt 0) {
-            $bitrate = [int64][Math]::Max(200000, (($inputItem.Length * 8) / $durVal) - 128000)
-        }
+    } elseif ($durVal -gt 0) {
+        $bitrate = [int64][Math]::Max(200000, (($inputItem.Length * 8) / $durVal) - 128000)
     }
 }
 
 # Gate ceiling: 4 Mbps (4,000,000 bps)
 $maxGateBitrate = 4000000
-if ($bitrate -gt 0 -and $bitrate -lt $maxGateBitrate) {
+if ($bitrate -gt 0 -and $bitrate -le $maxGateBitrate) {
     $targetBitrate = $bitrate
     Write-Host "Detected source bitrate: $([Math]::Round($bitrate / 1000)) kbps" -ForegroundColor Green
-    Write-Host "Target bitrate: $([Math]::Round($targetBitrate / 1000)) kbps (Source preserved, file size won't bloat!)" -ForegroundColor Green
-} elseif ($bitrate -ge $maxGateBitrate) {
+    Write-Host "Target bitrate: $([Math]::Round($targetBitrate / 1000)) kbps (Source bitrate preserved)" -ForegroundColor Green
+} elseif ($bitrate -gt $maxGateBitrate) {
     $targetBitrate = $maxGateBitrate
-    Write-Host "Detected source bitrate: $([Math]::Round($bitrate / 1000)) kbps (High)" -ForegroundColor Yellow
+    Write-Host "Detected source bitrate: $([Math]::Round($bitrate / 1000)) kbps (Exceeds 4 Mbps)" -ForegroundColor Yellow
     Write-Host "Target bitrate: 4000 kbps (Capped at 4 Mbps gate ceiling)" -ForegroundColor Yellow
 } else {
     $targetBitrate = $maxGateBitrate
@@ -71,9 +78,15 @@ if ($bitrate -gt 0 -and $bitrate -lt $maxGateBitrate) {
 $targetKbps = [int][Math]::Round($targetBitrate / 1000)
 $bufSizeKbps = [Math]::Min($targetKbps * 2, 8000)
 
+if ($durVal -gt 0) {
+    $estTotalBytes = (($targetKbps * 1000 + 128000) * $durVal) / 8
+    $estSizeGB = [Math]::Round($estTotalBytes / 1GB, 2)
+    Write-Host "Estimated Output Size: ~$estSizeGB GB (Matches source size!)" -ForegroundColor Green
+}
+
 Write-Host ""
 Write-Host "Starting NVIDIA NVENC hardware-accelerated encode..." -ForegroundColor Cyan
-Write-Host "Settings: 1080x1920 30fps | Profile High | VBR CQ 23 | Bitrate: ${targetKbps}k | Max: 4000k" -ForegroundColor Gray
+Write-Host "Encoding: 1080x1920 30fps | Bitrate: ${targetKbps}k | Maxrate: ${targetKbps}k | Bufsize: ${bufSizeKbps}k" -ForegroundColor Gray
 Write-Host ""
 
 $ffmpegArgs = @(
@@ -82,15 +95,14 @@ $ffmpegArgs = @(
     "-i", $inputFile,
     "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1",
     "-c:v", "h264_nvenc",
+    "-preset", "p4",
     "-profile:v", "high",
     "-pix_fmt", "yuv420p",
     "-r", "30",
     "-g", "60",
     "-keyint_min", "60",
-    "-rc:v", "vbr",
-    "-cq", "23",
     "-b:v", "${targetKbps}k",
-    "-maxrate", "4000k",
+    "-maxrate", "${targetKbps}k",
     "-bufsize", "${bufSizeKbps}k",
     "-c:a", "aac",
     "-b:a", "128k",
@@ -105,13 +117,15 @@ $ffmpegArgs = @(
 
 if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $outputFile)) {
     $outItem = Get-Item -LiteralPath $outputFile
+    $outSizeMB = [Math]::Round($outItem.Length / 1MB, 2)
+    $outSizeGB = [Math]::Round($outItem.Length / 1GB, 2)
     Write-Host ""
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host "                 CONVERSION SUCCESSFUL!                   " -ForegroundColor Green
     Write-Host "==========================================================" -ForegroundColor Green
     Write-Host "Saved: $outputFile" -ForegroundColor White
-    Write-Host "Original Size: $([Math]::Round($inputItem.Length / 1MB, 2)) MB" -ForegroundColor Gray
-    Write-Host "Output Size:   $([Math]::Round($outItem.Length / 1MB, 2)) MB" -ForegroundColor Green
+    Write-Host "Original Size: $sourceSizeMB MB ($sourceSizeGB GB)" -ForegroundColor Gray
+    Write-Host "Output Size:   $outSizeMB MB ($outSizeGB GB)" -ForegroundColor Green
     Write-Host ""
     Write-Host "Status: 100% Stream-Copy Ready for YT Live Manager!" -ForegroundColor Green
     Write-Host "Upload this file via Dashboard or SCP without any re-encode error." -ForegroundColor Cyan

@@ -314,7 +314,7 @@ $buf = [Math]::Min($kb * 2, 8000)
 
 ffmpeg -i "$input" `
   -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" `
-  -c:v libx264 -preset slow -profile:v high -b:v "${kb}k" -maxrate 4000k -bufsize "${buf}k" `
+  -c:v libx264 -preset slow -profile:v high -b:v "${kb}k" -maxrate "${kb}k" -bufsize "${buf}k" `
   -g 60 -keyint_min 60 -sc_threshold 0 `
   -c:a aac -b:a 128k -ar 48000 -ac 2 `
   -pix_fmt yuv420p -movflags +faststart `
