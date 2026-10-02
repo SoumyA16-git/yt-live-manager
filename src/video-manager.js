@@ -86,11 +86,15 @@ export async function listVideos() {
 
   const evaluatedVideos = videos.map(v => {
     if (v.probe) {
-      const freshCompat = evaluateCompatibility(v.probe, settings);
-      if (!v.compatibility || v.compatibility.status !== freshCompat.status ||
-          JSON.stringify(v.compatibility.reasons) !== JSON.stringify(freshCompat.reasons)) {
-        v.compatibility = freshCompat;
-        changed = true;
+      try {
+        const freshCompat = evaluateCompatibility(v.probe, settings);
+        if (!v.compatibility || v.compatibility.status !== freshCompat.status ||
+            JSON.stringify(v.compatibility.reasons) !== JSON.stringify(freshCompat.reasons)) {
+          v.compatibility = freshCompat;
+          changed = true;
+        }
+      } catch (err) {
+        logger.warn('video.eval_compat_error', `Could not evaluate compatibility for ${v.id}: ${err.message}`);
       }
     }
     return v;

@@ -187,15 +187,16 @@ export function evaluateCompatibility(meta, settings = {}) {
   }
 
   // 2. Video Codec Check: h264, profile baseline/main/high
-  if (meta.videoCodec !== 'h264') {
+  const codecName = (meta.videoCodec || '').toLowerCase();
+  if (codecName !== 'h264') {
     reasons.push('CODEC_NOT_H264');
-    explanations.push(`Video codec is ${meta.videoCodec.toUpperCase() || 'unknown'}. YouTube live needs H.264.`);
+    explanations.push(`Video codec is ${(meta.videoCodec || 'unknown').toUpperCase()}. YouTube live needs H.264.`);
   } else {
-    const prof = meta.videoProfile.toLowerCase();
+    const prof = (meta.videoProfile || '').toLowerCase();
     const allowedProfiles = ['baseline', 'main', 'high', 'constrained baseline'];
     if (prof && !allowedProfiles.some(p => prof.includes(p))) {
       reasons.push('CODEC_PROFILE_UNSUPPORTED');
-      explanations.push(`H.264 profile is ${meta.videoProfile}. Allowed: Baseline, Main, or High.`);
+      explanations.push(`H.264 profile is ${meta.videoProfile || 'unknown'}. Allowed: Baseline, Main, or High.`);
     }
   }
 
