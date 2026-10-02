@@ -94,7 +94,7 @@ const STREAM_SCHEMA = {
 
 const YOUTUBE_SCHEMA = {
   rtmpsUrl:  { type: 'string', pattern: /^rtmps:\/\//i },
-  streamKey: { type: 'string', maxLen: 128 },   // special handling below
+  streamKey: { type: 'string', maxLen: 256 },   // special handling below
   title:     { type: 'string', maxLen: 200 },
   label:     { type: 'string', maxLen: 100 },
 };
@@ -408,11 +408,12 @@ export function validateSettings(input, { partial = true } = {}) {
  */
 export function validateStreamKey(key) {
   const errs = [];
-  if (!isString(key))                    { return { valid: false, errors: ['must be a string'] }; }
+  if (!isString(key))   { return { valid: false, errors: ['must be a string'] }; }
   const trimmed = key.trim();
-  if (trimmed.length < 8)                errs.push('too short (minimum 8 characters)');
-  if (trimmed.length > 128)              errs.push('too long (maximum 128 characters)');
-  if (!/^[A-Za-z0-9_-]+$/.test(trimmed)) errs.push('contains invalid characters (allowed: A-Z a-z 0-9 _ -)');
+  if (trimmed.length < 8)   errs.push('too short (minimum 8 characters)');
+  if (trimmed.length > 128) errs.push('too long (maximum 128 characters)');
+  if (/\s/.test(trimmed))   errs.push('stream key must not contain spaces');
+  if (!/^[A-Za-z0-9_.-]+$/.test(trimmed)) errs.push('contains invalid characters (allowed: A-Z a-z 0-9 _ - .)');
   return { valid: errs.length === 0, errors: errs };
 }
 

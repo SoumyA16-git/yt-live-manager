@@ -232,10 +232,19 @@ async function transitionState(to, reason = '') {
  * @param {object} [opts]
  * @param {string} [opts.reason='manual_start']
  */
-export async function startStream({ reason = 'manual_start' } = {}) {
+export async function startStream({ reason = 'manual_start', clearMaintenance = false } = {}) {
   // Clear any pending timers
   if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
   if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
+
+  // If manual start requested, auto-clear maintenance mode
+  if (clearMaintenance || reason === 'api_manual_start' || reason === 'manual_start') {
+    const currentState = getState();
+    if (currentState.maintenance?.active) {
+      logger.info('stream.maintenance_auto_cleared', `Manual stream start (${reason}); auto-clearing maintenance mode`);
+      await setMaintenance(false, 'manual_start');
+    }
+  }
 
   // Set desired state to running
   await saveState({ desiredState: 'running' });
@@ -277,7 +286,23 @@ export async function startStream({ reason = 'manual_start' } = {}) {
 
   const settings = getSettings();
   const secretKey = getStreamKey();
-  const destUrl = `${settings.youtube?.rtmpsUrl}/${secretKey}`;
+
+  // Hard guard: ensure key and RTMPS URL are both present before spawning
+  const rtmpsUrl = settings.youtube?.rtmpsUrl;
+  if (!secretKey || !secretKey.trim()) {
+    logger.error('stream.key_empty', 'Stream key is empty at spawn time — aborting FFmpeg spawn');
+    await transitionState('ERROR', 'YouTube stream key is empty');
+    await saveState({ lastError: { code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured', at: new Date().toISOString() } });
+    return { started: false, code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured' };
+  }
+  if (!rtmpsUrl || !rtmpsUrl.startsWith('rtmps://')) {
+    logger.error('stream.url_invalid', `Invalid RTMPS URL at spawn time: ${rtmpsUrl}`);
+    await transitionState('ERROR', 'RTMPS URL is missing or invalid');
+    await saveState({ lastError: { code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://', at: new Date().toISOString() } });
+    return { started: false, code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://' };
+  }
+
+  const destUrl = `${rtmpsUrl}/${secretKey.trim()}`;
 
   const args = buildFfmpegArgs(settings, gate.videoMeta, destUrl, gate.mode);
 
@@ -489,8 +514,23 @@ export async function setMaintenance(active, source = 'admin') {
 
 export async function clearConfigGateError() {
   const state = getState();
-  if (state.status === 'ERROR' && state.lastError && ['E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO', 'E_TRANSCODE_FORBIDDEN'].includes(state.lastError.code)) {
+  const configErrors = [
+    'E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO',
+    'E_TRANSCODE_FORBIDDEN', 'E_CONFIG_INVALID',
+    'E_VIDEO_NOT_FOUND', 'E_VIDEO_FILE_MISSING',
+  ];
+  if (state.status === 'ERROR' && state.lastError && configErrors.includes(state.lastError.code)) {
     await saveState({ lastError: null });
     await transitionState('STOPPED', 'Configuration updated; cleared pre-flight error');
+
+    // Auto-retry if stream was desired
+    if (state.desiredState === 'running') {
+      logger.info('stream.config_cleared_retry', 'Config gate cleared; auto-retrying stream start');
+      setTimeout(() => {
+        startStream({ reason: 'config_gate_cleared' }).catch(e => {
+          logger.warn('stream.config_cleared_retry_fail', e.message);
+        });
+      }, 1000);
+    }
   }
 }

@@ -75,7 +75,15 @@ if [[ -f "${CURRENT_DIR}/systemd/yt-live-manager.service" ]]; then
   systemctl daemon-reload
 fi
 
-# 4. Dependency Update
+# 4. Update yt-dlp binary (YouTube URL direct download feature)
+echo "--> Updating yt-dlp..."
+YTDLP_BIN="/usr/local/bin/yt-dlp"
+YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+curl -fsSL "${YTDLP_URL}" -o "${YTDLP_BIN}"
+chmod a+rx "${YTDLP_BIN}"
+echo "    yt-dlp updated: $(${YTDLP_BIN} --version 2>/dev/null || echo 'ok')"
+
+# 5. Dependency Update
 echo "--> Updating npm dependencies..."
 cd "${INSTALL_DIR}"
 if [[ -f "${INSTALL_DIR}/package-lock.json" ]]; then

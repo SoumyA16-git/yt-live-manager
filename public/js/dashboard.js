@@ -68,6 +68,18 @@ const uploadSpeedText  = document.getElementById('upload-speed-text');
 const videosList       = document.getElementById('videos-list');
 const videoCountBadge  = document.getElementById('video-count-badge');
 
+// YouTube Import UI
+const ytImportPanel    = document.getElementById('yt-import-panel');
+const ytUrlInput       = document.getElementById('yt-url-input');
+const btnYtDownload    = document.getElementById('btn-yt-download');
+const ytDlProgressBox  = document.getElementById('yt-dl-progress-box');
+const ytDlStageText    = document.getElementById('yt-dl-stage-text');
+const ytDlPct          = document.getElementById('yt-dl-pct');
+const ytDlFill         = document.getElementById('yt-dl-fill');
+const ytDlTitle        = document.getElementById('yt-dl-title');
+const ytDlDetails      = document.getElementById('yt-dl-details');
+const btnCancelYtDl    = document.getElementById('btn-cancel-yt-dl');
+
 // System
 const metricCpu        = document.getElementById('metric-cpu');
 const metricRam        = document.getElementById('metric-ram');
@@ -99,6 +111,15 @@ const cfgSafetyLimit   = document.getElementById('cfg-safety-limit');
 const cfgOverhead      = document.getElementById('cfg-overhead');
 const previewGbDay     = document.getElementById('preview-gb-day');
 const previewTbMonth   = document.getElementById('preview-tb-month');
+
+// Stream Key UI & Maintenance DOM Elements
+const deckStreamKeyBadge     = document.getElementById('deck-stream-key-badge');
+const bannerMaintenance      = document.getElementById('banner-maintenance');
+const btnDisableMaintenance  = document.getElementById('btn-disable-maintenance');
+const keyBadge               = document.getElementById('key-badge');
+const iconEyeShow            = document.getElementById('icon-eye-show');
+const iconEyeHide            = document.getElementById('icon-eye-hide');
+const btnRevealText          = document.getElementById('btn-reveal-text');
 
 let _currentActiveVideoId = null;
 
@@ -137,7 +158,12 @@ function renderStatus(data) {
   btnStart.disabled   = data.status === 'RUNNING' || data.status === 'STARTING' || data.disabled;
   btnStop.disabled    = data.status === 'STOPPED' || data.status === 'SCHEDULED';
   btnRestart.disabled = data.status === 'STOPPED';
-  chkDisabled.checked = Boolean(data.disabled);
+  if (chkDisabled) chkDisabled.checked = Boolean(data.disabled);
+
+  // Maintenance Banner visibility
+  if (bannerMaintenance) {
+    bannerMaintenance.style.display = (data.maintenance?.active || data.status === 'MAINTENANCE') ? 'flex' : 'none';
+  }
 
   if (data.activeVideoId) {
     _currentActiveVideoId = data.activeVideoId;
@@ -396,16 +422,69 @@ function renderLogs(lines) {
 
 // ─── Settings Modal & Live Preview ────────────────────────────────────────────
 
+function updateDeckStreamKeyBadge(settings) {
+  if (!deckStreamKeyBadge) return;
+  if (settings?.youtube?.streamKeySet) {
+    deckStreamKeyBadge.textContent = `YouTube: Configured (ends in ...${settings.youtube.streamKeyHint})`;
+    deckStreamKeyBadge.style.borderColor = 'rgba(34, 197, 94, 0.4)';
+    deckStreamKeyBadge.style.color = '#4ade80';
+    deckStreamKeyBadge.title = `YouTube Stream Key is configured (...${settings.youtube.streamKeyHint}). Click to change.`;
+  } else {
+    deckStreamKeyBadge.textContent = '⚠️ YouTube: Key Missing';
+    deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.5)';
+    deckStreamKeyBadge.style.color = '#f87171';
+    deckStreamKeyBadge.title = 'YouTube Stream Key is not configured! Click to open Settings.';
+  }
+}
+
+function updateKeyFeedback() {
+  if (!keyBadge || !keyHintText || !cfgStreamKey) return;
+  const val = cfgStreamKey.value.trim();
+  if (val.length > 0) {
+    keyBadge.textContent = 'Unsaved Entry';
+    keyBadge.style.background = 'rgba(96, 165, 250, 0.2)';
+    keyBadge.style.color = '#60a5fa';
+    keyHintText.innerHTML = `✏️ <strong style="color: #60a5fa;">New stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> below to apply.`;
+  } else if (_currentSettings?.youtube?.streamKeySet) {
+    keyBadge.textContent = `Saved (...${_currentSettings.youtube.streamKeyHint})`;
+    keyBadge.style.background = 'rgba(34, 197, 94, 0.2)';
+    keyBadge.style.color = '#4ade80';
+    cfgStreamKey.placeholder = `•••••••••••• (Saved. Leave blank to keep key ending in ...${_currentSettings.youtube.streamKeyHint})`;
+    keyHintText.innerHTML = `✅ <strong style="color: #4ade80;">Active YouTube Stream Key is saved</strong> (ends in ...${_currentSettings.youtube.streamKeyHint}). Leave empty to keep unchanged, or paste a new key to update.`;
+  } else {
+    keyBadge.textContent = 'Not Configured';
+    keyBadge.style.background = 'rgba(239, 68, 68, 0.2)';
+    keyBadge.style.color = '#f87171';
+    cfgStreamKey.placeholder = 'Paste YouTube Stream Key (e.g. xxxx-xxxx-xxxx-xxxx-xxxx)';
+    keyHintText.innerHTML = '⚠️ <strong style="color: #f87171;">No stream key saved.</strong> You must paste your YouTube Stream Key before you can start streaming.';
+  }
+}
+
+async function fetchSettings() {
+  try {
+    const settings = await apiGet('/api/settings');
+    _currentSettings = settings;
+    updateDeckStreamKeyBadge(settings);
+    return settings;
+  } catch (err) {
+    console.error('Fetch settings failed:', err);
+  }
+}
+
 async function openSettings() {
   try {
     const settings = await apiGet('/api/settings');
     _currentSettings = settings;
+    updateDeckStreamKeyBadge(settings);
 
     cfgRtmpsUrl.value = settings.youtube?.rtmpsUrl || 'rtmps://a.rtmps.youtube.com:443/live2';
     cfgStreamKey.value = '';
-    keyHintText.textContent = settings.youtube?.streamKeySet
-      ? `Key configured (ends in ...${settings.youtube.streamKeyHint})`
-      : 'No stream key configured';
+    cfgStreamKey.type = 'password';
+    if (iconEyeShow) iconEyeShow.style.display = 'inline';
+    if (iconEyeHide) iconEyeHide.style.display = 'none';
+    if (btnRevealText) btnRevealText.textContent = 'Show';
+
+    updateKeyFeedback();
 
     cfgModePref.value = settings.stream?.modePreference || 'auto';
     if (cfgAllowTranscode) {
@@ -435,6 +514,31 @@ function updateLiveBitratePreview() {
   previewGbDay.textContent = `${m.withOverhead.gbPerDay.toFixed(2)} GB/day`;
   previewTbMonth.textContent = `${m.withOverhead.tbPer30Days.toFixed(3)} TB/30d`;
 }
+
+// ─── YouTube Import Tab Switcher (must be global for onclick) ─────────────────
+
+window.switchIngestTab = function switchIngestTab(tab) {
+  const uploadZone   = document.getElementById('upload-zone');
+  const ytPanel      = document.getElementById('yt-import-panel');
+  const tabUpload    = document.getElementById('tab-upload');
+  const tabYoutube   = document.getElementById('tab-youtube');
+
+  if (tab === 'youtube') {
+    uploadZone.style.display = 'none';
+    ytPanel.style.display    = 'block';
+    tabUpload.style.background  = 'transparent';
+    tabUpload.style.color       = 'var(--text-secondary)';
+    tabYoutube.style.background = 'var(--accent-red, #e53935)';
+    tabYoutube.style.color      = '#fff';
+  } else {
+    uploadZone.style.display = '';
+    ytPanel.style.display    = 'none';
+    tabUpload.style.background  = 'var(--accent-primary)';
+    tabUpload.style.color       = '#fff';
+    tabYoutube.style.background = 'transparent';
+    tabYoutube.style.color      = 'var(--text-secondary)';
+  }
+};
 
 // ─── Upload Handling ──────────────────────────────────────────────────────────
 
@@ -596,11 +700,163 @@ function handleFileUpload(file) {
   xhr.send(formData);
 }
 
+// ─── YouTube Download Handler ─────────────────────────────────────────────────
+
+let _ytPollTimer = null;
+
+function _clearYtPoll() {
+  if (_ytPollTimer) { clearInterval(_ytPollTimer); _ytPollTimer = null; }
+}
+
+function _updateYtProgress(status) {
+  if (!status) return;
+
+  const stageLabels = {
+    fetching_info: '🔍 Fetching video info...',
+    downloading:   '⬇️ Downloading from YouTube...',
+    converting:    '🎬 Converting to 1080×1920 30fps...',
+    completed:     '✅ Done!',
+    error:         '❌ Failed',
+    cancelled:     '🚫 Cancelled',
+  };
+
+  const label = stageLabels[status.stage] || status.stage;
+  if (ytDlStageText) ytDlStageText.textContent = label;
+  if (ytDlTitle)     ytDlTitle.textContent = status.videoTitle || '';
+
+  const pct = Math.round(status.percent || 0);
+  if (ytDlPct)  ytDlPct.textContent  = `${pct}%`;
+  if (ytDlFill) ytDlFill.style.width = `${pct}%`;
+
+  let details = '';
+  if (status.speed && status.stage === 'downloading') {
+    details = `Speed: ${status.speed}`;
+    if (status.eta) details += ` · ETA: ${status.eta}`;
+  } else if (status.speed && status.stage === 'converting') {
+    details = `Encode speed: ${status.speed}`;
+  }
+  if (ytDlDetails) ytDlDetails.textContent = details || 'Working...';
+}
+
+async function _pollYtDownloadStatus() {
+  try {
+    const status = await apiGet('/api/videos/download-status');
+    _updateYtProgress(status);
+
+    if (!status.active) {
+      _clearYtPoll();
+
+      if (status.stage === 'completed') {
+        if (ytDlStageText) ytDlStageText.textContent = '✅ Download & conversion complete!';
+        if (ytDlPct)       ytDlPct.textContent = '100%';
+        if (ytDlFill)      ytDlFill.style.width = '100%';
+        if (btnYtDownload) btnYtDownload.disabled = false;
+
+        await fetchVideos();
+
+        if (status.videoId) {
+          setTimeout(() => {
+            const wantActive = confirm(
+              `✅ "${status.videoTitle || 'YouTube Video'}" has been downloaded & converted.\n\nWould you like to set it as the active live stream video now?`
+            );
+            if (wantActive) {
+              apiPost(`/api/videos/${status.videoId}/select`, { restart: false })
+                .then(() => fetchVideos())
+                .catch((err) => alert(`Could not set active video: ${err.message}`));
+            }
+            // Hide progress after confirmation
+            if (ytDlProgressBox) {
+              setTimeout(() => { ytDlProgressBox.style.display = 'none'; }, 1500);
+            }
+          }, 300);
+        }
+
+      } else if (status.stage === 'error') {
+        if (ytDlStageText) { ytDlStageText.style.color = 'var(--accent-red, #e53935)'; ytDlStageText.textContent = `❌ Error: ${status.error || 'Unknown failure'}`; }
+        if (btnYtDownload) btnYtDownload.disabled = false;
+
+      } else if (status.stage === 'cancelled') {
+        if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
+        if (btnYtDownload)   btnYtDownload.disabled = false;
+      }
+    }
+  } catch (err) {
+    console.error('YouTube download status poll failed:', err);
+  }
+}
+
+function setupYouTubeDownload() {
+  if (!btnYtDownload) return;
+
+  btnYtDownload.addEventListener('click', async () => {
+    const url = (ytUrlInput?.value || '').trim();
+    if (!url) {
+      alert('Please enter a YouTube URL first.');
+      ytUrlInput?.focus();
+      return;
+    }
+
+    // Reset progress UI
+    if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
+    if (ytDlStageText)   { ytDlStageText.style.color = 'var(--accent-cyan)'; ytDlStageText.textContent = '🔍 Starting...'; }
+    if (ytDlPct)         ytDlPct.textContent  = '0%';
+    if (ytDlFill)        ytDlFill.style.width = '0%';
+    if (ytDlTitle)       ytDlTitle.textContent = '';
+    if (ytDlDetails)     ytDlDetails.textContent = 'Connecting...';
+    btnYtDownload.disabled = true;
+
+    try {
+      await apiPost('/api/videos/download-youtube', { url, autoSetActive: false });
+      _clearYtPoll();
+      _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
+    } catch (err) {
+      if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
+      btnYtDownload.disabled = false;
+      const msg = err.message || 'Failed to start download';
+      if (err.code === 'E_YTDLP_MISSING') {
+        alert(`yt-dlp is not installed on the server.\n\nRun: bash update.sh\non your VPS to install it.`);
+      } else if (err.code === 'E_JOB_RUNNING') {
+        alert('A download is already in progress. Wait for it to finish or cancel it first.');
+        // Resume polling for the existing job
+        if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
+        _clearYtPoll();
+        _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
+      } else {
+        alert(`Download failed:\n${msg}`);
+      }
+    }
+  });
+
+  if (btnCancelYtDl) {
+    btnCancelYtDl.addEventListener('click', async () => {
+      _clearYtPoll();
+      try {
+        await apiPost('/api/videos/download-cancel');
+      } catch { /* ignore */ }
+      if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
+      if (btnYtDownload)   btnYtDownload.disabled = false;
+    });
+  }
+
+  // On init: check if a job is already running (e.g. after page refresh)
+  apiGet('/api/videos/download-status').then((status) => {
+    if (status?.active) {
+      if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
+      _updateYtProgress(status);
+      // Also switch to YouTube tab
+      window.switchIngestTab('youtube');
+      _clearYtPoll();
+      _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
+    }
+  }).catch(() => {});
+}
+
 // ─── Refresh Orchestrator ─────────────────────────────────────────────────────
 
 async function refreshAll() {
   await Promise.all([
     fetchStatus(),
+    fetchSettings(),
     fetchBandwidth(),
     fetchSystem(),
     fetchVideos(),
@@ -665,6 +921,15 @@ async function init() {
   btnStart.addEventListener('click', async () => {
     btnStart.disabled = true;
     try {
+      // Check if system is in maintenance mode before requesting start
+      if (statusText.textContent === 'MAINTENANCE') {
+        const disableMaint = confirm(
+          '⚠️ Maintenance Mode is currently active.\n\nWould you like to disable maintenance mode and start live streaming now?'
+        );
+        if (!disableMaint) return;
+        await apiPost('/api/maintenance', { enabled: false });
+      }
+
       await apiPost('/api/stream/start');
       await refreshAll();
     } catch (err) {
@@ -688,12 +953,33 @@ async function init() {
           }
         }
       } else if (err.code === 'E_KEY_MISSING') {
-        alert('YouTube stream key is missing. Opening Settings so you can enter your stream key.');
-        openSettings();
+        alert('⚠️ YouTube stream key is not configured.\n\nOpening Settings so you can enter your YouTube Stream Key.');
+        await openSettings();
+        if (cfgStreamKey) cfgStreamKey.focus();
+      } else if (err.code === 'E_CONFIG_INVALID') {
+        alert(`⚠️ RTMPS configuration is invalid.\n\n${err.message || ''}\n\nOpening Settings so you can verify your YouTube RTMPS URL.`);
+        await openSettings();
+      } else if (err.code === 'E_MAINTENANCE') {
+        const disableNow = confirm(
+          '⚠️ Maintenance Mode is Active.\n\nStreaming is blocked because server maintenance mode is engaged.\n\nWould you like to disable maintenance mode and start streaming now?'
+        );
+        if (disableNow) {
+          await apiPost('/api/maintenance', { enabled: false });
+          try {
+            await apiPost('/api/stream/start');
+            await refreshAll();
+            return;
+          } catch (retryErr) {
+            alert(`Start failed: ${retryErr.message}`);
+          }
+        }
       } else if (err.code === 'E_NO_VIDEO') {
-        alert('No video selected for streaming. Please upload or select a video from the library.');
+        alert('⚠️ No video selected for streaming.\n\nPlease upload a video or click "Select as Active" in the Video Library below.');
+        document.getElementById('panel-videos')?.scrollIntoView({ behavior: 'smooth' });
+      } else if (err.code === 'E_DISABLED') {
+        alert('⚠️ Master Stream Lock is engaged.\n\nPlease toggle off the "Master Stream Lock" switch at the top of the dashboard to enable streaming.');
       } else {
-        alert(`Start failed: ${err.message || err.error || 'Server rejected stream start'}`);
+        alert(`Start failed: ${err.message || err.error || 'Server rejected stream start'}\nCode: ${err.code || 'unknown'}`);
       }
     } finally {
       btnStart.disabled = false;
@@ -757,23 +1043,63 @@ async function init() {
   cfgOverhead.addEventListener('input', updateLiveBitratePreview);
 
   btnRevealKey.addEventListener('click', async () => {
-    const password = prompt('Re-enter admin password to reveal stream key:');
-    if (!password) return;
-
-    try {
-      const res = await apiPost('/api/settings/reveal-stream-key', { password });
-      cfgStreamKey.type = 'text';
-      cfgStreamKey.value = res.streamKey;
-      btnRevealKey.textContent = 'Hide';
-      setTimeout(() => {
+    // If input currently has text typed, toggle visibility
+    if (cfgStreamKey.value.length > 0) {
+      if (cfgStreamKey.type === 'password') {
+        cfgStreamKey.type = 'text';
+        if (iconEyeShow) iconEyeShow.style.display = 'none';
+        if (iconEyeHide) iconEyeHide.style.display = 'inline';
+        if (btnRevealText) btnRevealText.textContent = 'Hide';
+      } else {
         cfgStreamKey.type = 'password';
-        cfgStreamKey.value = '';
-        btnRevealKey.textContent = 'Show';
-      }, 30000);
-    } catch (err) {
-      alert(`Key reveal failed: ${err.message}`);
+        if (iconEyeShow) iconEyeShow.style.display = 'inline';
+        if (iconEyeHide) iconEyeHide.style.display = 'none';
+        if (btnRevealText) btnRevealText.textContent = 'Show';
+      }
+      return;
+    }
+
+    // Input is empty: if key is configured on server, reveal it securely
+    if (_currentSettings?.youtube?.streamKeySet) {
+      const password = prompt('Re-enter admin password to reveal saved stream key:');
+      if (!password) return;
+
+      try {
+        const res = await apiPost('/api/settings/reveal-stream-key', { password });
+        cfgStreamKey.value = res.streamKey;
+        cfgStreamKey.type = 'text';
+        if (iconEyeShow) iconEyeShow.style.display = 'none';
+        if (iconEyeHide) iconEyeHide.style.display = 'inline';
+        if (btnRevealText) btnRevealText.textContent = 'Hide';
+        updateKeyFeedback();
+      } catch (err) {
+        alert(`Key reveal failed: ${err.message}`);
+      }
+    } else {
+      alert('No stream key is configured yet. Paste your YouTube Stream Key into the box.');
     }
   });
+
+  // Live input feedback on key typing
+  cfgStreamKey.addEventListener('input', updateKeyFeedback);
+
+  // Wire up maintenance banner disable button
+  if (btnDisableMaintenance) {
+    btnDisableMaintenance.addEventListener('click', async () => {
+      try {
+        await apiPost('/api/maintenance', { enabled: false });
+        await fetchStatus();
+        alert('✅ Maintenance mode disabled! You can now start streaming.');
+      } catch (e) {
+        alert(`Failed to disable maintenance mode: ${e.message}`);
+      }
+    });
+  }
+
+  // Wire up Deck stream key badge
+  if (deckStreamKeyBadge) {
+    deckStreamKeyBadge.addEventListener('click', openSettings);
+  }
 
   settingsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -812,8 +1138,14 @@ async function init() {
 
     try {
       const res = await apiPut('/api/settings', patch);
+      _currentSettings = res.settings;
+      updateDeckStreamKeyBadge(res.settings);
       modalSettings.classList.remove('open');
       await refreshAll();
+
+      if (patch.youtube?.streamKey) {
+        alert('✅ Settings saved!\n\nYouTube stream key is active and verified.');
+      }
 
       if (res.requiresRestart) {
         const isLive = statusText.textContent === 'RUNNING' || statusText.textContent === 'STARTING';
@@ -831,6 +1163,7 @@ async function init() {
   });
 
   setupUploads();
+  setupYouTubeDownload();
 
   // 5. Authenticate Session
   const user = await initSession();

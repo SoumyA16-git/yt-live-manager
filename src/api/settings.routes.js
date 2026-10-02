@@ -44,9 +44,18 @@ export function createSettingsRouter(envConfig) {
       }
     }
 
-    // If streamKey in patch is empty/blank, remove it so existing key is preserved
+    // Clean and normalize streamKey
     if (patch.youtube && typeof patch.youtube.streamKey === 'string') {
-      patch.youtube.streamKey = patch.youtube.streamKey.trim();
+      let key = patch.youtube.streamKey.trim();
+      // If user pasted the whole ingest URL + key, extract the key portion
+      if (key.includes('/live2/')) {
+        key = key.split('/live2/').pop().trim();
+      } else if (key.startsWith('rtmp://') || key.startsWith('rtmps://')) {
+        key = key.split('/').pop().trim();
+      }
+      // Remove accidental spaces inside or around the key
+      key = key.replace(/\s+/g, '');
+      patch.youtube.streamKey = key;
       if (patch.youtube.streamKey === '') {
         delete patch.youtube.streamKey;
       }
@@ -54,17 +63,32 @@ export function createSettingsRouter(envConfig) {
       delete patch.youtube.streamKey;
     }
 
-    const { requiresRestart } = validateSettings(patch, { partial: true });
+    // Validate patch BEFORE writing — return descriptive errors immediately
+    const { valid, errors: validErrors, requiresRestart } = validateSettings(patch, { partial: true });
+    if (!valid) {
+      return res.status(400).json({
+        error: validErrors.join('; '),
+        code: 'E_VALIDATION',
+        errors: validErrors,
+      });
+    }
 
     try {
       const updated = await saveSettings(patch);
       await clearConfigGateError();
-      res.json({ success: true, settings: updated, requiresRestart: Boolean(requiresRestart) });
+      res.json({
+        success: true,
+        settings: updated,
+        streamKeySet: Boolean(updated.youtube?.streamKeySet),
+        streamKeyHint: updated.youtube?.streamKeyHint || '',
+        requiresRestart: Boolean(requiresRestart),
+      });
     } catch (err) {
       if (err.code === 'E_VALIDATION') {
         const errorDetail = err.errors && err.errors.length > 0 ? err.errors.join('; ') : err.message;
         return res.status(400).json({ error: errorDetail, code: err.code, errors: err.errors });
       }
+      logger.error('settings.save_error', err.message);
       res.status(500).json({ error: err.message });
     }
   });

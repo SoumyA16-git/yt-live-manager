@@ -1,0 +1,446 @@
+/**
+ * ytdlp-manager.js — YouTube direct video downloader and vertical 1080x1920 encoder.
+ *
+ * Downloads videos directly from YouTube URLs via yt-dlp, automatically re-encodes
+ * them into exact 1080x1920 30fps vertical format with 2s GOP, 4M bitrate, and registers
+ * them into the video library for zero-CPU stream copy.
+ */
+
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
+import PATHS from './lib/paths.js';
+import { logger } from './logger.js';
+import { importConvertedVideo } from './video-manager.js';
+import { probeMedia } from './ffprobe-manager.js';
+
+// ─── Module State ─────────────────────────────────────────────────────────────
+
+let _currentJob = null;
+
+/**
+ * Validate a YouTube URL.
+ * Supports standard watch URLs, youtu.be, shorts, and live URLs.
+ *
+ * @param {string} urlStr
+ * @returns {boolean}
+ */
+export function isValidYouTubeUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return false;
+  try {
+    const u = new URL(urlStr.trim());
+    const validHosts = [
+      'www.youtube.com',
+      'youtube.com',
+      'm.youtube.com',
+      'youtu.be',
+      'music.youtube.com',
+    ];
+    if (!validHosts.includes(u.hostname.toLowerCase())) return false;
+    if (u.hostname.toLowerCase() === 'youtu.be') {
+      return u.pathname.length > 1;
+    }
+    return (
+      u.pathname === '/watch' ||
+      u.pathname.startsWith('/shorts/') ||
+      u.pathname.startsWith('/live/') ||
+      u.searchParams.has('v')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check if yt-dlp is installed and available in PATH.
+ *
+ * @returns {Promise<boolean>}
+ */
+export async function isYtDlpAvailable() {
+  return new Promise((resolve) => {
+    const p = spawn('yt-dlp', ['--version'], { stdio: 'ignore' });
+    p.on('error', () => resolve(false));
+    p.on('close', (code) => resolve(code === 0));
+  });
+}
+
+/**
+ * Return the current download/conversion status.
+ *
+ * @returns {object}
+ */
+export function getDownloadStatus() {
+  if (!_currentJob) {
+    return {
+      active: false,
+      stage: 'idle',
+      percent: 0,
+      speed: '',
+      eta: '',
+      videoTitle: '',
+      videoId: null,
+      error: null,
+    };
+  }
+
+  return {
+    active: ['fetching_info', 'downloading', 'converting'].includes(_currentJob.stage),
+    jobId: _currentJob.id,
+    url: _currentJob.url,
+    stage: _currentJob.stage,
+    percent: _currentJob.percent,
+    speed: _currentJob.speed,
+    eta: _currentJob.eta,
+    videoTitle: _currentJob.videoTitle,
+    videoId: _currentJob.videoId,
+    autoSetActive: _currentJob.autoSetActive,
+    error: _currentJob.error,
+    startedAt: _currentJob.startedAt,
+    completedAt: _currentJob.completedAt,
+  };
+}
+
+/**
+ * Cancel the current download or conversion job if active.
+ *
+ * @returns {boolean} True if a job was cancelled
+ */
+export async function cancelDownload() {
+  if (!_currentJob || !['fetching_info', 'downloading', 'converting'].includes(_currentJob.stage)) {
+    return false;
+  }
+
+  logger.warn('ytdlp.job_cancelled', `Cancelling YouTube download job ${_currentJob.id}`);
+  _currentJob.stage = 'cancelled';
+  _currentJob.error = 'Cancelled by user';
+
+  if (_currentJob.proc) {
+    try {
+      _currentJob.proc.kill('SIGKILL');
+    } catch { /* ignore */ }
+    _currentJob.proc = null;
+  }
+
+  // Cleanup temp files
+  for (const f of _currentJob.tempFiles || []) {
+    try { await fs.unlink(f); } catch { /* ignore */ }
+  }
+
+  return true;
+}
+
+/**
+ * Start a YouTube download and vertical conversion pipeline in the background.
+ *
+ * @param {string} rawUrl
+ * @param {object} [opts]
+ * @param {boolean} [opts.autoSetActive=false]
+ * @returns {Promise<object>} Status object
+ */
+export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {}) {
+  const url = (rawUrl || '').trim();
+
+  if (!isValidYouTubeUrl(url)) {
+    throw Object.assign(new Error('Invalid YouTube URL. Please provide a valid YouTube video or shorts link.'), {
+      code: 'E_INVALID_URL',
+    });
+  }
+
+  if (_currentJob && ['fetching_info', 'downloading', 'converting'].includes(_currentJob.stage)) {
+    throw Object.assign(new Error('A video download/conversion job is already in progress. Please wait for it to finish or cancel it.'), {
+      code: 'E_JOB_RUNNING',
+    });
+  }
+
+  const available = await isYtDlpAvailable();
+  if (!available) {
+    throw Object.assign(new Error('yt-dlp is not installed on the system. Please run update.sh on the server to install it.'), {
+      code: 'E_YTDLP_MISSING',
+    });
+  }
+
+  const jobId = crypto.randomBytes(4).toString('hex');
+  const incomingDir = PATHS.videosIncoming;
+  await fs.mkdir(incomingDir, { recursive: true, mode: 0o700 });
+
+  _currentJob = {
+    id: jobId,
+    url,
+    stage: 'fetching_info',
+    percent: 0,
+    speed: '',
+    eta: '',
+    videoTitle: 'Fetching video details...',
+    videoId: null,
+    autoSetActive,
+    error: null,
+    startedAt: new Date().toISOString(),
+    completedAt: null,
+    proc: null,
+    tempFiles: [],
+  };
+
+  // Run async pipeline in background
+  _executePipeline(jobId, url, autoSetActive).catch((err) => {
+    logger.error('ytdlp.pipeline_error', `Pipeline failed for job ${jobId}: ${err.message}`, { error: err.message });
+    if (_currentJob && _currentJob.id === jobId && _currentJob.stage !== 'cancelled') {
+      _currentJob.stage = 'error';
+      _currentJob.error = err.message || 'Download/conversion failed';
+      _currentJob.completedAt = new Date().toISOString();
+    }
+  });
+
+  return getDownloadStatus();
+}
+
+/**
+ * Internal async executor for the download and conversion stages.
+ */
+async function _executePipeline(jobId, url, autoSetActive) {
+  const incomingDir = PATHS.videosIncoming;
+  const rawPath = path.join(incomingDir, `ytdl_${jobId}_raw.mp4`);
+  const convertedPath = path.join(incomingDir, `ytdl_${jobId}_1080x1920.mp4`);
+
+  if (!_currentJob || _currentJob.id !== jobId) return;
+  _currentJob.tempFiles.push(rawPath, convertedPath);
+
+  // ─── 1. Fetch Video Title ──────────────────────────────────────────────────
+  logger.info('ytdlp.fetch_info', `Fetching video metadata for ${url}`);
+  try {
+    const title = await _getVideoTitle(url, jobId);
+    if (_currentJob && _currentJob.id === jobId) {
+      _currentJob.videoTitle = title || 'YouTube Video';
+    }
+  } catch (err) {
+    logger.warn('ytdlp.title_warning', `Could not fetch video title: ${err.message}`);
+    if (_currentJob && _currentJob.id === jobId) {
+      _currentJob.videoTitle = 'YouTube Video';
+    }
+  }
+
+  if (_currentJob.stage === 'cancelled') return;
+
+  // ─── 2. Download raw video using yt-dlp ────────────────────────────────────
+  _currentJob.stage = 'downloading';
+  _currentJob.percent = 0;
+  logger.info('ytdlp.start_download', `Downloading video from ${url} to ${rawPath}`);
+
+  await _downloadVideo(url, rawPath, jobId);
+
+  if (_currentJob.stage === 'cancelled') return;
+
+  // Verify downloaded raw file
+  const rawStat = await fs.stat(rawPath);
+  if (rawStat.size === 0) {
+    throw new Error('Downloaded file is empty (0 bytes).');
+  }
+
+  // ─── 3. Convert to 1080x1920 30fps vertical with user-specified format ────
+  _currentJob.stage = 'converting';
+  _currentJob.percent = 0;
+  _currentJob.speed = '';
+  _currentJob.eta = '';
+  logger.info('ytdlp.start_convert', `Converting ${rawPath} to vertical 1080x1920 at ${convertedPath}`);
+
+  // Probe raw video to determine total duration for accurate progress computation
+  let rawDuration = 60; // fallback duration in seconds
+  try {
+    const rawProbe = await probeMedia(rawPath);
+    if (rawProbe?.format?.duration && !isNaN(rawProbe.format.duration)) {
+      rawDuration = Math.max(1, parseFloat(rawProbe.format.duration));
+    }
+  } catch { /* use fallback */ }
+
+  await _convertVideo(rawPath, convertedPath, rawDuration, jobId);
+
+  if (_currentJob.stage === 'cancelled') return;
+
+  // ─── 4. Register Converted Video into Library ──────────────────────────────
+  logger.info('ytdlp.register_video', `Registering converted video ${convertedPath} into library`);
+  const safeTitle = (_currentJob.videoTitle || 'YouTube_Video')
+    .replace(/[/\\?%*:|"<>]/g, '_')
+    .slice(0, 100);
+
+  const videoMeta = await importConvertedVideo(convertedPath, `${safeTitle}.mp4`, {
+    autoSetActive,
+  });
+
+  // Clean up raw temp file
+  try { await fs.unlink(rawPath); } catch { /* ignore */ }
+
+  _currentJob.stage = 'completed';
+  _currentJob.percent = 100;
+  _currentJob.videoId = videoMeta.id;
+  _currentJob.completedAt = new Date().toISOString();
+
+  logger.info('ytdlp.job_completed', `Successfully imported YouTube video ${videoMeta.id} (${safeTitle})`);
+}
+
+/**
+ * Fetch YouTube video title using yt-dlp --print.
+ */
+function _getVideoTitle(url, jobId) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('yt-dlp', ['--print', '%(title)s', '--no-warnings', '--no-playlist', url], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    if (_currentJob && _currentJob.id === jobId) {
+      _currentJob.proc = proc;
+    }
+
+    let out = '';
+    proc.stdout.on('data', (d) => { out += d.toString('utf8'); });
+
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve(out.trim().split('\n')[0] || 'YouTube Video');
+      } else {
+        resolve('YouTube Video');
+      }
+    });
+  });
+}
+
+/**
+ * Download raw video stream using yt-dlp with real-time progress parsing.
+ */
+function _downloadVideo(url, outputPath, jobId) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
+      '--no-playlist',
+      '--newline',
+      '--no-warnings',
+      '--merge-output-format', 'mp4',
+      '-o', outputPath,
+      url,
+    ];
+
+    const proc = spawn('yt-dlp', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    if (_currentJob && _currentJob.id === jobId) {
+      _currentJob.proc = proc;
+    }
+
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+
+    let buffer = '';
+    proc.stdout.on('data', (chunk) => {
+      buffer += chunk.toString('utf8');
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep last incomplete line
+
+      for (const line of lines) {
+        // Example output: [download]  45.2% of ~ 150.00MiB at  5.20MiB/s ETA 00:15
+        const match = line.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([^\s]+)\s+at\s+([^\s]+)\s+ETA\s+([^\s]+)/);
+        if (match && _currentJob && _currentJob.id === jobId) {
+          _currentJob.percent = Math.min(99.9, parseFloat(match[1]));
+          _currentJob.speed = match[3];
+          _currentJob.eta = match[4];
+        }
+      }
+    });
+
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (_currentJob && _currentJob.id === jobId && _currentJob.stage === 'cancelled') {
+        return resolve();
+      }
+      if (code === 0) {
+        if (_currentJob && _currentJob.id === jobId) _currentJob.percent = 100;
+        resolve();
+      } else {
+        reject(new Error(`yt-dlp download failed (exit code ${code}): ${stderr.slice(-300)}`));
+      }
+    });
+  });
+}
+
+/**
+ * Convert raw downloaded video into vertical 1080x1920 30fps 2s GOP H.264/AAC CBR 4Mbps.
+ */
+function _convertVideo(inputPath, outputPath, totalDurationSec, jobId) {
+  return new Promise((resolve, reject) => {
+    // User requested format:
+    // -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
+    // -c:v libx264 -preset veryfast -profile:v high -pix_fmt yuv420p -r 30 -g 60 -keyint_min 60
+    // -b:v 4M -maxrate 4M -bufsize 8M -c:a aac -b:a 128k -ar 48000 -ac 2 -movflags +faststart
+    const args = [
+      '-i', inputPath,
+      '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1',
+      '-c:v', 'libx264',
+      '-preset', 'veryfast',
+      '-profile:v', 'high',
+      '-pix_fmt', 'yuv420p',
+      '-r', '30',
+      '-g', '60',
+      '-keyint_min', '60',
+      '-b:v', '4M',
+      '-maxrate', '4M',
+      '-bufsize', '8M',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-ar', '48000',
+      '-ac', '2',
+      '-movflags', '+faststart',
+      '-progress', 'pipe:1',
+      '-y',
+      outputPath,
+    ];
+
+    const proc = spawn('ffmpeg', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    if (_currentJob && _currentJob.id === jobId) {
+      _currentJob.proc = proc;
+    }
+
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+
+    let buffer = '';
+    proc.stdout.on('data', (chunk) => {
+      buffer += chunk.toString('utf8');
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        const parts = line.split('=');
+        if (parts.length === 2) {
+          const key = parts[0].trim();
+          const val = parts[1].trim();
+
+          if (key === 'out_time_us') {
+            const timeSec = parseInt(val, 10) / 1000000;
+            if (totalDurationSec > 0 && !isNaN(timeSec) && _currentJob && _currentJob.id === jobId) {
+              const pct = Math.min(99.9, Math.max(0, (timeSec / totalDurationSec) * 100));
+              _currentJob.percent = parseFloat(pct.toFixed(1));
+            }
+          } else if (key === 'speed' && _currentJob && _currentJob.id === jobId) {
+            _currentJob.speed = val;
+          }
+        }
+      }
+    });
+
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (_currentJob && _currentJob.id === jobId && _currentJob.stage === 'cancelled') {
+        return resolve();
+      }
+      if (code === 0) {
+        if (_currentJob && _currentJob.id === jobId) _currentJob.percent = 100;
+        resolve();
+      } else {
+        reject(new Error(`FFmpeg 1080x1920 conversion failed (exit code ${code}): ${stderr.slice(-300)}`));
+      }
+    });
+  });
+}

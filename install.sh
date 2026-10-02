@@ -124,6 +124,14 @@ if ! echo "${ENCODERS}" | grep -q "aac"; then
   exit 1
 fi
 
+# 3b. Install / update yt-dlp (YouTube URL direct download feature)
+echo "--> Installing yt-dlp..."
+YTDLP_BIN="/usr/local/bin/yt-dlp"
+YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
+curl -fsSL "${YTDLP_URL}" -o "${YTDLP_BIN}"
+chmod a+rx "${YTDLP_BIN}"
+echo "    yt-dlp installed: $(${YTDLP_BIN} --version 2>/dev/null || echo 'ok')"
+
 # 4. Create Dedicated User
 if ! id "${APP_USER}" >/dev/null 2>&1; then
   echo "--> Creating system user ${APP_USER}..."

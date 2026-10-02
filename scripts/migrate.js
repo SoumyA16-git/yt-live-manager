@@ -77,14 +77,26 @@ async function main() {
   // Clear any stale pre-flight errors in stream-state.json
   try {
     const { data: st } = await readJSON(PATHS.streamState, [], null);
-    if (st && st.status === 'ERROR' && st.lastError && ['E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO'].includes(st.lastError.code)) {
-      if (!dryRun) {
+    if (st) {
+      let stateChanged = false;
+      if (st.status === 'ERROR' && st.lastError && ['E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO', 'E_CONFIG_INVALID'].includes(st.lastError.code)) {
         st.lastError = null;
         st.status = 'STOPPED';
-        await writeJSON(PATHS.streamState, st);
-        console.log('[MIGRATE] data/stream-state.json: Cleared legacy pre-flight error state.');
-      } else {
-        console.log('[DRY-RUN] data/stream-state.json: Would clear legacy pre-flight error state.');
+        stateChanged = true;
+      }
+      // If maintenance mode was left active from previous update/script run, clear it
+      if (st.maintenance?.active && (st.maintenance.source === 'update' || st.status === 'MAINTENANCE')) {
+        st.maintenance = null;
+        if (st.status === 'MAINTENANCE') st.status = 'STOPPED';
+        stateChanged = true;
+      }
+      if (stateChanged) {
+        if (!dryRun) {
+          await writeJSON(PATHS.streamState, st);
+          console.log('[MIGRATE] data/stream-state.json: Cleared stale error/maintenance state.');
+        } else {
+          console.log('[DRY-RUN] data/stream-state.json: Would clear stale error/maintenance state.');
+        }
       }
     }
   } catch (err) {

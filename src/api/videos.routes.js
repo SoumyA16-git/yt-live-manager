@@ -15,6 +15,11 @@ import {
 import { getState } from '../state-manager.js';
 import { stopStream, startStream } from '../stream-manager.js';
 import { getSettings } from '../config-manager.js';
+import {
+  startYouTubeDownload,
+  getDownloadStatus,
+  cancelDownload,
+} from '../ytdlp-manager.js';
 import { logger } from '../logger.js';
 
 export function createVideosRouter() {
@@ -26,6 +31,41 @@ export function createVideosRouter() {
       const videos = await listVideos();
       const activeVideoId = getSettings().stream?.videoId || getState().activeVideoId || null;
       res.json({ videos, activeVideoId });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/videos/download-status
+  router.get('/download-status', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(getDownloadStatus());
+  });
+
+  // POST /api/videos/download-youtube
+  router.post('/download-youtube', async (req, res) => {
+    const { url, autoSetActive } = req.body || {};
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid YouTube URL', code: 'E_INVALID_URL' });
+    }
+
+    try {
+      const status = await startYouTubeDownload(url, { autoSetActive: Boolean(autoSetActive) });
+      res.json({ success: true, status });
+    } catch (err) {
+      const statusCode = err.code === 'E_INVALID_URL' ? 400
+        : err.code === 'E_JOB_RUNNING' ? 409
+        : err.code === 'E_YTDLP_MISSING' ? 503
+        : 500;
+      res.status(statusCode).json({ error: err.message, code: err.code });
+    }
+  });
+
+  // POST /api/videos/download-cancel
+  router.post('/download-cancel', async (req, res) => {
+    try {
+      const cancelled = await cancelDownload();
+      res.json({ success: true, cancelled });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

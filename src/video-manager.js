@@ -251,6 +251,68 @@ export async function processUpload(fileStream, fileInfo) {
   return videoMeta;
 }
 
+/**
+ * Register an externally converted video (e.g. from YouTube yt-dlp pipeline) into the library.
+ *
+ * @param {string} tempPath Path to the converted MP4 file
+ * @param {string} originalName Descriptive name for the video
+ * @param {object} [opts]
+ * @param {boolean} [opts.autoSetActive=false]
+ * @returns {Promise<object>} Video metadata object
+ */
+export async function importConvertedVideo(tempPath, originalName, { autoSetActive = false } = {}) {
+  const settings = getSettings();
+  const id = generateVideoId();
+  const targetPath = resolveVideoPath(id, '.mp4');
+
+  await fs.mkdir(_videosDir, { recursive: true, mode: 0o700 });
+
+  const stat = await fs.stat(tempPath);
+  const sizeBytes = stat.size;
+
+  // Move temp converted file to target
+  try {
+    await fs.rename(tempPath, targetPath);
+  } catch (err) {
+    // Fallback if cross-device link
+    await fs.copyFile(tempPath, targetPath);
+    await fs.unlink(tempPath).catch(() => {});
+  }
+
+  // Probe the converted file
+  const probe = await probeMedia(targetPath);
+  const compatibility = evaluateCompatibility(probe, settings);
+
+  const cleanLabel = originalName.replace(/\.[^/.]+$/, '').trim() || `YouTube_${id}`;
+  const videoMeta = {
+    id,
+    label: cleanLabel,
+    originalName,
+    filename: path.basename(targetPath),
+    sizeBytes,
+    uploadedAt: new Date().toISOString(),
+    mtimeMs: stat.mtimeMs,
+    probe,
+    compatibility,
+  };
+
+  const existingVideos = await listVideos();
+  const updatedVideos = [videoMeta, ...existingVideos.filter(v => v.id !== id)];
+  await saveVideosIndex(updatedVideos);
+
+  if (autoSetActive) {
+    await setActiveVideo(id);
+  }
+
+  logger.info('video.imported', `Imported converted video ${id} (${cleanLabel}) - ${compatibility.status}`, {
+    id,
+    status: compatibility.status,
+    sizeBytes,
+  });
+
+  return videoMeta;
+}
+
 // ─── Deletion (PRD §13.3) ────────────────────────────────────────────────────
 
 /**
