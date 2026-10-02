@@ -30,4 +30,9 @@ preserves 24×7 stability, and record here.
 | D-023 | Health verdict computed in `/api/status` | PRD §15.4 computes HEALTHY/DEGRADED/UNHEALTHY from encoder speed, failures, gates, and system metrics |
 | D-024 | Primary operational video strategy: pre-encoded 1080×1920 H.264 / AAC (2.0s GOP) for stream-copy mode | User confirmed; ensures < 10% CPU usage on OCI Ampere A1, rock-solid 24×7 stability, zero transcoding artifacts |
 | D-025 | YouTube Studio broadcast settings: Reusable key, Auto-stop OFF, Normal Latency | PRD §4.7, §14.3; prevents broadcast termination on reconnects, maximizes ingestion buffer resilience for 24×7 uptime |
+| D-026 | Optimization for VM.Standard.E2.1.Micro (1 OCPU, 1 GB RAM, x86_64): Enforce Stream-Copy ONLY | User confirmed; 1/8 OCPU burstable AMD core cannot encode 1080p in real-time. Enforcing stream-copy mode keeps CPU < 5%, RAM ~25 MB, zero-lag streaming |
+| D-027 | Memory & OOM Protection for E2.1.Micro: 2 GB swapfile (`swappiness=10`) + `--max-old-space-size=256` in systemd unit | User confirmed; prevents Linux OOM killer on 1 GB RAM while maintaining fast responsiveness |
+| D-028 | Video encoding workflow: User pre-encodes via editing software (Premiere, DaVinci, Handbrake) to 1080×1920 H.264/AAC (2s GOP) prior to uploading | User confirmed; zero server CPU overhead, guaranteed stream-copy mode compatibility on E2.1.Micro |
+| D-029 | Default `modePreference` is `copy` with `transcode` option retained in UI | User confirmed; protects E2.1.Micro by default while allowing flexibility if the VM shape is upgraded |
+
 

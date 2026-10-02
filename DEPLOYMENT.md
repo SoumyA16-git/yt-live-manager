@@ -27,10 +27,15 @@ On your local development machine:
 
 ## Phase 2: OCI Instance Setup & Prerequisites
 
-1. **Instance Shape:**
-   - Always Free **VM.Standard.A1.Flex** (Ampere A1 ARM64).
-   - Recommended: 2 to 4 OCPU, 12 to 24 GB RAM.
-   - Operating System: **Ubuntu 22.04 LTS** or **Ubuntu 24.04 LTS** (aarch64).
+1. **Instance Shape Options (Always Free):**
+   - **Option A: VM.Standard.E2.1.Micro (AMD x86_64)**
+     - 1 core OCPU, 1 GB RAM, 0.48 Gbps network bandwidth.
+     - **Streaming Profile:** Stream-Copy ONLY (`-c:v copy -c:a copy`). Pre-encode video to 1080×1920 H.264/AAC with 2s GOP.
+     - `install.sh` automatically provisions a 2 GB swapfile and systemd bounds Node.js to 256 MB heap to prevent OOM kills.
+     - OS: **Ubuntu 22.04 LTS** or **Ubuntu 24.04 LTS** (x86_64).
+   - **Option B: VM.Standard.A1.Flex (Ampere A1 ARM64)**
+     - 2 to 4 OCPU, 12 to 24 GB RAM.
+     - OS: **Ubuntu 22.04 LTS** or **Ubuntu 24.04 LTS** (aarch64).
 
 2. **OCI VCN Security List:**
    - Ingress Rule: **Port 22 (SSH) only** from your IP (or `0.0.0.0/0`).

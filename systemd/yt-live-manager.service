@@ -17,6 +17,11 @@ KillSignal=SIGTERM
 LimitNOFILE=4096
 UMask=0077
 
+# Memory Boundaries (protects 1 GB RAM shapes from OOM kills)
+Environment="NODE_OPTIONS=--max-old-space-size=256"
+MemoryMax=512M
+MemoryHigh=384M
+
 # Hardening
 NoNewPrivileges=true
 PrivateTmp=true

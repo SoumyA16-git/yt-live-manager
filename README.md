@@ -40,11 +40,11 @@ Open `http://localhost:3000` in your browser.
 
 ---
 
-## ☁️ Deployment on OCI Ampere A1 (Ubuntu ARM64)
-
+## ☁️ Deployment on OCI (Always Free Shapes)
+ 
 ### 1. Provision VM
-- **Shape:** VM.Standard.A1.Flex (2 OCPU / 12 GB RAM or up to 4 OCPU / 24 GB RAM)
-- **OS:** Ubuntu Server 22.04 LTS / 24.04 LTS (aarch64)
+- **Option A (Ultra-Lightweight):** `VM.Standard.E2.1.Micro` (1 OCPU, 1 GB RAM, x86_64 Ubuntu 22.04/24.04). Operates in zero-CPU stream-copy mode (`-c copy`) with automated 2 GB swapfile.
+- **Option B (High-Capacity):** `VM.Standard.A1.Flex` (2–4 OCPU, 12–24 GB RAM, ARM64 / aarch64 Ubuntu 22.04/24.04). Suitable for copy and real-time transcode modes.
 
 ### 2. Run Idempotent Installer
 Copy or clone the repository to the server, then execute:

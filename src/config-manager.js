@@ -29,8 +29,8 @@ export const DEFAULTS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
   stream: {
     videoId:               '',
-    modePreference:        'auto',
-    allowTranscode:        true,
+    modePreference:        'copy',
+    allowTranscode:        false,
     autoResume:            true,
     resolution:            '1080x1920',
     fps:                   30,

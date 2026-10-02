@@ -56,11 +56,34 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
-# 1. Architecture Check (PRD §21.2)
+# 1. Architecture Check
 ARCH=$(uname -m)
-if [[ "${ARCH}" != "aarch64" ]]; then
-  echo "⚠️ Warning: Detected architecture is ${ARCH}, but target is ARM64 (aarch64)."
-  echo "Continuing anyway for development/testing..."
+if [[ "${ARCH}" == "x86_64" ]]; then
+  echo "--> Detected x86_64 architecture (e.g. OCI VM.Standard.E2.1.Micro / AMD)."
+elif [[ "${ARCH}" == "aarch64" ]]; then
+  echo "--> Detected aarch64 architecture (e.g. OCI Ampere A1 ARM64)."
+else
+  echo "⚠️ Warning: Detected architecture is ${ARCH}. Target is x86_64 or aarch64."
+fi
+
+# 2. Swapfile Setup (critical for 1 GB RAM shapes like VM.Standard.E2.1.Micro)
+SWAP_TOTAL=$(free -m 2>/dev/null | awk '/^Swap:/ {print $2}')
+if [[ "${SWAP_TOTAL:-0}" -lt 1024 ]]; then
+  echo "--> Low or zero swap detected (${SWAP_TOTAL:-0} MB). Configuring 2 GB swapfile for memory stability..."
+  if [[ ! -f /swapfile ]]; then
+    fallocate -l 2G /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=2048
+    chmod 600 /swapfile
+    mkswap /swapfile
+  fi
+  swapon /swapfile 2>/dev/null || true
+  if ! grep -q "/swapfile" /etc/fstab; then
+    echo "/swapfile none swap sw 0 0" >> /etc/fstab
+  fi
+  sysctl vm.swappiness=10 >/dev/null 2>&1 || true
+  if ! grep -q "vm.swappiness" /etc/sysctl.conf; then
+    echo "vm.swappiness=10" >> /etc/sysctl.conf
+  fi
+  echo "--> Swapfile configured: $(free -h 2>/dev/null | awk '/^Swap:/ {print $2}') active."
 fi
 
 # 2. System Packages & NodeSource
