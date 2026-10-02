@@ -41,7 +41,10 @@ fi
 
 rollback() {
   echo ""
-  echo "🚨 VERIFICATION FAILED! Initiating automatic rollback..."
+  echo "🚨 VERIFICATION FAILED! Service logs:"
+  journalctl -u yt-live-manager -n 25 --no-pager || true
+  echo ""
+  echo "Initiating automatic rollback..."
   systemctl stop yt-live-manager || true
   cp -r "${ROLLBACK_DIR}/src" "${INSTALL_DIR}/"
   cp -r "${ROLLBACK_DIR}/public" "${INSTALL_DIR}/"
