@@ -70,14 +70,192 @@ let _incomingDir = PATHS.videosIncoming;
 // ─── Metadata Library Index ──────────────────────────────────────────────────
 
 /**
- * Load videos metadata catalog from data/videos.json.
+ * Scan videos/ (and videos/.incoming/) directory on disk.
+ * Discovers untracked video files, probes them, and syncs them into data/videos.json.
+ * Also recovers completed .tmp files from .incoming.
  *
+ * @returns {Promise<Array<object>>} Updated videos catalog
+ */
+export async function syncDiskVideos() {
+  const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+  let videos = Array.isArray(data?.videos) ? [...data.videos] : [];
+  let changed = false;
+
+  let settings = {};
+  try { settings = getSettings() || {}; } catch { /* default */ }
+
+  const allowedExts = new Set(['.mp4', '.mkv', '.mov', '.m4v', '.webm']);
+
+  // Ensure directories exist
+  try {
+    await fs.mkdir(_videosDir, { recursive: true, mode: 0o700 });
+    await fs.mkdir(_incomingDir, { recursive: true, mode: 0o700 });
+  } catch { /* ignore */ }
+
+  // 1. Check videos/.incoming for complete abandoned video files (> 5MB, not modified in 5s)
+  try {
+    const incomingEntries = await fs.readdir(_incomingDir, { withFileTypes: true });
+    const now = Date.now();
+    for (const ent of incomingEntries) {
+      if (!ent.isFile()) continue;
+      const tmpPath = path.join(_incomingDir, ent.name);
+      try {
+        const stat = await fs.stat(tmpPath);
+        if (stat.size > 5 * 1024 * 1024 && (now - stat.mtimeMs > 5000)) {
+          try {
+            const probe = await probeMedia(tmpPath);
+            if (probe && probe.hasVideo) {
+              const newId = generateVideoId();
+              const destPath = resolveVideoPath(newId, '.mp4');
+              await fs.rename(tmpPath, destPath);
+              logger.info('video.recovered_incoming', `Recovered complete video from incoming: ${ent.name} -> ${newId}.mp4`);
+            }
+          } catch {
+            // Not a complete video yet; leave alone
+          }
+        }
+      } catch { /* ignore stat error */ }
+    }
+  } catch { /* ignore if incoming dir missing */ }
+
+  // 2. Scan main videos/ directory for untracked videos
+  try {
+    const diskEntries = await fs.readdir(_videosDir, { withFileTypes: true });
+    const diskVideoFiles = [];
+
+    for (const ent of diskEntries) {
+      if (!ent.isFile()) continue;
+      if (ent.name.startsWith('.')) continue; // ignore hidden
+      const ext = path.extname(ent.name).toLowerCase();
+      if (allowedExts.has(ext)) {
+        diskVideoFiles.push(ent.name);
+      }
+    }
+
+    for (const filename of diskVideoFiles) {
+      let filePath = path.join(_videosDir, filename);
+      const ext = path.extname(filename).toLowerCase();
+      const baseName = path.basename(filename, ext);
+
+      // Check if already in catalog
+      const alreadyIndexed = videos.some(v =>
+        v.filename === filename ||
+        v.id === baseName ||
+        (v.originalName && v.originalName === filename)
+      );
+
+      if (!alreadyIndexed) {
+        try {
+          const stat = await fs.stat(filePath);
+          if (stat.size < 1024) continue; // skip tiny/empty files
+
+          let videoId;
+          let targetPath = filePath;
+
+          // If filename is already vid_<8 hex>, use that ID
+          if (/^vid_[0-9a-f]{8}$/i.test(baseName)) {
+            videoId = baseName.toLowerCase();
+          } else {
+            // Standardize filename to vid_<hex><ext> so resolveVideoPath works seamlessly
+            videoId = generateVideoId();
+            targetPath = resolveVideoPath(videoId, ext);
+            await fs.rename(filePath, targetPath);
+            logger.info('video.normalized_name', `Renamed ${filename} -> ${path.basename(targetPath)}`);
+          }
+
+          const probe = await probeMedia(targetPath);
+          const compatibility = evaluateCompatibility(probe, settings);
+          const originalName = filename;
+          const cleanLabel = baseName.replace(/^vid_[0-9a-f]{8}_?/i, '').trim() || originalName.replace(/\.[^/.]+$/, '');
+
+          const newMeta = {
+            id: videoId,
+            label: cleanLabel || `Video_${videoId}`,
+            originalName,
+            filename: path.basename(targetPath),
+            sizeBytes: stat.size,
+            uploadedAt: new Date(stat.mtimeMs).toISOString(),
+            mtimeMs: stat.mtimeMs,
+            probe,
+            compatibility,
+          };
+
+          videos.push(newMeta);
+          changed = true;
+          logger.info('video.auto_discovered', `Discovered and indexed video ${videoId} (${filename}) - ${compatibility.status}`);
+        } catch (err) {
+          logger.warn('video.probe_failed_during_sync', `Could not index ${filename}: ${err.message}`);
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn('video.sync_readdir_error', `Could not read videos directory: ${err.message}`);
+  }
+
+  // 3. Re-evaluate compatibility for all videos
+  videos = videos.map(v => {
+    if (v.probe) {
+      try {
+        const freshCompat = evaluateCompatibility(v.probe, settings);
+        if (!v.compatibility || v.compatibility.status !== freshCompat.status ||
+            JSON.stringify(v.compatibility.reasons) !== JSON.stringify(freshCompat.reasons)) {
+          v.compatibility = freshCompat;
+          changed = true;
+        }
+      } catch (err) {
+        logger.warn('video.eval_compat_error', `Could not evaluate compatibility for ${v.id}: ${err.message}`);
+      }
+    }
+    return v;
+  });
+
+  // 4. If we have videos, ensure an active video is set
+  const currentSettings = getSettings();
+  const currentState = getState();
+  const activeId = currentSettings?.stream?.videoId || currentState?.activeVideoId;
+  const activeExists = videos.some(v => v.id === activeId);
+
+  if (videos.length > 0 && (!activeId || !activeExists)) {
+    const firstId = videos[0].id;
+    try {
+      await setActiveVideo(firstId);
+      logger.info('video.auto_activated', `Automatically selected ${firstId} as active video`);
+    } catch (err) {
+      logger.warn('video.auto_activate_failed', `Could not set active video: ${err.message}`);
+    }
+  }
+
+  if (changed) {
+    await saveVideosIndex(videos);
+  }
+
+  return videos;
+}
+
+/**
+ * Load videos metadata catalog from data/videos.json.
+ * Auto-syncs from disk if catalog is empty or forceSync is true.
+ *
+ * @param {object} [opts]
+ * @param {boolean} [opts.forceSync=false]
  * @returns {Promise<Array<object>>}
  */
-export async function listVideos() {
+export async function listVideos({ forceSync = false } = {}) {
   const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
-  const videos = data?.videos ?? [];
+  let videos = data?.videos ?? [];
   let changed = false;
+
+  // If index is empty or forced, scan disk to auto-discover existing video files
+  if (videos.length === 0 || forceSync) {
+    try {
+      const diskVideos = await syncDiskVideos();
+      if (diskVideos.length > 0) {
+        return diskVideos;
+      }
+    } catch (err) {
+      logger.warn('video.disk_sync_fallback_failed', err.message);
+    }
+  }
 
   let settings = {};
   try {

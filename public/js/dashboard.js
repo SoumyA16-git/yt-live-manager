@@ -309,7 +309,35 @@ function renderVideos(videos, activeIdFromApi = null) {
   }
 
   if (videos.length === 0) {
-    videosList.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">No videos uploaded yet</div>';
+    videosList.innerHTML = `
+      <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1.25rem 1rem;">
+        <div>No videos currently indexed in library.</div>
+        <button id="btn-sync-videos" class="btn btn-secondary btn-sm" style="margin-top: 0.65rem;">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Scan Videos Folder on Server
+        </button>
+      </div>
+    `;
+    const btnSync = document.getElementById('btn-sync-videos');
+    if (btnSync) {
+      btnSync.addEventListener('click', async () => {
+        btnSync.disabled = true;
+        btnSync.textContent = 'Scanning server files...';
+        try {
+          const res = await apiPost('/api/videos/sync');
+          await refreshAll();
+          if (res.count > 0) {
+            alert(`Found and indexed ${res.count} video file(s)!`);
+          } else {
+            alert('Scan complete. No video files found in videos/ directory.');
+          }
+        } catch (err) {
+          alert(`Scan failed: ${err.message}`);
+        } finally {
+          btnSync.disabled = false;
+        }
+      });
+    }
     activeVideoName.textContent = 'None selected';
     return;
   }

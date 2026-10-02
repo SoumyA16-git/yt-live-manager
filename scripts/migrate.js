@@ -10,6 +10,7 @@
 import fs from 'node:fs/promises';
 import { readJSON, writeJSON } from '../src/lib/atomic-json.js';
 import { evaluateCompatibility } from '../src/ffprobe-manager.js';
+import { syncDiskVideos } from '../src/video-manager.js';
 import PATHS from '../src/lib/paths.js';
 
 const dryRun = process.argv.includes('--dry-run');
@@ -87,34 +88,16 @@ async function main() {
     console.error('[WARN] Failed to auto-migrate settings flags:', err.message);
   }
 
-  // Re-evaluate video compatibility in data/videos.json with latest rules/settings
+  // Auto-sync and discover video files on disk into data/videos.json
   try {
-    const { data: vData } = await readJSON(PATHS.videosIndex, [], null);
-    const { data: sData } = await readJSON(PATHS.settings, [], null);
-    if (vData && Array.isArray(vData.videos) && vData.videos.length > 0) {
-      let vUpdated = false;
-      const settings = sData || {};
-      for (const v of vData.videos) {
-        if (v.probe) {
-          const fresh = evaluateCompatibility(v.probe, settings);
-          if (v.compatibility?.status !== fresh.status ||
-              JSON.stringify(v.compatibility?.reasons) !== JSON.stringify(fresh.reasons)) {
-            v.compatibility = fresh;
-            vUpdated = true;
-          }
-        }
-      }
-      if (vUpdated) {
-        if (!dryRun) {
-          await writeJSON(PATHS.videosIndex, vData);
-          console.log('[MIGRATE] data/videos.json: Re-evaluated video compatibility with updated rules (Stream-Copy Ready).');
-        } else {
-          console.log('[DRY-RUN] data/videos.json: Would re-evaluate video compatibility with updated rules.');
-        }
-      }
+    if (!dryRun) {
+      const synced = await syncDiskVideos();
+      console.log(`[MIGRATE] Video Library: Synced ${synced.length} video(s) from disk.`);
+    } else {
+      console.log('[DRY-RUN] Video Library: Would sync and discover videos from disk.');
     }
   } catch (err) {
-    console.error('[WARN] Failed to re-evaluate videos.json in migration:', err.message);
+    console.error('[WARN] Failed to auto-sync videos from disk:', err.message);
   }
 
   // Clear any stale pre-flight errors or reconnecting loops in stream-state.json

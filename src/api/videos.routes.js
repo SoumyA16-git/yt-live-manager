@@ -13,6 +13,7 @@ import {
   setActiveVideo,
   revalidateVideo,
   processUpload,
+  syncDiskVideos,
 } from '../video-manager.js';
 import { getState } from '../state-manager.js';
 import { stopStream, startStream } from '../stream-manager.js';
@@ -32,9 +33,21 @@ export function createVideosRouter() {
   // GET /api/videos
   router.get('/', async (req, res) => {
     try {
-      const videos = await listVideos();
+      const forceSync = req.query.sync === '1' || req.query.sync === 'true';
+      const videos = await listVideos({ forceSync });
       const activeVideoId = getSettings().stream?.videoId || getState().activeVideoId || null;
       res.json({ videos, activeVideoId });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/videos/sync — manual trigger to scan disk & discover video files
+  router.post('/sync', async (req, res) => {
+    try {
+      const videos = await syncDiskVideos();
+      const activeVideoId = getSettings().stream?.videoId || getState().activeVideoId || null;
+      res.json({ success: true, count: videos.length, videos, activeVideoId });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
