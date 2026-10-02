@@ -125,12 +125,16 @@ if ! echo "${ENCODERS}" | grep -q "aac"; then
 fi
 
 # 3b. Install / update yt-dlp (YouTube URL direct download feature)
-echo "--> Installing yt-dlp..."
+echo "--> Installing yt-dlp (60s timeout)..."
 YTDLP_BIN="/usr/local/bin/yt-dlp"
 YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-curl -fsSL "${YTDLP_URL}" -o "${YTDLP_BIN}"
-chmod a+rx "${YTDLP_BIN}"
-echo "    yt-dlp installed: $(${YTDLP_BIN} --version 2>/dev/null || echo 'ok')"
+if curl -fsSL --connect-timeout 10 --max-time 60 --retry 1 "${YTDLP_URL}" -o "${YTDLP_BIN}" 2>/dev/null; then
+  chmod a+rx "${YTDLP_BIN}"
+  echo "    yt-dlp installed: $(${YTDLP_BIN} --version 2>/dev/null || echo 'ok')"
+else
+  echo "    WARNING: yt-dlp download failed or timed out. Skipping."
+  echo "    Install manually later: sudo curl -fsSL ${YTDLP_URL} -o ${YTDLP_BIN} && sudo chmod a+rx ${YTDLP_BIN}"
+fi
 
 # 4. Create Dedicated User
 if ! id "${APP_USER}" >/dev/null 2>&1; then

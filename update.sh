@@ -76,12 +76,16 @@ if [[ -f "${CURRENT_DIR}/systemd/yt-live-manager.service" ]]; then
 fi
 
 # 4. Update yt-dlp binary (YouTube URL direct download feature)
-echo "--> Updating yt-dlp..."
+echo "--> Updating yt-dlp (non-blocking, 60s timeout)..."
 YTDLP_BIN="/usr/local/bin/yt-dlp"
 YTDLP_URL="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp"
-curl -fsSL "${YTDLP_URL}" -o "${YTDLP_BIN}"
-chmod a+rx "${YTDLP_BIN}"
-echo "    yt-dlp updated: $(${YTDLP_BIN} --version 2>/dev/null || echo 'ok')"
+if curl -fsSL --connect-timeout 10 --max-time 60 --retry 1 "${YTDLP_URL}" -o "${YTDLP_BIN}" 2>/dev/null; then
+  chmod a+rx "${YTDLP_BIN}"
+  echo "    yt-dlp updated: $(${YTDLP_BIN} --version 2>/dev/null || echo 'ok')"
+else
+  echo "    WARNING: yt-dlp download failed or timed out. Skipping (YouTube URL import may not work)."
+  echo "    To install manually: sudo curl -fsSL ${YTDLP_URL} -o ${YTDLP_BIN} && sudo chmod a+rx ${YTDLP_BIN}"
+fi
 
 # 5. Dependency Update
 echo "--> Updating npm dependencies..."
