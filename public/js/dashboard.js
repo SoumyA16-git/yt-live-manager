@@ -837,6 +837,8 @@ function setupYouTubeDownload() {
         formData.append('file', file, file.name);
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/videos/upload-cookies');
+        const csrf = getCsrfToken();
+        if (csrf) xhr.setRequestHeader('X-CSRF-Token', csrf);
         xhr.onload = () => {
           cookiesFileInput.value = '';
           if (xhr.status === 200) {
