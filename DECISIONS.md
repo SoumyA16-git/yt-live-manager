@@ -29,4 +29,5 @@ preserves 24×7 stability, and record here.
 | D-022 | Unknown keys in settings.json loaded from disk are passed through (lenient load) | Prevents data loss across versions; API path still rejects unknowns via validate.js |
 | D-023 | Health verdict computed in `/api/status` | PRD §15.4 computes HEALTHY/DEGRADED/UNHEALTHY from encoder speed, failures, gates, and system metrics |
 | D-024 | Primary operational video strategy: pre-encoded 1080×1920 H.264 / AAC (2.0s GOP) for stream-copy mode | User confirmed; ensures < 10% CPU usage on OCI Ampere A1, rock-solid 24×7 stability, zero transcoding artifacts |
+| D-025 | YouTube Studio broadcast settings: Reusable key, Auto-stop OFF, Normal Latency | PRD §4.7, §14.3; prevents broadcast termination on reconnects, maximizes ingestion buffer resilience for 24×7 uptime |
 
