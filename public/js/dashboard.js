@@ -466,9 +466,9 @@ function handleFileUpload(file) {
     return;
   }
 
-  const maxBytes = 4 * 1024 * 1024 * 1024; // 4 GiB
+  const maxBytes = 8 * 1024 * 1024 * 1024; // 8 GiB
   if (file.size > maxBytes) {
-    alert(`File is too large (${formatBytes(file.size)}). Maximum supported file size is 4 GiB.`);
+    alert(`File is too large (${formatBytes(file.size)}). Maximum supported file size is 8 GiB.`);
     return;
   }
 
@@ -490,7 +490,7 @@ function handleFileUpload(file) {
 
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/videos/upload');
-  xhr.timeout = 3600000; // 60 minutes timeout for large files
+  xhr.timeout = 0; // Unlimited timeout to allow 2GB+ video uploads without disconnect
 
   const csrf = getCsrfToken();
   if (csrf) {

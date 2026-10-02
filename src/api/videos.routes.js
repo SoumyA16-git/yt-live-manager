@@ -43,13 +43,22 @@ export function createVideosRouter() {
 
   // POST /api/videos/upload (PRD §13.3 — streaming busboy)
   router.post('/upload', (req, res) => {
+    // Disable request and socket timeouts for large multi-gigabyte uploads (PRD §13.3)
+    req.setTimeout(0);
+    res.setTimeout(0);
+    if (req.socket) {
+      req.socket.setTimeout(0);
+      req.socket.setKeepAlive(true, 10000);
+      req.socket.setNoDelay(true);
+    }
+
     const contentType = req.headers['content-type'];
     if (!contentType || !contentType.includes('multipart/form-data')) {
       return res.status(400).json({ error: 'Expected multipart/form-data' });
     }
 
     const settings = getSettings();
-    const maxBytes = settings.uploads?.maxBytes ?? 4 * 1024 * 1024 * 1024; // 4 GiB
+    const maxBytes = settings.uploads?.maxBytes ?? 8 * 1024 * 1024 * 1024; // 8 GiB
 
     let bb;
     try {

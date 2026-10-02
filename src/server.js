@@ -125,6 +125,12 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
       logger.info('app.listening', `Server listening on http://${host}:${port}`);
     });
 
+    // Disable requestTimeout & socket timeout to allow multi-gigabyte video uploads without 5-minute disconnect
+    server.requestTimeout = 0;
+    server.timeout = 0;
+    server.headersTimeout = 300000;
+    server.keepAliveTimeout = 120000;
+
     // 5. Start in-process scheduler
     startScheduler();
 
