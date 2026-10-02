@@ -156,6 +156,19 @@ export async function loadSettings() {
 
   _settings = deepMerge(DEFAULTS, migrate(data ?? {}));
 
+  // Auto-heal stream copy settings: ensure floor is 0.1 Mbps and keyframeMax is 8.0s
+  if (_settings.stream) {
+    if (_settings.stream.copyMinMbps === undefined || _settings.stream.copyMinMbps > 0.1) {
+      _settings.stream.copyMinMbps = 0.1;
+    }
+    if (_settings.stream.copyMaxMbps === undefined || _settings.stream.copyMaxMbps > 4.0) {
+      _settings.stream.copyMaxMbps = 4.0;
+    }
+    if (_settings.stream.keyframeMaxSeconds === undefined || _settings.stream.keyframeMaxSeconds < 8.0) {
+      _settings.stream.keyframeMaxSeconds = 8.0;
+    }
+  }
+
   // Register stream key — must happen before any log line that might contain it
   if (_settings.youtube?.streamKey) {
     setSecret(_settings.youtube.streamKey);

@@ -363,7 +363,7 @@ function renderVideos(videos, activeIdFromApi = null) {
           <span class="meta-tag">${v.probe?.aspectRatio || '1080:1920'}</span>
           <span class="meta-tag">${v.probe?.fps || 30}fps</span>
           <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
-          <span class="badge-tag ${compat}">${compatLabel}</span>
+          <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
         </div>
       </div>
       <div class="video-actions">

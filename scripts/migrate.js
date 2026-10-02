@@ -67,12 +67,12 @@ async function main() {
         data.stream.copyMinMbps = 0.1;
         healed = true;
       }
-      if (data.stream.copyMaxMbps === undefined || data.stream.copyMaxMbps > 4.5) {
+      if (data.stream.copyMaxMbps === undefined || data.stream.copyMaxMbps > 4.0) {
         data.stream.copyMaxMbps = 4.0;
         healed = true;
       }
-      if (data.stream.keyframeMaxSeconds === undefined || data.stream.keyframeMaxSeconds < 6.0) {
-        data.stream.keyframeMaxSeconds = 6.0;
+      if (data.stream.keyframeMaxSeconds === undefined || data.stream.keyframeMaxSeconds < 8.0) {
+        data.stream.keyframeMaxSeconds = 8.0;
         healed = true;
       }
       if (healed) {
