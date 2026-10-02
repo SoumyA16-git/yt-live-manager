@@ -167,15 +167,59 @@ describe('REST API Endpoints', () => {
     assert.equal(body.settings.stream.videoBitrateMbps, 7);
   });
 
-  test('GET /api/stream/status returns current stream status and progress', async () => {
-    const res = await fetch(`${baseUrl}/api/stream/status`, {
+  test('GET /api/stream/status and GET /api/status return status and health verdict', async () => {
+    const res1 = await fetch(`${baseUrl}/api/stream/status`, {
       headers: { Cookie: sessionCookie },
     });
+    assert.equal(res1.status, 200);
+    const s1 = await res1.json();
+    assert.ok(s1.status);
+    assert.ok(s1.healthVerdict);
 
+    const res2 = await fetch(`${baseUrl}/api/status`, {
+      headers: { Cookie: sessionCookie },
+    });
+    assert.equal(res2.status, 200);
+    const s2 = await res2.json();
+    assert.equal(s2.status, s1.status);
+    assert.equal(s2.healthVerdict.status, s1.healthVerdict.status);
+  });
+
+  test('GET /api/logs returns application logs', async () => {
+    const res = await fetch(`${baseUrl}/api/logs?limit=10`, {
+      headers: { Cookie: sessionCookie },
+    });
     assert.equal(res.status, 200);
-    const status = await res.json();
-    assert.ok(status.status);
-    assert.ok(status.desiredState);
+    const body = await res.json();
+    assert.ok(Array.isArray(body.lines));
+  });
+
+  test('POST /api/maintenance toggles maintenance mode', async () => {
+    const res = await fetch(`${baseUrl}/api/maintenance`, {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      body: JSON.stringify({ enabled: true }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.equal(body.maintenance.active, true);
+
+    // Disable maintenance
+    const res2 = await fetch(`${baseUrl}/api/maintenance`, {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      body: JSON.stringify({ enabled: false }),
+    });
+    assert.equal(res2.status, 200);
   });
 
   test('GET /api/bandwidth returns bandwidth summary and forecasting', async () => {

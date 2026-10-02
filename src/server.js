@@ -75,12 +75,22 @@ export async function createApp(envConfig = {}) {
   const csrfMw = requireCsrf();
 
   const streamRouter = createStreamRouter();
+  const systemRouter = createSystemRouter();
+
   app.use('/api/stream', authMw, csrfMw, streamRouter);
-  app.get('/api/status', authMw, (req, res, next) => streamRouter(req, res, next));
+  app.use('/api/status', authMw, streamRouter);
+  app.post('/api/maintenance', authMw, csrfMw, (req, res, next) => {
+    req.url = '/maintenance';
+    streamRouter(req, res, next);
+  });
   app.use('/api/settings',  authMw, csrfMw, createSettingsRouter(authEnv));
   app.use('/api/bandwidth', authMw, csrfMw, createBandwidthRouter(authEnv));
   app.use('/api/videos',    authMw, csrfMw, createVideosRouter());
-  app.use('/api/system',    authMw, createSystemRouter());
+  app.use('/api/system',    authMw, systemRouter);
+  app.get('/api/logs', authMw, (req, res, next) => {
+    req.url = '/logs';
+    systemRouter(req, res, next);
+  });
 
   // Static files (served from public/)
   app.use(express.static(PATHS.public));

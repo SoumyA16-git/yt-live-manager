@@ -7,6 +7,7 @@ import {
   startStream,
   stopStream,
   setDisabled,
+  setMaintenance,
 } from '../stream-manager.js';
 import { getState } from '../state-manager.js';
 import { getLatestProgress, getRecentStderr } from '../ffmpeg-manager.js';
@@ -15,7 +16,7 @@ export function createStreamRouter() {
   const router = Router();
 
   // GET /api/stream/status (and /api/status)
-  router.get('/status', async (req, res) => {
+  router.get(['/', '/status'], async (req, res) => {
     const state = getState();
     const progress = getLatestProgress();
 
@@ -113,6 +114,14 @@ export function createStreamRouter() {
   router.post('/enable', async (req, res) => {
     await setDisabled(false);
     res.json({ success: true, disabled: false });
+  });
+
+  // POST /api/maintenance (PRD §16.2)
+  router.post('/maintenance', async (req, res) => {
+    const { enabled, active, source } = req.body || {};
+    const isActive = typeof enabled === 'boolean' ? enabled : Boolean(active);
+    await setMaintenance(isActive, source || 'admin');
+    res.json({ success: true, maintenance: getState().maintenance });
   });
 
   return router;

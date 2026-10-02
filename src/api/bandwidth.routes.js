@@ -13,7 +13,7 @@ import {
 import { getSettings, saveSettings } from '../config-manager.js';
 import { getState, saveState } from '../state-manager.js';
 import { verifyPassword } from '../auth.js';
-import { bytesToTB, tbToBytes } from '../bitrate-calculator.js';
+import { bytesToTB, tbToBytes, gbToBytes } from '../bitrate-calculator.js';
 import { logger } from '../logger.js';
 
 export function createBandwidthRouter(envConfig) {
@@ -30,16 +30,42 @@ export function createBandwidthRouter(envConfig) {
     }
   });
 
-  // POST /api/bandwidth/adjust (PRD §7.3)
+  // POST /api/bandwidth/adjust (PRD §7.3, §16.2)
   router.post('/adjust', async (req, res) => {
-    const { offsetBytes } = req.body || {};
-    if (typeof offsetBytes !== 'number') {
-      return res.status(400).json({ error: 'offsetBytes must be a number' });
+    const { offsetBytes, offsetGB, ociReportedGB } = req.body || {};
+    const settings = getSettings();
+    const unitBase = settings.bandwidth?.unitBase ?? 1000;
+
+    let applied = false;
+
+    if (ociReportedGB != null) {
+      if (typeof ociReportedGB !== 'number' || ociReportedGB < 0) {
+        return res.status(400).json({ error: 'ociReportedGB must be a non-negative number' });
+      }
+      setManualOciReported(ociReportedGB);
+      applied = true;
     }
 
-    setManualOffsetBytes(offsetBytes);
+    if (offsetGB != null) {
+      if (typeof offsetGB !== 'number') {
+        return res.status(400).json({ error: 'offsetGB must be a number' });
+      }
+      setManualOffsetBytes(gbToBytes(offsetGB, unitBase));
+      applied = true;
+    } else if (offsetBytes != null) {
+      if (typeof offsetBytes !== 'number') {
+        return res.status(400).json({ error: 'offsetBytes must be a number' });
+      }
+      setManualOffsetBytes(offsetBytes);
+      applied = true;
+    }
+
+    if (!applied) {
+      return res.status(400).json({ error: 'Either offsetGB, offsetBytes, or ociReportedGB is required' });
+    }
+
     await flushUsage({ force: true });
-    logger.info('bandwidth.adjusted', `Manual bandwidth offset set to ${offsetBytes} bytes`);
+    logger.info('bandwidth.adjusted', `Bandwidth reconciled: offsetGB=${offsetGB}, ociReportedGB=${ociReportedGB}`);
 
     res.json({ success: true, effectiveUsedBytes: getEffectiveUsedBytes() });
   });
