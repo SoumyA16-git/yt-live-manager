@@ -218,9 +218,26 @@ export async function processUpload(fileStream, fileInfo) {
     compatibility,
   };
 
-  const videos = await listVideos();
-  videos.push(videoMeta);
-  await saveVideosIndex(videos);
+  // Auto-purge all previous video files (Single-video rotation: PRD §13 / User directive)
+  const previousVideos = await listVideos();
+  for (const old of previousVideos) {
+    if (old.id !== id) {
+      try {
+        const ext = path.extname(old.filename || `${old.id}.mp4`);
+        const oldPath = resolveVideoPath(old.id, ext);
+        await fs.unlink(oldPath).catch(() => {});
+        logger.info('video.auto_purged', `Auto-purged previous video file ${old.id} (${old.originalName}) on new upload`);
+      } catch (err) {
+        logger.warn('video.auto_purge_failed', `Could not delete old video file ${old.id}: ${err.message}`);
+      }
+    }
+  }
+
+  // Save catalog containing only the newly uploaded video
+  await saveVideosIndex([videoMeta]);
+
+  // Automatically mark the new video as active
+  await setActiveVideo(id);
 
   logger.info('video.uploaded', `Uploaded video ${id} (${originalName}) - ${compatibility.status}`, {
     id,

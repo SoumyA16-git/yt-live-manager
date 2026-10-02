@@ -90,7 +90,17 @@ export function createVideosRouter() {
 
       try {
         const videoMeta = await uploadPromise;
-        res.status(201).json({ success: true, video: videoMeta });
+
+        // If stream is actively live, seamlessly restart onto newly uploaded video
+        const state = getState();
+        const isLive = state.status === 'RUNNING' || state.status === 'STARTING';
+        if (isLive) {
+          logger.info('video.upload_restart', `Stream is active; switching stream onto new upload ${videoMeta.id}`);
+          await stopStream({ keepDesiredRunning: true, reason: 'upload_video_rotation' });
+          await startStream({ reason: 'upload_video_rotation' });
+        }
+
+        res.status(201).json({ success: true, video: videoMeta, autoSelected: true });
       } catch (err) {
         const status = err.code === 'E_DISK_LOW' ? 507
           : err.code === 'E_INVALID_EXTENSION' ? 415

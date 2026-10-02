@@ -63,6 +63,7 @@ const uploadBox        = document.getElementById('upload-progress-box');
 const uploadPct        = document.getElementById('upload-pct');
 const uploadFill       = document.getElementById('upload-fill');
 const videosList       = document.getElementById('videos-list');
+const videoCountBadge  = document.getElementById('video-count-badge');
 
 // System
 const metricCpu        = document.getElementById('metric-cpu');
@@ -255,6 +256,10 @@ async function fetchVideos() {
 function renderVideos(videos) {
   videosList.innerHTML = '';
   const currentVideoId = _currentSettings?.stream?.videoId;
+
+  if (videoCountBadge) {
+    videoCountBadge.textContent = `${videos.length} ${videos.length === 1 ? 'Video' : 'Videos'}`;
+  }
 
   if (videos.length === 0) {
     videosList.innerHTML = '<div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1rem;">No videos uploaded yet</div>';
