@@ -300,16 +300,20 @@ async function _executePipeline(jobId, url, autoSetActive) {
   _currentJob.eta = '';
   logger.info('ytdlp.start_convert', `Converting ${rawPath} to vertical 1080x1920 at ${convertedPath}`);
 
-  // Probe raw video to determine total duration for accurate progress computation
+  // Probe raw video to determine total duration and video bitrate for accurate progress and bitrate matching
   let rawDuration = 60; // fallback duration in seconds
+  let rawBitrate = 0;
   try {
     const rawProbe = await probeMedia(rawPath);
-    if (rawProbe?.format?.duration && !isNaN(rawProbe.format.duration)) {
-      rawDuration = Math.max(1, parseFloat(rawProbe.format.duration));
+    if (rawProbe?.durationSec && !isNaN(rawProbe.durationSec)) {
+      rawDuration = Math.max(1, rawProbe.durationSec);
+    }
+    if (rawProbe?.videoBitrate && rawProbe.videoBitrate > 0) {
+      rawBitrate = rawProbe.videoBitrate;
     }
   } catch { /* use fallback */ }
 
-  await _convertVideo(rawPath, convertedPath, rawDuration, jobId);
+  await _convertVideo(rawPath, convertedPath, rawDuration, jobId, rawBitrate);
 
   if (_currentJob.stage === 'cancelled') return;
 
@@ -432,14 +436,17 @@ async function _downloadVideo(url, outputPath, jobId) {
 }
 
 /**
- * Convert raw downloaded video into vertical 1080x1920 30fps 2s GOP H.264/AAC CBR 4Mbps.
+ * Convert raw downloaded video into vertical 1080x1920 30fps 2s GOP H.264/AAC.
+ * Bitrate matches source video bitrate capped at 4 Mbps ceiling.
  */
-function _convertVideo(inputPath, outputPath, totalDurationSec, jobId) {
+function _convertVideo(inputPath, outputPath, totalDurationSec, jobId, rawBitrate = 0) {
   return new Promise((resolve, reject) => {
-    // User requested format:
-    // -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
-    // -c:v libx264 -preset veryfast -profile:v high -pix_fmt yuv420p -r 30 -g 60 -keyint_min 60
-    // -b:v 4M -maxrate 4M -bufsize 8M -c:a aac -b:a 128k -ar 48000 -ac 2 -movflags +faststart
+    // Preserve source video bitrate up to 4Mbps max; never blow up file size
+    const maxBitrateBps = 4_000_000;
+    const targetBitrateBps = rawBitrate > 0 ? Math.min(rawBitrate, maxBitrateBps) : maxBitrateBps;
+    const targetKbps = Math.round(targetBitrateBps / 1000);
+    const bufSizeKbps = Math.min(targetKbps * 2, 8000);
+
     const args = [
       '-i', inputPath,
       '-vf', 'scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1',
@@ -450,9 +457,9 @@ function _convertVideo(inputPath, outputPath, totalDurationSec, jobId) {
       '-r', '30',
       '-g', '60',
       '-keyint_min', '60',
-      '-b:v', '4M',
+      '-b:v', `${targetKbps}k`,
       '-maxrate', '4M',
-      '-bufsize', '8M',
+      '-bufsize', `${bufSizeKbps}k`,
       '-c:a', 'aac',
       '-b:a', '128k',
       '-ar', '48000',

@@ -101,7 +101,10 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     const width = parseInt(w, 10) || 1080;
     const height = parseInt(h, 10) || 1920;
 
-    const videoKbps = (streamCfg.videoBitrateMbps ?? 8) * 1000;
+    const maxKbps = (streamCfg.videoBitrateMbps ?? 4) * 1000;
+    const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
+    // Adapt to source video bitrate up to max 4Mbps ceiling (avoids inflating lower bitrate files)
+    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
     const bufSizeKbps = videoKbps * 2;
     const preset = streamCfg.x264Preset || 'veryfast';
 

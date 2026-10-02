@@ -295,24 +295,40 @@ systemctl show yt-live-manager -p MemoryCurrent,MemoryMax
 
 Before uploading videos, pre-encode them locally on your computer to ensure **100% stream-copy mode** compatibility (Zero CPU encoding on your VPS):
 
-#### Windows PowerShell Command:
+#### Windows (Using the included Smart GPU Converter):
+Simply double-click **`YT_Live_GPU_Converter.bat`** in the repository root.
+- Automatically selects any video with a file dialog.
+- Detects the source video's bitrate and duration.
+- **Preserves original file size** (e.g. 2 GB remains ~2 GB, never bloating into 8 GB).
+- Automatically caps high-bitrate videos (e.g. 10 Mbps) at **4 Mbps** to stay within YouTube Live & bandwidth limits.
+- Outputs 1080×1920 30fps vertical video that is **100% Stream-Copy Ready** (No re-encode errors on upload!).
+
+#### Windows PowerShell Command (Manual):
 ```powershell
-ffmpeg -i "input.mp4" `
+# Probe source bitrate and cap at 4000k max
+$input = "input.mp4"
+$raw = & ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input"
+$b = 0; if ($raw -and [int64]::TryParse($raw.Trim(), [ref]$b) -and $b -gt 0) { } else { $b = 4000000 }
+$kb = [Math]::Min([Math]::Max(500, [int][Math]::Round($b / 1000)), 4000)
+$buf = [Math]::Min($kb * 2, 8000)
+
+ffmpeg -i "$input" `
   -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" `
-  -c:v libx264 -preset slow -profile:v high -b:v 4000k -maxrate 4000k -bufsize 8000k `
+  -c:v libx264 -preset slow -profile:v high -b:v "${kb}k" -maxrate 4000k -bufsize "${buf}k" `
   -g 60 -keyint_min 60 -sc_threshold 0 `
-  -c:a aac -b:a 128k -ar 44100 `
+  -c:a aac -b:a 128k -ar 48000 -ac 2 `
   -pix_fmt yuv420p -movflags +faststart `
   "output_1080x1920.mp4"
 ```
 
 #### Linux / macOS Terminal Command:
 ```bash
+# Uses -crf 20 with -maxrate 4M to adapt to source complexity without bloating file size
 ffmpeg -i "input.mp4" \
   -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" \
-  -c:v libx264 -preset slow -profile:v high -b:v 4000k -maxrate 4000k -bufsize 8000k \
+  -c:v libx264 -preset slow -profile:v high -crf 20 -maxrate 4000k -bufsize 8000k \
   -g 60 -keyint_min 60 -sc_threshold 0 \
-  -c:a aac -b:a 128k -ar 44100 \
+  -c:a aac -b:a 128k -ar 48000 -ac 2 \
   -pix_fmt yuv420p -movflags +faststart \
   "output_1080x1920.mp4"
 ```

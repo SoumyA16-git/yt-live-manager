@@ -197,4 +197,18 @@ describe('ffprobe-manager — evaluateCompatibility matrix', () => {
     assert.equal(res.status, 'REQUIRES_TRANSCODING');
     assert.ok(res.reasons.includes('BITRATE_TOO_LOW'));
   });
+
+  test('accepts lower bitrate (1.2 Mbps) with default settings (copyMinMbps: 0.1)', () => {
+    const sourceMeta = { ...idealMeta, videoBitrate: 1_200_000 }; // 1.2 Mbps
+    const res = evaluateCompatibility(sourceMeta, {});
+    assert.equal(res.status, 'COMPATIBLE');
+    assert.equal(res.modeAllowed.copy, true);
+  });
+
+  test('flags BITRATE_TOO_HIGH when video bitrate (10 Mbps) exceeds 4 Mbps gate ceiling', () => {
+    const highBitrateMeta = { ...idealMeta, videoBitrate: 10_000_000 }; // 10 Mbps > 4.0 Mbps
+    const res = evaluateCompatibility(highBitrateMeta, {});
+    assert.equal(res.status, 'REQUIRES_TRANSCODING');
+    assert.ok(res.reasons.includes('BITRATE_TOO_HIGH'));
+  });
 });

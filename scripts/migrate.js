@@ -61,6 +61,14 @@ async function main() {
         data.stream.modePreference = 'auto';
         healed = true;
       }
+      if (data.stream.copyMinMbps === undefined || data.stream.copyMinMbps > 0.1) {
+        data.stream.copyMinMbps = 0.1;
+        healed = true;
+      }
+      if (data.stream.copyMaxMbps === undefined || data.stream.copyMaxMbps > 4.5) {
+        data.stream.copyMaxMbps = 4.0;
+        healed = true;
+      }
       if (healed) {
         if (!dryRun) {
           await writeJSON(PATHS.settings, data);

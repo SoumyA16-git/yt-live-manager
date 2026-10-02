@@ -97,12 +97,17 @@ export function parseProbeOutput(probeJson, keyframeCsv = '') {
   const durationSec = parseFloat(format.duration || vStream.duration || '0') || 0;
   const fileSizeBytes = parseInt(format.size, 10) || 0;
 
-  // Video bitrate (bps): fallback to format.bit_rate if stream bitrate missing
+  // Video bitrate (bps): fallback to format.bit_rate or filesize/duration if stream bitrate missing
   let videoBitrate = parseInt(vStream.bit_rate, 10);
   if (isNaN(videoBitrate) || videoBitrate <= 0) {
     const fmtBitrate = parseInt(format.bit_rate, 10) || 0;
     const audioBitrateGuess = parseInt(aStream?.bit_rate, 10) || 128_000;
     videoBitrate = Math.max(0, fmtBitrate - audioBitrateGuess);
+  }
+  if ((!videoBitrate || videoBitrate <= 0) && durationSec > 0 && fileSizeBytes > 0) {
+    const calculatedBitrate = Math.round((fileSizeBytes * 8) / durationSec);
+    const audioBitrateGuess = parseInt(aStream?.bit_rate, 10) || 128_000;
+    videoBitrate = Math.max(0, calculatedBitrate - audioBitrateGuess);
   }
 
   const maxKeyframeIntervalSec = parseKeyframeScan(keyframeCsv);
@@ -165,8 +170,8 @@ export function evaluateCompatibility(meta, settings = {}) {
 
   const targetRes   = streamCfg.resolution || '1080x1920';
   const targetFps   = streamCfg.fps ?? 30;
-  const copyMinMbps = streamCfg.copyMinMbps ?? 2;
-  const copyMaxMbps = streamCfg.copyMaxMbps ?? 12;
+  const copyMinMbps = streamCfg.copyMinMbps ?? 0.1;
+  const copyMaxMbps = streamCfg.copyMaxMbps ?? 4.0;
   const keyframeMax = streamCfg.keyframeMaxSeconds ?? 4.0;
 
   // 1. Resolution Check
@@ -224,15 +229,15 @@ export function evaluateCompatibility(meta, settings = {}) {
     }
   }
 
-  // 7. Video Bitrate: between copyMinMbps and copyMaxMbps
+  // 7. Video Bitrate: between copyMinMbps and copyMaxMbps (capped at 4Mbps max gate with 5% tolerance)
   const videoMbps = meta.videoBitrate / 1_000_000;
   if (videoMbps > 0) {
     if (videoMbps < copyMinMbps) {
       reasons.push('BITRATE_TOO_LOW');
       explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Minimum for copy mode is ${copyMinMbps} Mbps.`);
-    } else if (videoMbps > copyMaxMbps) {
+    } else if (videoMbps > copyMaxMbps * 1.05) {
       reasons.push('BITRATE_TOO_HIGH');
-      explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum for copy mode is ${copyMaxMbps} Mbps.`);
+      explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum allowed gate for copy mode is ${copyMaxMbps} Mbps (capped at 4 Mbps).`);
     }
   }
 
