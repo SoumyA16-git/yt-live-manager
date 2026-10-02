@@ -68,6 +68,7 @@ const videoCountBadge  = document.getElementById('video-count-badge');
 // System
 const metricCpu        = document.getElementById('metric-cpu');
 const metricRam        = document.getElementById('metric-ram');
+const metricRamSub     = document.getElementById('metric-ram-sub');
 const metricDisk       = document.getElementById('metric-disk');
 const metricUptime     = document.getElementById('metric-uptime');
 const dirVideos        = document.getElementById('dir-videos');
@@ -221,7 +222,14 @@ async function fetchSystem() {
 
 function renderSystem(data) {
   metricCpu.textContent  = `${data.cpuPercent || 0}%`;
-  metricRam.textContent  = `${data.ram?.usedPercent || 0}%`;
+
+  const appMb = data.appRam?.rssMB || 0;
+  const sysPct = data.ram?.usedPercent || 0;
+  metricRam.textContent = `${appMb} MB`;
+  if (metricRamSub) {
+    metricRamSub.textContent = `Node: ${appMb} MB · System: ${sysPct}%`;
+  }
+
   metricDisk.textContent = `${data.disk?.usedPercent || 0}%`;
 
   const up = data.uptimeSec || 0;

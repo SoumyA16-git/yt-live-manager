@@ -128,6 +128,13 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
     // 5. Start in-process scheduler
     startScheduler();
 
+    // Idle Garbage Collection (runs every 5 minutes if --expose-gc is enabled)
+    if (typeof global.gc === 'function') {
+      setInterval(() => {
+        try { global.gc(); } catch { /* ignore */ }
+      }, 300000).unref();
+    }
+
     // 6. Auto-resume stream if configured (PRD §8.5)
     if (settings.stream?.autoResume && state.desiredState === 'running') {
       logger.info('app.auto_resume', 'Auto-resume enabled and desiredState is running; initiating stream start');

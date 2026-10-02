@@ -21,29 +21,36 @@ export function createSystemRouter() {
     }
   });
 
-  // GET /api/logs (PRD §20)
+  // GET /api/logs (PRD §20 — Zero-bloat tail reader: max 16 KB from end of file)
   router.get('/logs', async (req, res) => {
-    const limit = Math.min(500, Math.max(10, parseInt(req.query.limit, 10) || 100));
+    const limit = Math.min(100, Math.max(5, parseInt(req.query.limit, 10) || 40));
     try {
       let raw = '';
+      let fh = null;
       try {
-        raw = await fs.readFile(PATHS.appLog, 'utf8');
+        fh = await fs.open(PATHS.appLog, 'r');
+        const stat = await fh.stat();
+        const readBytes = Math.min(stat.size, 16384);
+        const buffer = Buffer.alloc(readBytes);
+        await fh.read(buffer, 0, readBytes, Math.max(0, stat.size - readBytes));
+        raw = buffer.toString('utf8');
       } catch {
         raw = '';
+      } finally {
+        if (fh) await fh.close();
       }
 
       const allLines = raw.split('\n').filter(l => l.trim().length > 0);
       const recent = allLines.slice(-limit).map(line => {
         try {
-          const parsed = JSON.parse(line);
-          return parsed;
+          return JSON.parse(line);
         } catch {
           return { raw: redact(line) };
         }
       });
 
       res.json({
-        totalLines: allLines.length,
+        totalLines: recent.length,
         lines: recent,
       });
     } catch (err) {

@@ -159,6 +159,11 @@ export async function tickScheduler(now = new Date()) {
  */
 export function startScheduler() {
   if (_timer) return;
+  const mode = getSettings()?.scheduler?.mode ?? 'continuous';
+  if (mode !== 'scheduled') {
+    logger.info('scheduler.inactive', `Scheduler in ${mode} mode; interval loop disabled to minimize RAM`);
+    return;
+  }
   _timer = setInterval(async () => {
     try {
       await tickScheduler(new Date());

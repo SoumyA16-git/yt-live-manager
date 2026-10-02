@@ -17,10 +17,10 @@ KillSignal=SIGTERM
 LimitNOFILE=4096
 UMask=0077
 
-# Memory Boundaries (protects 1 GB RAM shapes from OOM kills)
-Environment="NODE_OPTIONS=--max-old-space-size=256"
-MemoryMax=512M
-MemoryHigh=384M
+# Memory Boundaries (Ultra-low RAM tuning: < 40 MB footprint)
+Environment="NODE_OPTIONS=--max-old-space-size=64 --optimize-for-size --expose-gc"
+MemoryMax=96M
+MemoryHigh=64M
 
 # Hardening
 NoNewPrivileges=true

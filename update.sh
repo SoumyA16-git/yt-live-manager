@@ -61,9 +61,14 @@ echo "--> Updating application files..."
 cp -ru "${CURRENT_DIR}/src" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/public" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/scripts" "${INSTALL_DIR}/"
+cp -ru "${CURRENT_DIR}/systemd" "${INSTALL_DIR}/"
 cp -u "${CURRENT_DIR}/package.json" "${INSTALL_DIR}/"
 if [[ -f "${CURRENT_DIR}/package-lock.json" ]]; then
   cp -u "${CURRENT_DIR}/package-lock.json" "${INSTALL_DIR}/"
+fi
+if [[ -f "${CURRENT_DIR}/systemd/yt-live-manager.service" ]]; then
+  cp "${CURRENT_DIR}/systemd/yt-live-manager.service" "/etc/systemd/system/yt-live-manager.service"
+  systemctl daemon-reload
 fi
 
 # 4. Dependency Update
