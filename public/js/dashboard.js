@@ -558,6 +558,9 @@ async function init() {
       await fetchStatus();
     } catch (err) {
       alert(`Start failed: ${err.message}`);
+    } finally {
+      btnStart.disabled = false;
+      await fetchStatus();
     }
   });
 
@@ -569,6 +572,9 @@ async function init() {
         await fetchStatus();
       } catch (err) {
         alert(`Stop failed: ${err.message}`);
+      } finally {
+        btnStop.disabled = false;
+        await fetchStatus();
       }
     }
   });
@@ -581,6 +587,9 @@ async function init() {
         await fetchStatus();
       } catch (err) {
         alert(`Restart failed: ${err.message}`);
+      } finally {
+        btnRestart.disabled = false;
+        await fetchStatus();
       }
     }
   });
@@ -631,17 +640,31 @@ async function init() {
 
   settingsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+
+    let rtmpsUrl = cfgRtmpsUrl.value.trim();
+    if (rtmpsUrl.startsWith('rtmp://')) {
+      rtmpsUrl = rtmpsUrl
+        .replace(/^rtmp:\/\/a\.rtmp\.youtube\.com/i, 'rtmps://a.rtmps.youtube.com:443')
+        .replace(/^rtmp:\/\/b\.rtmp\.youtube\.com/i, 'rtmps://b.rtmps.youtube.com:443')
+        .replace(/^rtmp:\/\//i, 'rtmps://');
+      cfgRtmpsUrl.value = rtmpsUrl;
+    }
+
+    const bitrate = parseFloat(cfgBitrate.value);
+    const safetyLimit = parseFloat(cfgSafetyLimit.value);
+    const overhead = parseFloat(cfgOverhead.value);
+
     const patch = {
       stream: {
         modePreference: cfgModePref.value,
-        videoBitrateMbps: parseFloat(cfgBitrate.value),
+        ...(Number.isFinite(bitrate) ? { videoBitrateMbps: bitrate } : {}),
       },
       youtube: {
-        rtmpsUrl: cfgRtmpsUrl.value.trim(),
+        rtmpsUrl,
       },
       bandwidth: {
-        safetyLimitTB: parseFloat(cfgSafetyLimit.value),
-        overheadPercent: parseFloat(cfgOverhead.value),
+        ...(Number.isFinite(safetyLimit) ? { safetyLimitTB: safetyLimit } : {}),
+        ...(Number.isFinite(overhead) ? { overheadPercent: overhead } : {}),
       },
     };
 
@@ -654,7 +677,10 @@ async function init() {
       modalSettings.classList.remove('open');
       await refreshAll();
     } catch (err) {
-      alert(`Save failed: ${err.message}`);
+      const detail = err.errors && err.errors.length > 0
+        ? err.errors.join('\n• ')
+        : (err.message || 'Validation error');
+      alert(`Save failed:\n• ${detail}`);
     }
   });
 

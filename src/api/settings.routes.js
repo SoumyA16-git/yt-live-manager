@@ -31,8 +31,24 @@ export function createSettingsRouter(envConfig) {
       return res.status(400).json({ error: 'Body must be a JSON object' });
     }
 
+    // Auto-upgrade rtmp:// to rtmps:// for YouTube ingestion (PRD §19.2)
+    if (patch.youtube && typeof patch.youtube.rtmpsUrl === 'string') {
+      let url = patch.youtube.rtmpsUrl.trim();
+      if (url.startsWith('rtmp://')) {
+        url = url.replace(/^rtmp:\/\/a\.rtmp\.youtube\.com/i, 'rtmps://a.rtmps.youtube.com:443')
+                 .replace(/^rtmp:\/\/b\.rtmp\.youtube\.com/i, 'rtmps://b.rtmps.youtube.com:443')
+                 .replace(/^rtmp:\/\//i, 'rtmps://');
+        patch.youtube.rtmpsUrl = url;
+      }
+    }
+
     // If streamKey in patch is empty/blank, remove it so existing key is preserved
-    if (patch.youtube && (!patch.youtube.streamKey || patch.youtube.streamKey.trim() === '')) {
+    if (patch.youtube && typeof patch.youtube.streamKey === 'string') {
+      patch.youtube.streamKey = patch.youtube.streamKey.trim();
+      if (patch.youtube.streamKey === '') {
+        delete patch.youtube.streamKey;
+      }
+    } else if (patch.youtube && !patch.youtube.streamKey) {
       delete patch.youtube.streamKey;
     }
 
@@ -41,7 +57,8 @@ export function createSettingsRouter(envConfig) {
       res.json({ success: true, settings: updated });
     } catch (err) {
       if (err.code === 'E_VALIDATION') {
-        return res.status(400).json({ error: err.message, code: err.code, errors: err.errors });
+        const errorDetail = err.errors && err.errors.length > 0 ? err.errors.join('; ') : err.message;
+        return res.status(400).json({ error: errorDetail, code: err.code, errors: err.errors });
       }
       res.status(500).json({ error: err.message });
     }
