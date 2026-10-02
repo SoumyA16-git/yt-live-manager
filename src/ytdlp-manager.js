@@ -370,9 +370,13 @@ async function _downloadVideo(url, outputPath, jobId) {
   return new Promise((resolve, reject) => {
     const args = [
       ...baseArgs,
-      '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best[ext=mp4]/best',
-      '--newline',
+      // Prefer best quality up to 1080p to avoid downloading 4K unnecessarily
+      // Falls back progressively if format not available
+      '-f', 'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio[ext=m4a]/bestvideo[height<=1080]+bestaudio/best[height<=1080][ext=mp4]/best',
       '--merge-output-format', 'mp4',
+      '--newline',
+      '--no-part',                  // No .part temp files — cleaner on failure/cancel
+      '--concurrent-fragments', '4', // Parallel chunk downloads — 2-4x faster on VPS
       '-o', outputPath,
       url,
     ];
