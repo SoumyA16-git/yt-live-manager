@@ -562,12 +562,9 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
     } else if (isPairedFeedActive) {
       chkAreaHtml = `
         <label class="video-chk-label" title="Automatically linked & active for 16:9 Dual Streaming Feed (Paired with #${pairedVerticalPos})">
-          <input type="checkbox" class="video-select-chk" data-id="${v.id}" checked disabled style="opacity: 0.9; accent-color: var(--accent-cyan); cursor: default;">
+          <input type="checkbox" class="video-select-chk" data-id="${v.id}" checked disabled style="opacity: 0.8; cursor: default;">
         </label>
-        <span class="playlist-seq-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); display: inline-flex; align-items: center; gap: 0.25rem;" title="Auto-Paired 16:9 Feed for #${pairedVerticalPos}">
-          <svg class="icon icon-sm" viewBox="0 0 24 24" style="width:0.75rem;height:0.75rem;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-          16:9
-        </span>
+        <span class="playlist-seq-badge" title="Auto-Paired 16:9 Feed for #${pairedVerticalPos}">16:9</span>
       `;
     } else {
       chkAreaHtml = `
@@ -583,19 +580,13 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
         <div class="video-info">
           <div class="video-name">${v.label || v.originalName}</div>
           <div class="video-meta">
-            ${isHorizontal
-              ? '<span class="badge-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 600;">16:9 Horizontal</span>'
-              : '<span class="badge-tag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; font-weight: 600;">9:16 Shorts</span>'
-            }
+            <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
             <span class="meta-tag">${v.probe?.aspectRatio || (isHorizontal ? '1920:1080' : '1080:1920')}</span>
             <span class="meta-tag">${v.probe?.fps || 30}fps</span>
             <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
             <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
             ${v.paired
-              ? `<span class="meta-tag" style="color: var(--accent-cyan); font-weight: 500; display: inline-flex; align-items: center; gap: 0.25rem;" title="Paired with ${v.paired.label || v.paired.originalName}">
-                  <svg class="icon icon-sm" viewBox="0 0 24 24" style="width:0.75rem;height:0.75rem;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                  Pair: ${v.paired.label || v.paired.originalName}
-                </span>`
+              ? `<span class="meta-tag" title="Paired with ${v.paired.label || v.paired.originalName}">Pair: ${v.paired.label || v.paired.originalName}</span>`
               : ''
             }
           </div>
@@ -603,20 +594,15 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
       </div>
       <div class="video-actions">
         ${isSelected
-          ? `<span class="badge-tag" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; font-weight: 600;">
-               ${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}
-             </span>`
+          ? `<span class="badge-tag badge-active">${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}</span>`
           : isPairedFeedActive
-            ? `<span class="badge-tag" style="background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
-                 <svg class="icon icon-sm" viewBox="0 0 24 24" style="width:0.75rem;height:0.75rem;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                 DUAL FEED (16:9 ACTIVE)
-               </span>`
+            ? `<span class="badge-tag">DUAL FEED (16:9)</span>`
             : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                  Play Solo
                </button>`
         }
-        <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video" style="color: #f43f5e; padding: 0.35rem 0.5rem;">
+        <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
       </div>
@@ -697,13 +683,13 @@ function updateDeckStreamKeyBadge(settings) {
   if (!deckStreamKeyBadge) return;
   if (settings?.youtube?.streamKeySet) {
     deckStreamKeyBadge.textContent = `YouTube: Configured (...${settings.youtube.streamKeyHint})`;
-    deckStreamKeyBadge.style.borderColor = 'rgba(34, 197, 94, 0.4)';
-    deckStreamKeyBadge.style.color = '#4ade80';
+    deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
+    deckStreamKeyBadge.style.color = 'var(--text-main)';
     deckStreamKeyBadge.title = `YouTube Stream Key is configured (...${settings.youtube.streamKeyHint}). Click to change.`;
   } else {
     deckStreamKeyBadge.textContent = 'YouTube: Key Missing';
-    deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.5)';
-    deckStreamKeyBadge.style.color = '#f87171';
+    deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+    deckStreamKeyBadge.style.color = 'var(--text-main)';
     deckStreamKeyBadge.title = 'YouTube Stream Key is not configured! Click to open Settings.';
   }
 }
@@ -713,21 +699,18 @@ function updateKeyFeedback() {
   const val = cfgStreamKey.value.trim();
   if (val.length > 0) {
     keyBadge.textContent = 'Unsaved Entry';
-    keyBadge.style.background = 'rgba(96, 165, 250, 0.2)';
-    keyBadge.style.color = '#60a5fa';
-    keyHintText.innerHTML = `<strong style="color: #60a5fa;">New stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> below to apply.`;
+    keyBadge.className = 'badge-tag badge-active';
+    keyHintText.innerHTML = `New stream key entered (${val.length} chars) — Click <strong>Save Configuration</strong> below to apply.`;
   } else if (_currentSettings?.youtube?.streamKeySet) {
     keyBadge.textContent = `Saved (...${_currentSettings.youtube.streamKeyHint})`;
-    keyBadge.style.background = 'rgba(34, 197, 94, 0.2)';
-    keyBadge.style.color = '#4ade80';
+    keyBadge.className = 'badge-tag';
     cfgStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.streamKeyHint})`;
-    keyHintText.innerHTML = `<strong style="color: #4ade80;">Active YouTube Stream Key is saved</strong> (ends in ...${_currentSettings.youtube.streamKeyHint}). Leave empty to keep unchanged, or paste a new key to update.`;
+    keyHintText.innerHTML = `Active YouTube Stream Key is saved (ends in ...${_currentSettings.youtube.streamKeyHint}). Leave empty to keep unchanged, or paste a new key to update.`;
   } else {
     keyBadge.textContent = 'Not Configured';
-    keyBadge.style.background = 'rgba(239, 68, 68, 0.2)';
-    keyBadge.style.color = '#f87171';
+    keyBadge.className = 'badge-tag';
     cfgStreamKey.placeholder = 'Paste YouTube Stream Key (e.g. xxxx-xxxx-xxxx-xxxx-xxxx)';
-    keyHintText.innerHTML = '<strong style="color: #f87171;">No stream key saved.</strong> You must paste your YouTube Stream Key before you can start streaming.';
+    keyHintText.innerHTML = 'No stream key saved. You must paste your YouTube Stream Key before you can start streaming.';
   }
 }
 
@@ -736,19 +719,16 @@ function updateHorizontalKeyFeedback() {
   const val = cfgHorizontalStreamKey.value.trim();
   if (val.length > 0) {
     horizontalKeyBadge.textContent = 'Unsaved Entry';
-    horizontalKeyBadge.style.background = 'rgba(96, 165, 250, 0.2)';
-    horizontalKeyBadge.style.color = '#60a5fa';
-    horizontalKeyHintText.innerHTML = `<strong style="color: #60a5fa;">New horizontal stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> to apply.`;
+    horizontalKeyBadge.className = 'badge-tag badge-active';
+    horizontalKeyHintText.innerHTML = `New horizontal stream key entered (${val.length} chars) — Click <strong>Save Configuration</strong> to apply.`;
   } else if (_currentSettings?.youtube?.horizontalStreamKeySet) {
     horizontalKeyBadge.textContent = `Saved (...${_currentSettings.youtube.horizontalStreamKeyHint})`;
-    horizontalKeyBadge.style.background = 'rgba(56, 189, 248, 0.2)';
-    horizontalKeyBadge.style.color = 'var(--accent-cyan)';
+    horizontalKeyBadge.className = 'badge-tag';
     cfgHorizontalStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint})`;
-    horizontalKeyHintText.innerHTML = `<strong style="color: var(--accent-cyan);">Horizontal stream key saved</strong> (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Stream copy will broadcast to both Shorts and Normal feeds simultaneously.`;
+    horizontalKeyHintText.innerHTML = `Horizontal stream key saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Stream will broadcast to both Shorts and Normal feeds simultaneously.`;
   } else {
     horizontalKeyBadge.textContent = 'Optional';
-    horizontalKeyBadge.style.background = 'rgba(255, 255, 255, 0.06)';
-    horizontalKeyBadge.style.color = 'var(--text-muted)';
+    horizontalKeyBadge.className = 'badge-tag';
     cfgHorizontalStreamKey.placeholder = 'Paste Normal Feed Stream Key (optional for dual live)';
     horizontalKeyHintText.innerHTML = 'Optional: Add a stream key to simultaneously live stream to YouTube Normal 16:9 feed alongside Shorts feed.';
   }
@@ -831,11 +811,9 @@ function switchIngestTab(tab) {
 
   if (tab === 'youtube') {
     uploadZone.style.display = 'none';
-    ytPanel.style.display    = 'block';
-    tabUpload.style.background = 'transparent';
-    tabUpload.style.color      = 'var(--text-muted)';
-    tabYt.style.background     = 'var(--accent-rose)';
-    tabYt.style.color          = '#fff';
+    ytPanel.style.display    = 'flex';
+    tabUpload?.classList.remove('active');
+    tabYt?.classList.add('active');
     // Check cookies status and show warning if missing
     apiGet('/api/videos/cookies-status').then((s) => {
       const banner = document.getElementById('yt-cookies-banner');
@@ -844,10 +822,8 @@ function switchIngestTab(tab) {
   } else {
     uploadZone.style.display = '';
     ytPanel.style.display    = 'none';
-    tabUpload.style.background = 'var(--accent-primary)';
-    tabUpload.style.color      = 'var(--bg-canvas)';
-    tabYt.style.background     = 'transparent';
-    tabYt.style.color          = 'var(--text-muted)';
+    tabUpload?.classList.add('active');
+    tabYt?.classList.remove('active');
   }
 }
 
@@ -858,7 +834,7 @@ function setupUploads() {
 
   uploadZone.addEventListener('dragover', (e) => {
     e.preventDefault();
-    uploadZone.style.borderColor = 'var(--accent-blue)';
+    uploadZone.style.borderColor = 'var(--border-active)';
   });
 
   uploadZone.addEventListener('dragleave', () => {

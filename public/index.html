@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>24×7 YouTube Vertical Live Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -21,7 +22,7 @@
       <div class="logo-group">
         <span class="logo-badge">24×7</span>
         <h1 class="brand-title">
-          <svg class="icon icon-md" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
+          <svg class="icon icon-md" viewBox="0 0 24 24"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
           YT Live Manager
         </h1>
         <span class="brand-tag">Console</span>
@@ -41,7 +42,7 @@
 
   <main class="container">
 
-    <!-- 1. Sticky Primary Control Deck (Pinned at top on mobile & desktop) -->
+    <!-- 1. Sticky Primary Control Deck -->
     <section class="sticky-control-deck">
       <div class="deck-status-row">
         <div class="status-indicator-group">
@@ -56,7 +57,7 @@
           <span id="deck-stream-key-badge" class="reachability-pill" style="cursor: pointer;" title="YouTube Stream Key status. Click to open Settings.">
             Checking Key...
           </span>
-          <span id="deck-dual-stream-badge" class="reachability-pill" style="display: none; cursor: pointer; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan);" title="Dual live streaming active: Shorts (9:16) + Normal (16:9). Click to open Settings.">
+          <span id="deck-dual-stream-badge" class="reachability-pill" style="display: none; cursor: pointer;" title="Dual live streaming active: Shorts (9:16) + Normal (16:9). Click to open Settings.">
             Dual Live: Shorts + 16:9
           </span>
         </div>
@@ -107,14 +108,14 @@
       </div>
     </section>
 
-    <!-- Maintenance Mode Banner (Visible when maintenance is active) -->
-    <div id="banner-maintenance" style="display: none; background: rgba(234, 179, 8, 0.12); border: 1px solid rgba(234, 179, 8, 0.4); border-radius: var(--radius-sm); padding: 0.75rem 1rem; margin-bottom: 1rem; align-items: center; justify-content: space-between; gap: 1rem;">
-      <div style="display: flex; align-items: center; gap: 0.65rem; color: #facc15; font-size: 0.85rem; font-weight: 500;">
+    <!-- Maintenance Mode Banner -->
+    <div id="banner-maintenance" style="display: none; background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.875rem; align-items: center; justify-content: space-between; gap: 0.75rem;">
+      <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-main); font-size: 0.8125rem;">
         <svg class="icon icon-md" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-        <span><strong>Maintenance Mode Active:</strong> Streaming is currently paused for server maintenance.</span>
+        <span><strong>Maintenance Mode Active:</strong> Streaming paused for server maintenance.</span>
       </div>
-      <button type="button" id="btn-disable-maintenance" class="btn btn-sm btn-outline" style="border-color: #facc15; color: #facc15; white-space: nowrap; font-weight: 600;">
-        Disable Maintenance & Enable Stream
+      <button type="button" id="btn-disable-maintenance" class="btn btn-sm btn-outline">
+        Disable Maintenance
       </button>
     </div>
 
@@ -125,7 +126,7 @@
       <div class="card" id="panel-telemetry">
         <div class="collapsible-header" data-target="body-telemetry">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
             Stream Telemetry
           </span>
           <div class="header-right">
@@ -169,7 +170,7 @@
             </div>
           </div>
 
-          <div id="last-error-box" style="display: none; background: var(--status-error-bg); border: 1px solid rgba(244, 63, 94, 0.35); color: #fca5a5; padding: 0.6rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; font-family: var(--font-mono);"></div>
+          <div id="last-error-box" style="display: none; background: var(--status-error-bg); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 0.5rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; font-family: var(--font-mono);"></div>
         </div>
       </div>
 
@@ -177,11 +178,11 @@
       <div class="card" id="panel-bandwidth">
         <div class="collapsible-header" data-target="body-bandwidth">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-cyan);"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             Bandwidth Accounting
           </span>
           <div class="header-right">
-            <span id="period-badge" style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);">Period: 2026-10</span>
+            <span id="period-badge" class="meta-tag">Period: 2026-10</span>
             <button class="panel-toggle-btn" data-target="body-bandwidth" aria-label="Toggle Bandwidth Panel">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -194,7 +195,7 @@
           <!-- Safety Limit Meter -->
           <div class="progress-container">
             <div class="progress-header">
-              <span style="color: var(--text-secondary); font-weight: 600;">Safety Limit (9 TB)</span>
+              <span style="color: var(--text-secondary); font-weight: 500;">Safety Limit (9 TB)</span>
               <span id="bw-safety-text" style="font-family: var(--font-mono); color: var(--text-main);">0 GB / 9.00 TB (0%)</span>
             </div>
             <div class="progress-track">
@@ -220,16 +221,16 @@
         </div>
       </div>
 
-      <!-- Panel C: Video Library & Media Switcher (Span 2 on Desktop) -->
+      <!-- Panel C: Video Library & Media Switcher -->
       <div class="card grid-span-2" id="panel-videos">
         <div class="collapsible-header" data-target="body-videos">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-emerald);"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
             Video Library
           </span>
           <div class="header-right">
             <span id="video-count-badge" class="brand-tag">0 Videos</span>
-            <span id="active-video-name" style="font-size: 0.725rem; font-family: var(--font-mono); color: var(--status-live);">Active: None</span>
+            <span id="active-video-name" class="meta-tag">Active: None</span>
             <button class="panel-toggle-btn" data-target="body-videos" aria-label="Toggle Video Library Panel">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -238,84 +239,82 @@
 
         <div class="panel-body" id="body-videos">
           <!-- Video Ingestion Tab Switcher -->
-          <div id="video-ingest-tabs" style="display: flex; gap: 0; margin-bottom: 0.6rem; border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); overflow: hidden;">
-            <button id="tab-upload" style="flex:1; display:flex; align-items:center; justify-content:center; gap:0.35rem; padding: 0.45rem 0.5rem; font-size: 0.75rem; font-weight: 600; background: var(--accent-primary); color: var(--bg-canvas); border: none; cursor: pointer; transition: background 0.2s, color 0.2s;">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <div id="video-ingest-tabs" class="ingest-tabs-nav">
+            <button id="tab-upload" class="ingest-tab-btn active">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               File Upload
             </button>
-            <button id="tab-youtube" style="flex:1; display:flex; align-items:center; justify-content:center; gap:0.35rem; padding: 0.45rem 0.5rem; font-size: 0.75rem; font-weight: 600; background: transparent; color: var(--text-muted); border: none; border-left: 1px solid var(--border-subtle); cursor: pointer; transition: background 0.2s, color 0.2s;">
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
+            <button id="tab-youtube" class="ingest-tab-btn">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
               YouTube URL
             </button>
           </div>
 
           <!-- File Upload Dropzone -->
           <div id="upload-zone" class="upload-dropzone">
-            <svg class="icon icon-lg" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Tap or Drag Vertical MP4 Video Here</div>
-            <div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps</div>
-            <div style="font-size: 0.675rem; color: var(--accent-primary); font-family: var(--font-mono); margin-top: 0.15rem;">Multi-Video Playlist: Select multiple videos to stream sequentially or in shuffle loop.</div>
+            <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div style="font-size: 0.8125rem; font-weight: 500; color: var(--text-main);">Tap or Drag Vertical MP4 Video Here</div>
+            <div style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps</div>
+            <div style="font-size: 0.6875rem; color: var(--text-dim); font-family: var(--font-mono);">Multi-Video Playlist: Select multiple videos to stream sequentially or in shuffle loop.</div>
             <input type="file" id="file-input" accept=".mp4,.mov,.m4v,.mkv" style="display: none;">
           </div>
 
           <!-- YouTube URL Import Panel -->
-          <div id="yt-import-panel" style="display: none;">
+          <div id="yt-import-panel" style="display: none; flex-direction: column; gap: 0.625rem;">
             <!-- Cookies Warning Banner -->
-            <div id="yt-cookies-banner" style="display:none; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); border-radius: var(--radius-xs); padding: 0.65rem 0.75rem; margin-bottom: 0.5rem;">
+            <div id="yt-cookies-banner" style="display:none; background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.75rem;">
               <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fbbf24" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:2px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <svg class="icon icon-sm" viewBox="0 0 24 24" style="margin-top:2px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                 <div style="flex:1; min-width:0;">
-                  <div style="font-size:0.72rem; font-weight:700; color:#fbbf24; margin-bottom:0.3rem;">YouTube cookies required</div>
-                  <div style="font-size:0.67rem; color:var(--text-muted); line-height:1.5; margin-bottom:0.5rem;">
-                    VPS IPs are blocked by YouTube. Export cookies using the
-                    <strong style="color:var(--text-secondary);">Get cookies.txt LOCALLY</strong> Chrome extension on YouTube.com, then upload the file below.
+                  <div style="font-size:0.75rem; font-weight:600; color:var(--text-main); margin-bottom:0.2rem;">YouTube cookies required</div>
+                  <div style="font-size:0.6875rem; color:var(--text-muted); line-height:1.45; margin-bottom:0.4rem;">
+                    VPS IPs are blocked by YouTube. Export cookies using the <strong>Get cookies.txt LOCALLY</strong> extension on YouTube.com, then upload below.
                   </div>
                   <div style="display:flex; align-items:center; gap:0.4rem;">
-                    <label for="cookies-file-input" id="btn-upload-cookies" style="display:inline-flex; align-items:center; gap:0.3rem; padding:0.35rem 0.65rem; font-size:0.72rem; font-weight:700; background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.5); color:#fbbf24; border-radius:var(--radius-xs); cursor:pointer; transition:background 0.15s;">
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <label for="cookies-file-input" id="btn-upload-cookies" class="btn btn-outline btn-sm" style="cursor:pointer;">
+                      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                       Upload yt-cookies.txt
                     </label>
                     <input type="file" id="cookies-file-input" accept=".txt,.cookie,.cookies" style="display:none;">
-                    <span id="cookies-upload-status" style="font-size:0.67rem; font-family:var(--font-mono); color:var(--text-muted);"></span>
+                    <span id="cookies-upload-status" class="meta-tag"></span>
                   </div>
                 </div>
               </div>
             </div>
-            <div style="background: var(--bg-canvas); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.85rem; display: flex; flex-direction: column; gap: 0.55rem;">
-              <div style="font-size: 0.7rem; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.4rem; letter-spacing: 0.04em; text-transform: uppercase;">
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
+
+            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <div style="font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; display: flex; align-items: center; gap: 0.35rem; text-transform: uppercase; letter-spacing: 0.04em;">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
                 Download from YouTube &mdash; auto-converts to 1080&times;1920 30fps
               </div>
-              <div style="display: flex; gap: 0.4rem;">
-                <input type="url" id="yt-url-input" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false"
-                  style="flex: 1; padding: 0.45rem 0.65rem; font-size: 0.775rem; font-family: var(--font-mono); background: var(--bg-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); color: var(--text-main); outline: none; min-width: 0; transition: border-color 0.15s;">
-                <button id="btn-yt-download" style="display:flex; align-items:center; gap:0.3rem; padding: 0.45rem 0.85rem; font-size: 0.75rem; font-weight: 700; background: var(--accent-rose); color: #fff; border: none; border-radius: var(--radius-xs); cursor: pointer; white-space: nowrap; transition: opacity 0.2s;">
-                  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              <div style="display: flex; gap: 0.375rem;">
+                <input type="url" id="yt-url-input" class="form-control" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false" style="flex: 1;">
+                <button id="btn-yt-download" class="btn btn-primary btn-sm">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                   Download
                 </button>
               </div>
-              <div style="font-size: 0.65rem; color: var(--text-muted); font-family: var(--font-mono);">
+              <div style="font-size: 0.6875rem; color: var(--text-dim); font-family: var(--font-mono);">
                 Supports: youtube.com/watch &nbsp;&bull;&nbsp; youtu.be &nbsp;&bull;&nbsp; /shorts/ &nbsp;&bull;&nbsp; /live/
               </div>
             </div>
 
             <!-- YT Download Progress -->
-            <div id="yt-dl-progress-box" style="display: none; margin-top: 0.5rem;" class="progress-container">
+            <div id="yt-dl-progress-box" style="display: none;" class="progress-container">
               <div class="progress-header">
-                <span id="yt-dl-stage-text" style="display:flex; align-items:center; gap:0.3rem; color: var(--accent-cyan); font-weight: 600; font-size: 0.775rem;">
-                  <svg id="yt-stage-icon" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span id="yt-dl-stage-text" style="display:flex; align-items:center; gap:0.3rem; color: var(--text-main); font-weight: 500; font-size: 0.75rem;">
+                  <svg id="yt-stage-icon" class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                   <span id="yt-stage-label">Fetching info...</span>
                 </span>
-                <span id="yt-dl-pct" style="font-family: var(--font-mono); font-weight: 700; font-size: 0.8rem; color: var(--text-main);">0%</span>
+                <span id="yt-dl-pct" style="font-family: var(--font-mono); font-weight: 600; font-size: 0.75rem; color: var(--text-main);">0%</span>
               </div>
-              <div id="yt-dl-title" style="font-size: 0.7rem; color: var(--text-secondary); font-family: var(--font-mono); margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+              <div id="yt-dl-title" style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
               <div class="progress-track">
-                <div id="yt-dl-fill" class="progress-fill" style="width: 0%; background: linear-gradient(90deg, var(--accent-rose), var(--accent-amber));"></div>
+                <div id="yt-dl-fill" class="progress-fill" style="width: 0%;"></div>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem;">
-                <span id="yt-dl-details" style="font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono);">Waiting...</span>
-                <button id="btn-cancel-yt-dl" style="display:flex; align-items:center; gap:0.25rem; font-size: 0.65rem; padding: 0.2rem 0.5rem; background: transparent; border: 1px solid var(--border-muted); color: var(--text-muted); border-radius: var(--radius-xs); cursor: pointer; transition: border-color 0.15s, color 0.15s;">
-                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span id="yt-dl-details" style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono);">Waiting...</span>
+                <button id="btn-cancel-yt-dl" class="btn btn-outline btn-sm" style="height: 24px; padding: 0 0.5rem; font-size: 0.6875rem;">
                   Cancel
                 </button>
               </div>
@@ -325,43 +324,43 @@
           <!-- Upload Progress -->
           <div id="upload-progress-box" style="display: none;" class="progress-container">
             <div class="progress-header">
-              <span id="upload-status-text" style="color: var(--accent-primary); font-weight: 600;">Uploading file to server...</span>
-              <span id="upload-pct" style="font-family: var(--font-mono); font-weight: 700;">0%</span>
+              <span id="upload-status-text" style="color: var(--text-main); font-weight: 500; font-size: 0.75rem;">Uploading file to server...</span>
+              <span id="upload-pct" style="font-family: var(--font-mono); font-weight: 600; font-size: 0.75rem;">0%</span>
             </div>
             <div class="progress-track">
               <div id="upload-fill" class="progress-fill" style="width: 0%;"></div>
             </div>
-            <div id="upload-details-text" style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 0.35rem; display: flex; justify-content: space-between;">
+            <div id="upload-details-text" style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 0.25rem; display: flex; justify-content: space-between;">
               <span id="upload-bytes-text">0 MB / 0 MB</span>
               <span id="upload-speed-text">0 MB/s</span>
             </div>
           </div>
 
-          <!-- Playlist Controls Toolbar (Multi-Selection & Loop Mode) -->
-          <div id="playlist-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs);">
-            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
-              <button id="btn-select-all-videos" type="button" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;">
+          <!-- Playlist Controls Toolbar -->
+          <div id="playlist-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; padding: 0.4rem 0.625rem; background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm);">
+            <div style="display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap;">
+              <button id="btn-select-all-videos" type="button" class="btn btn-outline btn-sm">
                 Select All
               </button>
-              <button id="btn-deselect-all-videos" type="button" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;">
+              <button id="btn-deselect-all-videos" type="button" class="btn btn-outline btn-sm">
                 Deselect All
               </button>
-              <span id="playlist-selected-count" style="font-size: 0.72rem; font-family: var(--font-mono); color: var(--accent-primary); font-weight: 600;">
+              <span id="playlist-selected-count" class="meta-tag">
                 0 Selected
               </span>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.45rem;">
-              <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">Loop Mode:</span>
-              <select id="sel-playback-order" style="padding: 0.25rem 0.5rem; font-size: 0.72rem; font-family: var(--font-sans); background: var(--bg-canvas); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); cursor: pointer; outline: none;">
-                <option value="sequential">Sequential (1 by 1)</option>
-                <option value="shuffle">Shuffle (Random)</option>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <span style="font-size: 0.6875rem; color: var(--text-muted); font-weight: 500;">Loop:</span>
+              <select id="sel-playback-order" class="form-control" style="height: 30px; padding: 0 0.5rem; font-size: 0.75rem; width: auto;">
+                <option value="sequential">Sequential</option>
+                <option value="shuffle">Shuffle</option>
               </select>
             </div>
           </div>
 
           <!-- Video Catalog Cards -->
-          <div id="videos-list" style="display: flex; flex-direction: column; gap: 0.5rem; max-height: 250px; overflow-y: auto;">
-            <div style="font-size: 0.775rem; color: var(--text-muted); text-align: center; padding: 1.25rem;">No videos in library. Upload one above.</div>
+          <div id="videos-list" class="videos-list" style="max-height: 280px; overflow-y: auto;">
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 1.25rem;">No videos in library. Upload one above.</div>
           </div>
         </div>
       </div>
@@ -370,11 +369,11 @@
       <div class="card" id="panel-system">
         <div class="collapsible-header" data-target="body-system">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--accent-amber);"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
             Server Hardware
           </span>
           <div class="header-right">
-            <span id="metric-uptime" style="font-size: 0.7rem; font-family: var(--font-mono); color: var(--text-muted);">Uptime: 0d 0h</span>
+            <span id="metric-uptime" class="meta-tag">Uptime: 0d 0h</span>
             <button class="panel-toggle-btn" data-target="body-system" aria-label="Toggle Server Panel">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -396,11 +395,11 @@
             <div class="kpi-card" id="card-disk-storage">
               <div style="display: flex; justify-content: space-between; align-items: baseline;">
                 <span class="kpi-label">Disk Storage</span>
-                <span id="metric-disk-pct" style="font-size: 0.725rem; font-family: var(--font-mono); font-weight: 700; color: #34d399;">0%</span>
+                <span id="metric-disk-pct" style="font-size: 0.6875rem; font-family: var(--font-mono); font-weight: 600; color: var(--text-main);">0%</span>
               </div>
-              <span id="metric-disk" class="kpi-val" style="font-size: 0.925rem;">0 GB / 0 GB</span>
-              <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; margin: 2px 0;">
-                <div id="metric-disk-bar" style="width: 0%; height: 100%; background: #34d399; border-radius: 2px; transition: width 0.3s ease;"></div>
+              <span id="metric-disk" class="kpi-val">0 GB / 0 GB</span>
+              <div style="width: 100%; height: 4px; background: var(--bg-canvas); border-radius: 2px; overflow: hidden; margin: 2px 0;">
+                <div id="metric-disk-bar" style="width: 0%; height: 100%; background: #fafafa; border-radius: 2px; transition: width 0.3s ease;"></div>
               </div>
               <span class="kpi-sub" id="metric-disk-sub">Free: 0 GB · Used: 0 GB</span>
             </div>
@@ -411,7 +410,7 @@
             </div>
           </div>
 
-          <div style="font-size: 0.725rem; font-family: var(--font-mono); color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
+          <div style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
             <span>Logs: <span id="dir-logs" style="color: var(--text-secondary);">0 MB</span></span>
             <span>Backups: <span id="dir-backups" style="color: var(--text-secondary);">0 MB</span></span>
           </div>
@@ -422,7 +421,7 @@
       <div class="card grid-span-3" id="panel-logs">
         <div class="collapsible-header" data-target="body-logs">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: var(--text-secondary);"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
             Application Logs
           </span>
           <div class="header-right">
@@ -446,20 +445,20 @@
     </div>
   </main>
 
-  <!-- Settings Modal (Cloudflare Console Style) -->
+  <!-- Settings Modal (shadcn Dialog) -->
   <div id="modal-settings" class="modal-backdrop">
     <div class="modal-card">
       <div class="modal-header">
-        <h2 style="font-size: 0.95rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 0.5rem;">
-          <svg class="icon icon-md" viewBox="0 0 24 24" style="color: var(--accent-primary);"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <h2 style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 0.5rem; color: var(--text-main);">
+          <svg class="icon icon-md" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Stream & Engine Configuration
         </h2>
-        <button id="btn-close-settings" class="btn btn-outline btn-sm" aria-label="Close dialog">
+        <button id="btn-close-settings" class="btn btn-outline btn-sm" aria-label="Close dialog" style="height: 28px; width: 28px; padding: 0;">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
 
-      <form id="settings-form" style="display: flex; flex-direction: column; gap: 0.85rem;">
+      <form id="settings-form" style="display: flex; flex-direction: column; gap: 0.625rem;">
         <!-- YouTube Destination -->
         <div class="form-group">
           <label class="form-label" for="cfg-rtmps-url">RTMPS Ingest URL</label>
@@ -468,83 +467,83 @@
 
         <!-- Primary YouTube Stream Key (Shorts Feed) -->
         <div class="form-group">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
             <label class="form-label" for="cfg-stream-key" style="margin-bottom: 0;">
-              YouTube Stream Key <span style="font-size: 0.725rem; color: #a855f7; font-weight: 600;">(Shorts Feed 9:16)</span>
+              YouTube Stream Key (Shorts Feed 9:16)
             </label>
-            <span id="key-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; background: rgba(255,255,255,0.06);">Checking...</span>
+            <span id="key-badge" class="badge-tag">Checking...</span>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
+          <div style="display: flex; gap: 0.375rem;">
             <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Shorts stream key" style="flex: 1;" autocomplete="new-password">
-            <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="display: flex; align-items: center; gap: 0.35rem; min-width: 72px; justify-content: center;">
+            <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="min-width: 64px;">
               <svg id="icon-eye-show" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <svg id="icon-eye-hide" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               <span id="btn-reveal-text">Show</span>
             </button>
           </div>
-          <div id="key-hint-text" style="color: var(--text-muted); font-size: 0.725rem; margin-top: 0.35rem; line-height: 1.4;">Checking key configuration...</div>
+          <div id="key-hint-text" class="meta-tag">Checking key configuration...</div>
         </div>
 
         <!-- Secondary YouTube Stream Key (Normal 16:9 Feed) -->
         <div class="form-group">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
             <label class="form-label" for="cfg-horizontal-stream-key" style="margin-bottom: 0;">
-              Horizontal Stream Key <span style="font-size: 0.725rem; color: var(--accent-cyan); font-weight: 600;">(Normal Feed 16:9)</span>
+              Horizontal Stream Key (Normal Feed 16:9)
             </label>
-            <span id="horizontal-key-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; background: rgba(255,255,255,0.06);">Optional</span>
+            <span id="horizontal-key-badge" class="badge-tag">Optional</span>
           </div>
-          <div style="display: flex; gap: 0.5rem;">
+          <div style="display: flex; gap: 0.375rem;">
             <input type="password" id="cfg-horizontal-stream-key" class="form-control" placeholder="Enter normal feed stream key (optional)" style="flex: 1;" autocomplete="new-password">
-            <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="display: flex; align-items: center; gap: 0.35rem; min-width: 72px; justify-content: center;">
+            <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="min-width: 64px;">
               <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               <span id="btn-reveal-horiz-text">Show</span>
             </button>
           </div>
-          <div id="horizontal-key-hint-text" style="color: var(--text-muted); font-size: 0.725rem; margin-top: 0.35rem; line-height: 1.4;">Optional: Stream simultaneously to YouTube Shorts (9:16) and Normal Live (16:9).</div>
+          <div id="horizontal-key-hint-text" class="meta-tag">Optional: Stream simultaneously to YouTube Shorts (9:16) and Normal Live (16:9).</div>
         </div>
 
         <!-- Dual Streaming Enable Switch -->
-        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: -0.25rem;">
-          <input type="checkbox" id="cfg-dual-stream-enabled" checked style="accent-color: var(--accent-cyan); width: 16px; height: 16px; cursor: pointer;">
-          <label for="cfg-dual-stream-enabled" class="form-label" style="margin-bottom: 0; cursor: pointer; font-size: 0.775rem;">
-            Enable Dual Streaming (simultaneously stream Shorts 9:16 and Normal 16:9 when matching videos are present)
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.4rem;">
+          <input type="checkbox" id="cfg-dual-stream-enabled" checked style="accent-color: #fafafa; width: 16px; height: 16px; cursor: pointer;">
+          <label for="cfg-dual-stream-enabled" class="form-label" style="margin-bottom: 0; cursor: pointer;">
+            Enable Dual Streaming (Shorts 9:16 + Normal 16:9)
           </label>
         </div>
 
         <!-- Encoding & Bitrate -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
           <div class="form-group">
             <label class="form-label" for="cfg-mode-pref">Stream Mode</label>
             <select id="cfg-mode-pref" class="form-control">
-              <option value="auto">auto (Smart: Zero CPU if compatible, Transcode if needed - Recommended)</option>
-              <option value="copy">copy (Strict Zero CPU - Incompatible videos blocked)</option>
-              <option value="transcode">transcode (Full 1080p transcode - Maximum compatibility)</option>
+              <option value="auto">auto (Zero CPU if compatible, Transcode if needed)</option>
+              <option value="copy">copy (Strict Zero CPU)</option>
+              <option value="transcode">transcode (Full 1080p transcode)</option>
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label" for="cfg-bitrate">Video Bitrate (Mbps)</label>
+            <label class="form-label" for="cfg-bitrate">Bitrate (Mbps)</label>
             <input type="number" id="cfg-bitrate" class="form-control" min="1" max="50" step="0.5" value="4">
           </div>
         </div>
 
-        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: -0.25rem;">
-          <input type="checkbox" id="cfg-allow-transcode" checked style="accent-color: var(--accent-primary); width: 16px; height: 16px; cursor: pointer;">
-          <label for="cfg-allow-transcode" class="form-label" style="margin-bottom: 0; cursor: pointer; font-size: 0.775rem;">
-            Allow Transcoding (automatically converts 720p / non-1080p videos to YouTube live format)
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.4rem;">
+          <input type="checkbox" id="cfg-allow-transcode" checked style="accent-color: #fafafa; width: 16px; height: 16px; cursor: pointer;">
+          <label for="cfg-allow-transcode" class="form-label" style="margin-bottom: 0; cursor: pointer;">
+            Allow Transcoding for Incompatible Formats
           </label>
         </div>
 
         <!-- Live Projection Box -->
-        <div style="background: var(--bg-canvas); border: 1px solid var(--border-subtle); padding: 0.65rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-secondary);">Projected Egress (+10% overhead):</span>
-          <span style="font-family: var(--font-mono); color: var(--accent-cyan); font-weight: 600;">
+        <div style="background: var(--bg-canvas); border: 1px solid var(--border-muted); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+          <span style="color: var(--text-muted);">Projected Egress (+10% overhead):</span>
+          <span style="font-family: var(--font-mono); color: var(--text-main); font-weight: 500;">
             <span id="preview-gb-day">49.04 GB/day</span> · <span id="preview-tb-month">1.471 TB/30d</span>
           </span>
         </div>
 
         <!-- Safety Limit & Overhead -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
           <div class="form-group">
             <label class="form-label" for="cfg-safety-limit">Safety Limit (TB)</label>
             <input type="number" id="cfg-safety-limit" class="form-control" min="0.001" max="10" step="0.1" value="9">
@@ -556,7 +555,7 @@
         </div>
 
         <!-- Form Actions -->
-        <div style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;">
+        <div style="display: flex; justify-content: flex-end; gap: 0.375rem; margin-top: 0.25rem;">
           <button type="button" id="btn-cancel-settings" class="btn btn-outline btn-sm">Cancel</button>
           <button type="submit" class="btn btn-primary btn-sm">Save Configuration</button>
         </div>
