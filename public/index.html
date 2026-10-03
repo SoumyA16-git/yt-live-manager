@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v10">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v11">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -130,6 +130,7 @@
             Stream Telemetry
           </span>
           <div class="header-right">
+            <span id="telemetry-speed-badge" class="meta-tag" style="font-family: var(--font-mono); color: #38bdf8;">0.00 Mbps</span>
             <button class="panel-toggle-btn" data-target="body-telemetry" aria-label="Toggle Telemetry Panel">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -171,6 +172,122 @@
           </div>
 
           <div id="last-error-box" style="display: none; background: var(--status-error-bg); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 0.5rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; font-family: var(--font-mono);"></div>
+
+          <!-- Live Bandwidth Speed Meter (Egress Speedometer & Activity) -->
+          <div class="speed-meter-card" id="speed-meter-panel">
+            <div class="speed-meter-header">
+              <div class="speed-meter-title-wrap">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                <span class="speed-meter-title">Bandwidth Speed Meter</span>
+              </div>
+              <div class="speed-meter-badge-group">
+                <span id="speed-status-pill" class="badge-tag disabled">
+                  <span class="status-pulse-dot"></span>
+                  <span id="speed-status-text">Network Idle</span>
+                </span>
+              </div>
+            </div>
+
+            <!-- Gauge + Stats Layout -->
+            <div class="speed-meter-content">
+              <!-- Left: Semi-Circular Speedometer Gauge -->
+              <div class="speed-gauge-wrap">
+                <svg class="speed-gauge-svg" viewBox="0 0 240 145" preserveAspectRatio="xMidYMid meet">
+                  <defs>
+                    <linearGradient id="speed-arc-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#3b82f6" />
+                      <stop offset="50%" stop-color="#06b6d4" />
+                      <stop offset="100%" stop-color="#10b981" />
+                    </linearGradient>
+                    <filter id="speed-glow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feGaussianBlur stdDeviation="3" result="blur" />
+                      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                    </filter>
+                  </defs>
+
+                  <!-- Background Arc Track -->
+                  <path class="speed-gauge-track"
+                        d="M 35 125 A 85 85 0 0 1 205 125"
+                        fill="none"
+                        stroke="#222227"
+                        stroke-width="14"
+                        stroke-linecap="round" />
+
+                  <!-- Active Live Fill Arc -->
+                  <path id="speed-gauge-fill"
+                        class="speed-gauge-fill"
+                        d="M 35 125 A 85 85 0 0 1 205 125"
+                        fill="none"
+                        stroke="url(#speed-arc-grad)"
+                        stroke-width="14"
+                        stroke-linecap="round"
+                        stroke-dasharray="267"
+                        stroke-dashoffset="267"
+                        filter="url(#speed-glow)" />
+
+                  <!-- Scale Markings -->
+                  <text x="32" y="142" class="gauge-scale-label">0M</text>
+                  <text x="68" y="55" class="gauge-scale-label">2.5M</text>
+                  <text x="120" y="32" class="gauge-scale-label">5.0M</text>
+                  <text x="172" y="55" class="gauge-scale-label">7.5M</text>
+                  <text x="208" y="142" class="gauge-scale-label">10M+</text>
+
+                  <!-- Center Live Digital Speed Readout -->
+                  <g class="gauge-center-text">
+                    <text id="speed-readout-num" x="120" y="105" text-anchor="middle" class="gauge-number">0.00</text>
+                    <text x="120" y="123" text-anchor="middle" class="gauge-unit">Mbps Live Egress</text>
+                  </g>
+                </svg>
+              </div>
+
+              <!-- Right: Live Metrics & Rolling Activity Wave -->
+              <div class="speed-metrics-column">
+                <div class="speed-kpi-row">
+                  <div class="speed-kpi-box">
+                    <span class="speed-kpi-label">Current Egress</span>
+                    <span id="speed-val-kbps" class="speed-kpi-val">0 KB/s</span>
+                    <span class="speed-kpi-sub">Realtime transfer</span>
+                  </div>
+                  <div class="speed-kpi-box">
+                    <span class="speed-kpi-label">Hourly Pace</span>
+                    <span id="speed-val-hourly" class="speed-kpi-val">0.00 GB/h</span>
+                    <span class="speed-kpi-sub">At current rate</span>
+                  </div>
+                </div>
+
+                <div class="speed-kpi-row">
+                  <div class="speed-kpi-box">
+                    <span class="speed-kpi-label">Config Target</span>
+                    <span id="speed-val-target" class="speed-kpi-val">4.00 Mbps</span>
+                    <span class="speed-kpi-sub">Target profile</span>
+                  </div>
+                  <div class="speed-kpi-box">
+                    <span class="speed-kpi-label">Buffer Health</span>
+                    <span id="speed-val-health" class="speed-kpi-val">Optimal</span>
+                    <span class="speed-kpi-sub">1.00x realtime</span>
+                  </div>
+                </div>
+
+                <!-- Rolling Live Activity Waveform -->
+                <div class="speed-wave-box">
+                  <div class="speed-wave-header">
+                    <span class="speed-wave-title">Realtime Egress Pulse</span>
+                    <span id="speed-wave-fps" class="speed-wave-meta">0 FPS</span>
+                  </div>
+                  <svg id="speed-activity-svg" class="speed-activity-svg" viewBox="0 0 200 36" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="wave-pulse-grad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35" />
+                        <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0" />
+                      </linearGradient>
+                    </defs>
+                    <path id="speed-wave-area" d="M 0 36 L 200 36 Z" fill="url(#wave-pulse-grad)" />
+                    <path id="speed-wave-line" d="M 0 36 L 200 36" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -833,6 +950,6 @@
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261004_v10"></script>
+  <script type="module" src="/js/dashboard.js?v=20261004_v11"></script>
 </body>
 </html>

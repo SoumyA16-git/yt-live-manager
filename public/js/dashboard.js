@@ -104,6 +104,20 @@ const metricRestarts   = document.getElementById('metric-restarts');
 const lastErrorBox     = document.getElementById('last-error-box');
 const reachabilityBadge = document.getElementById('reachability-badge');
 
+// Bandwidth Speed Meter (Live Egress Gauge) Elements
+const telemetrySpeedBadge = document.getElementById('telemetry-speed-badge');
+const speedStatusPill     = document.getElementById('speed-status-pill');
+const speedStatusText     = document.getElementById('speed-status-text');
+const speedGaugeFill      = document.getElementById('speed-gauge-fill');
+const speedReadoutNum     = document.getElementById('speed-readout-num');
+const speedValKbps        = document.getElementById('speed-val-kbps');
+const speedValHourly      = document.getElementById('speed-val-hourly');
+const speedValTarget      = document.getElementById('speed-val-target');
+const speedValHealth      = document.getElementById('speed-val-health');
+const speedWaveFps        = document.getElementById('speed-wave-fps');
+const speedWaveArea       = document.getElementById('speed-wave-area');
+const speedWaveLine       = document.getElementById('speed-wave-line');
+
 // Controls
 const btnStart         = document.getElementById('btn-start');
 const btnStop          = document.getElementById('btn-stop');
@@ -340,7 +354,137 @@ function renderStatus(data) {
   } else {
     lastErrorBox.style.display = 'none';
   }
+
+  // Update Bandwidth Speed Meter (Live Egress Gauge)
+  renderBandwidthSpeedMeter(data);
 }
+
+// ─── Bandwidth Speed Meter Controller ─────────────────────────────────────────
+
+let _speedHistory = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+let _lastCurrentMbps = 0;
+
+function renderBandwidthSpeedMeter(data) {
+  if (!speedGaugeFill || !speedReadoutNum) return;
+
+  const isRunning = data.status === 'RUNNING';
+  let currentKbps = 0;
+
+  if (isRunning && data.progress?.bitrate) {
+    const bStr = String(data.progress.bitrate).toLowerCase().trim();
+    const numMatch = bStr.match(/([\d.]+)/);
+    if (numMatch) {
+      const val = parseFloat(numMatch[1]) || 0;
+      if (bStr.includes('mbits') || bStr.includes('mb/s')) {
+        currentKbps = val * 1000;
+      } else {
+        currentKbps = val; // default kbits/s
+      }
+    }
+  }
+
+  const currentMbps = isRunning ? (currentKbps / 1000) : 0;
+  _lastCurrentMbps = currentMbps;
+
+  // 1. Arc Gauge Calculation: 0 to 10 Mbps scale
+  // Arc stroke length is ~267px
+  const maxScaleMbps = 10.0;
+  const ratio = Math.max(0, Math.min(1.0, currentMbps / maxScaleMbps));
+  const offset = 267 * (1 - ratio);
+  speedGaugeFill.style.strokeDashoffset = offset.toFixed(1);
+
+  // 2. Readouts & Badges
+  const mbpsFormatted = currentMbps > 0 ? currentMbps.toFixed(2) : '0.00';
+  speedReadoutNum.textContent = mbpsFormatted;
+
+  if (telemetrySpeedBadge) {
+    telemetrySpeedBadge.textContent = `${mbpsFormatted} Mbps`;
+    telemetrySpeedBadge.style.color = isRunning ? '#38bdf8' : '#71717a';
+  }
+
+  // 3. Stats Breakdown
+  if (speedValKbps) {
+    const rawKBps = Math.round(currentKbps / 8);
+    speedValKbps.textContent = `${rawKBps.toLocaleString()} KB/s`;
+  }
+
+  if (speedValHourly) {
+    // GB per hour = (Mbps * 3600 / 8) / 1024
+    const gbHour = isRunning ? (currentMbps * 3600 / 8 / 1024) : 0;
+    speedValHourly.textContent = `${gbHour.toFixed(2)} GB/h`;
+  }
+
+  if (speedValTarget) {
+    const target = _currentSettings?.stream?.videoBitrateMbps || 4.0;
+    speedValTarget.textContent = `${Number(target).toFixed(2)} Mbps`;
+  }
+
+  if (speedValHealth) {
+    if (isRunning) {
+      const spd = data.progress?.speed || 1.0;
+      speedValHealth.textContent = `${data.progress?.speedStr || spd + 'x'} (${spd >= 0.98 ? 'Optimal' : 'Slight Lag'})`;
+      speedValHealth.style.color = spd >= 0.95 ? '#10b981' : '#f59e0b';
+    } else {
+      speedValHealth.textContent = 'Standby';
+      speedValHealth.style.color = 'var(--text-dim)';
+    }
+  }
+
+  if (speedWaveFps) {
+    speedWaveFps.textContent = `${data.progress?.fps || 0} FPS`;
+  }
+
+  // 4. Status Pill
+  if (speedStatusPill && speedStatusText) {
+    if (isRunning) {
+      speedStatusPill.className = 'badge-tag compatible';
+      speedStatusPill.innerHTML = '<span class="status-pulse-dot pulse"></span><span id="speed-status-text">Live Egress</span>';
+    } else {
+      speedStatusPill.className = 'badge-tag disabled';
+      speedStatusPill.innerHTML = '<span class="status-pulse-dot"></span><span id="speed-status-text">Network Idle</span>';
+    }
+  }
+
+  // 5. Rolling Wave Sparkline
+  _speedHistory.push(currentMbps);
+  if (_speedHistory.length > 16) {
+    _speedHistory.shift();
+  }
+  drawSpeedActivityWave();
+}
+
+function drawSpeedActivityWave() {
+  if (!speedWaveLine || !speedWaveArea) return;
+
+  const points = _speedHistory;
+  const count = points.length;
+  const w = 200;
+  const baseY = 34;
+  const maxH = 28;
+  const maxScale = 10.0;
+
+  const step = w / (count - 1);
+  const coords = points.map((val, idx) => {
+    const r = Math.min(1.0, val / maxScale);
+    const y = baseY - (r * maxH);
+    const x = idx * step;
+    return { x, y };
+  });
+
+  // Build smooth bezier path
+  let pathD = `M ${coords[0].x.toFixed(1)} ${coords[0].y.toFixed(1)}`;
+  for (let i = 1; i < coords.length; i++) {
+    const prev = coords[i - 1];
+    const curr = coords[i];
+    const midX = (prev.x + curr.x) / 2;
+    pathD += ` C ${midX.toFixed(1)} ${prev.y.toFixed(1)}, ${midX.toFixed(1)} ${curr.y.toFixed(1)}, ${curr.x.toFixed(1)} ${curr.y.toFixed(1)}`;
+  }
+
+  speedWaveLine.setAttribute('d', pathD);
+  const areaD = `${pathD} L ${w} ${baseY} L 0 ${baseY} Z`;
+  speedWaveArea.setAttribute('d', areaD);
+}
+
 
 async function fetchBandwidth() {
   try {

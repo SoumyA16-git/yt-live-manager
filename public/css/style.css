@@ -711,6 +711,209 @@ input:checked + .slider:before {
   text-overflow: ellipsis;
 }
 
+/* ─── Bandwidth Speed Meter (Live Egress Speedometer) ───────────────────────── */
+.speed-meter-card {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-top: 0.25rem;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.02);
+}
+
+.speed-meter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.speed-meter-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-main);
+  letter-spacing: 0.02em;
+}
+
+.speed-meter-title-wrap .icon {
+  color: #38bdf8;
+}
+
+.speed-meter-badge-group {
+  display: flex;
+  align-items: center;
+}
+
+.speed-meter-content {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr;
+  gap: 0.75rem;
+  align-items: center;
+  width: 100%;
+}
+
+.speed-gauge-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  width: 100%;
+}
+
+.speed-gauge-svg {
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+  overflow: visible;
+}
+
+.speed-gauge-fill {
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+.gauge-scale-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  fill: var(--text-dim);
+  font-weight: 500;
+  text-anchor: middle;
+}
+
+.gauge-number {
+  font-family: var(--font-mono);
+  font-size: 1.85rem;
+  font-weight: 700;
+  fill: #fafafa;
+  letter-spacing: -0.03em;
+}
+
+.gauge-unit {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  fill: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.speed-metrics-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.speed-kpi-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.speed-kpi-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 0.45rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.speed-kpi-label {
+  font-size: 0.65rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.speed-kpi-val {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.speed-kpi-sub {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.speed-wave-box {
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  padding: 0.4rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+}
+
+.speed-wave-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+
+.speed-wave-title {
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.speed-wave-meta {
+  font-family: var(--font-mono);
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.speed-activity-svg {
+  width: 100%;
+  height: 32px;
+  overflow: hidden;
+}
+
+.status-pulse-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 0.35rem;
+  vertical-align: middle;
+}
+
+.status-pulse-dot.pulse {
+  animation: speedPulseAnim 1.8s infinite ease-in-out;
+}
+
+@keyframes speedPulseAnim {
+  0% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
 /* ─── Progress Meters (Bandwidth & Uploads) ─────────────────────────────────── */
 .progress-container {
   display: flex;
@@ -1838,5 +2041,10 @@ input:checked + .slider:before {
   .sched-actions-footer .btn {
     width: 100%;
   }
+
+  .speed-meter-content {
+    grid-template-columns: 1fr;
+  }
 }
+
 
