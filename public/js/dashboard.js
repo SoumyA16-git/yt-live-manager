@@ -85,6 +85,10 @@ const metricCpu        = document.getElementById('metric-cpu');
 const metricRam        = document.getElementById('metric-ram');
 const metricRamSub     = document.getElementById('metric-ram-sub');
 const metricDisk       = document.getElementById('metric-disk');
+const metricDiskSub    = document.getElementById('metric-disk-sub');
+const metricDiskPct    = document.getElementById('metric-disk-pct');
+const metricDiskBar    = document.getElementById('metric-disk-bar');
+const cardDiskStorage  = document.getElementById('card-disk-storage');
 const metricUptime     = document.getElementById('metric-uptime');
 const dirVideos        = document.getElementById('dir-videos');
 const dirLogs          = document.getElementById('dir-logs');
@@ -266,7 +270,41 @@ function renderSystem(data) {
     metricRamSub.textContent = `Node: ${appMb} MB · System: ${sysPct}%`;
   }
 
-  metricDisk.textContent = `${data.disk?.usedPercent || 0}%`;
+  if (data.disk) {
+    const totalBytes = Number(data.disk.totalBytes) || 0;
+    const usedBytes  = Number(data.disk.usedBytes) || 0;
+    const freeBytes  = Number(data.disk.freeBytes) || 0;
+    const pct        = Number(data.disk.usedPercent) || 0;
+
+    const totalStr = formatBytes(totalBytes);
+    const usedStr  = formatBytes(usedBytes);
+    const freeStr  = formatBytes(freeBytes);
+
+    if (totalBytes > 0) {
+      metricDisk.textContent = `${usedStr} / ${totalStr}`;
+    } else {
+      metricDisk.textContent = `${pct}%`;
+    }
+
+    if (metricDiskPct) {
+      metricDiskPct.textContent = `${pct.toFixed(1)}%`;
+      metricDiskPct.style.color = pct >= 90 ? '#f43f5e' : pct >= 80 ? '#fbbf24' : '#34d399';
+    }
+
+    if (metricDiskBar) {
+      metricDiskBar.style.width = `${Math.min(100, Math.max(0, pct))}%`;
+      metricDiskBar.style.background = pct >= 90 ? '#f43f5e' : pct >= 80 ? '#fbbf24' : '#34d399';
+    }
+
+    if (metricDiskSub) {
+      metricDiskSub.textContent = `Free: ${freeStr} (Khali)`;
+      metricDiskSub.title = `Total Storage: ${totalStr} | Bhara Hua (Used): ${usedStr} (${pct}%) | Khali (Free): ${freeStr}`;
+    }
+
+    if (cardDiskStorage) {
+      cardDiskStorage.title = `Total: ${totalStr}\nUsed (Bhara): ${usedStr} (${pct}%)\nFree (Khali): ${freeStr}`;
+    }
+  }
 
   const up = data.uptimeSec || 0;
   const days = Math.floor(up / 86400);

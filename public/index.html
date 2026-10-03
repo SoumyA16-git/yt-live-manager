@@ -366,10 +366,16 @@
               <span id="metric-ram" class="kpi-val">0 MB</span>
               <span class="kpi-sub" id="metric-ram-sub">App: 0 MB · OS: 0%</span>
             </div>
-            <div class="kpi-card">
-              <span class="kpi-label">Disk Storage</span>
-              <span id="metric-disk" class="kpi-val">0%</span>
-              <span class="kpi-sub">Root Volume</span>
+            <div class="kpi-card" id="card-disk-storage">
+              <div style="display: flex; justify-content: space-between; align-items: baseline;">
+                <span class="kpi-label">Disk Storage</span>
+                <span id="metric-disk-pct" style="font-size: 0.725rem; font-family: var(--font-mono); font-weight: 700; color: #34d399;">0%</span>
+              </div>
+              <span id="metric-disk" class="kpi-val" style="font-size: 0.925rem;">0 GB / 0 GB</span>
+              <div style="width: 100%; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; margin: 2px 0;">
+                <div id="metric-disk-bar" style="width: 0%; height: 100%; background: #34d399; border-radius: 2px; transition: width 0.3s ease;"></div>
+              </div>
+              <span class="kpi-sub" id="metric-disk-sub">Free: 0 GB · Used: 0 GB</span>
             </div>
             <div class="kpi-card">
               <span class="kpi-label">Video Files</span>
