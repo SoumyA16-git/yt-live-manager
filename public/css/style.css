@@ -746,6 +746,11 @@ input:checked + .slider:before {
   background: rgba(99, 102, 241, 0.05);
 }
 
+.video-item.paired-feed-active {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(56, 189, 248, 0.04);
+}
+
 .video-item-left {
   display: flex;
   align-items: center;

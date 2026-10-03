@@ -448,13 +448,32 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
   }
 
   // Update active video header summary
+  const hasPairedHorizontalInPlaylist = videos.some(v =>
+    (v.orientation === 'horizontal' || (v.probe?.width > v.probe?.height)) &&
+    v.paired &&
+    playlist.includes(v.paired.id)
+  );
+
+  if (playlistSelectedCount) {
+    const count = playlist.length;
+    let countText = `${count} ${count === 1 ? 'Video' : 'Videos'} in Playlist`;
+    if (hasPairedHorizontalInPlaylist) {
+      countText += ' (🔗 16:9 Feed Auto-Paired)';
+    }
+    playlistSelectedCount.textContent = countText;
+  }
+
   if (playlist.length === 0) {
     activeVideoName.textContent = 'Active: None';
   } else if (playlist.length === 1) {
     const single = videos.find(v => v.id === playlist[0]);
-    activeVideoName.textContent = `Looping 1: ${single ? (single.label || single.originalName) : playlist[0]}`;
+    const label = single ? (single.label || single.originalName) : playlist[0];
+    const isPaired = single && videos.some(h => (h.orientation === 'horizontal' || (h.probe?.width > h.probe?.height)) && h.paired?.id === single.id);
+    activeVideoName.textContent = isPaired
+      ? `Looping: ${label} + 🔗 Dual 16:9 Feed Active`
+      : `Looping 1: ${label}`;
   } else {
-    activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})`;
+    activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})${hasPairedHorizontalInPlaylist ? ' + 🔗 Dual Feeds' : ''}`;
   }
 
   videos.forEach(v => {
@@ -462,29 +481,51 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
     const orderIndex = playlist.indexOf(v.id);
     const isSoloActive = isSelected && playlist.length === 1;
 
+    // Detect if this horizontal video is the auto-paired feed companion of a selected vertical video
+    const isHorizontal = v.orientation === 'horizontal' || (v.probe?.width > v.probe?.height);
+    const isPairedFeedActive = isHorizontal && v.paired && playlist.includes(v.paired.id);
+    const pairedVerticalPos = isPairedFeedActive ? playlist.indexOf(v.paired.id) + 1 : 0;
+
     const item = document.createElement('div');
-    item.className = `video-item ${isSelected ? 'in-playlist' : ''} ${isSoloActive ? 'active' : ''}`;
+    item.className = `video-item ${isSelected ? 'in-playlist' : ''} ${isSoloActive ? 'active' : ''} ${isPairedFeedActive ? 'paired-feed-active' : ''}`;
 
     const compat = v.compatibility?.status === 'COMPATIBLE' ? 'compatible' : 'transcode';
     const compatLabel = v.compatibility?.status === 'COMPATIBLE' ? 'Stream-Copy Ready' : 'Needs Transcode';
 
+    let chkAreaHtml = '';
+    if (isSelected) {
+      chkAreaHtml = `
+        <label class="video-chk-label" title="Deselect from loop playlist">
+          <input type="checkbox" class="video-select-chk" data-id="${v.id}" checked>
+        </label>
+        <span class="playlist-seq-badge" title="Position #${orderIndex + 1}">#${orderIndex + 1}</span>
+      `;
+    } else if (isPairedFeedActive) {
+      chkAreaHtml = `
+        <label class="video-chk-label" title="Automatically linked & active for 16:9 Dual Streaming Feed (Paired with #${pairedVerticalPos})">
+          <input type="checkbox" class="video-select-chk" data-id="${v.id}" checked disabled style="opacity: 0.9; accent-color: var(--accent-cyan); cursor: default;">
+        </label>
+        <span class="playlist-seq-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);" title="Auto-Paired 16:9 Feed for #${pairedVerticalPos}">🔗 16:9</span>
+      `;
+    } else {
+      chkAreaHtml = `
+        <label class="video-chk-label" title="Select for loop playlist">
+          <input type="checkbox" class="video-select-chk" data-id="${v.id}">
+        </label>
+      `;
+    }
+
     item.innerHTML = `
       <div class="video-item-left">
-        <label class="video-chk-label" title="${isSelected ? 'Deselect from loop playlist' : 'Select for loop playlist'}">
-          <input type="checkbox" class="video-select-chk" data-id="${v.id}" ${isSelected ? 'checked' : ''}>
-        </label>
-        ${isSelected
-          ? `<span class="playlist-seq-badge" title="Position #${orderIndex + 1}">#${orderIndex + 1}</span>`
-          : ''
-        }
+        ${chkAreaHtml}
         <div class="video-info">
           <div class="video-name">${v.label || v.originalName}</div>
           <div class="video-meta">
-            ${v.orientation === 'horizontal' || (v.probe?.width > v.probe?.height)
+            ${isHorizontal
               ? '<span class="badge-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 600;">16:9 Horizontal</span>'
               : '<span class="badge-tag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; font-weight: 600;">9:16 Shorts</span>'
             }
-            <span class="meta-tag">${v.probe?.aspectRatio || (v.orientation === 'horizontal' ? '1920:1080' : '1080:1920')}</span>
+            <span class="meta-tag">${v.probe?.aspectRatio || (isHorizontal ? '1920:1080' : '1080:1920')}</span>
             <span class="meta-tag">${v.probe?.fps || 30}fps</span>
             <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
             <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
@@ -500,10 +541,14 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
           ? `<span class="badge-tag" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; font-weight: 600;">
                ${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}
              </span>`
-          : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
-               <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-               Play Solo
-             </button>`
+          : isPairedFeedActive
+            ? `<span class="badge-tag" style="background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-weight: 600;">
+                 🔗 DUAL FEED (16:9 ACTIVE)
+               </span>`
+            : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
+                 <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                 Play Solo
+               </button>`
         }
         <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video" style="color: #f43f5e; padding: 0.35rem 0.5rem;">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
