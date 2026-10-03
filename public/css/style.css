@@ -11,20 +11,20 @@
   /* Surfaces & Canvas (shadcn/ui Zinc scale) */
   --bg-canvas: #09090b;
   --bg-surface: #121215;
-  --bg-surface-elevated: #18181b;
-  --bg-surface-hover: #222227;
-  --bg-input: #101013;
-  --bg-terminal: #09090b;
+  --bg-surface-elevated: #18181c;
+  --bg-surface-hover: #202025;
+  --bg-input: #0e0e11;
+  --bg-terminal: #070709;
 
-  /* Borders & Dividers */
-  --border-subtle: #1e1e22;
-  --border-muted: #27272a;
-  --border-active: #3f3f46;
-  --border-focus: #52525b;
+  /* Borders & Dividers - Sharpened for crisp contrast */
+  --border-subtle: #222227;
+  --border-muted: #2e2e34;
+  --border-active: #4a4a54;
+  --border-focus: #71717a;
 
   /* Clean Monochrome Typography Tokens */
-  --text-main: #fafafa;
-  --text-secondary: #d4d4d8;
+  --text-main: #ffffff;
+  --text-secondary: #e4e4e7;
   --text-muted: #a1a1aa;
   --text-dim: #71717a;
 
@@ -202,7 +202,7 @@ header {
   display: flex;
   flex-direction: column;
   gap: 0.625rem;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
   position: relative;
   width: 100%;
   height: auto;
@@ -541,6 +541,7 @@ input:checked + .slider:before {
   border: 1px solid var(--border-muted);
   border-radius: var(--radius-md);
   overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3), inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
   transition: border-color 0.15s ease;
   display: flex;
   flex-direction: column;
@@ -558,7 +559,7 @@ input:checked + .slider:before {
   justify-content: space-between;
   align-items: center;
   padding: 0.6875rem 0.875rem;
-  background: var(--bg-surface);
+  background: rgba(22, 22, 26, 0.6);
   border-bottom: 1px solid var(--border-subtle);
   cursor: pointer;
   user-select: none;
@@ -571,7 +572,7 @@ input:checked + .slider:before {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-secondary);
+  color: var(--text-main);
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -676,6 +677,12 @@ input:checked + .slider:before {
   gap: 0.15rem;
   min-width: 0;
   overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.kpi-card:hover {
+  border-color: var(--border-active);
+  background: var(--bg-surface-hover);
 }
 
 .kpi-label {
@@ -894,19 +901,23 @@ input:checked + .slider:before {
 
 .video-item:hover {
   border-color: var(--border-active);
+  background: var(--bg-surface-hover);
 }
 
 .video-item.active {
   border-color: #10b981;
+  background: rgba(16, 185, 129, 0.05);
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.1);
 }
 
 .video-item.in-playlist {
-  border-color: var(--border-active);
-  background: #1c1c20;
+  border-color: #3f3f46;
+  background: #1c1c22;
 }
 
 .video-item.paired-feed-active {
-  border-color: var(--border-active);
+  border-color: #3f3f46;
+  background: rgba(255, 255, 255, 0.02);
 }
 
 .video-item-leading {
@@ -1016,9 +1027,9 @@ input:checked + .slider:before {
   gap: 0.25rem;
   font-size: 0.6875rem;
   font-weight: 500;
-  padding: 0.1rem 0.375rem;
+  padding: 0.1rem 0.4rem;
   border-radius: var(--radius-xs);
-  background: var(--bg-canvas);
+  background: #0f0f13;
   border: 1px solid var(--border-muted);
   color: var(--text-secondary);
   white-space: nowrap;
@@ -1027,29 +1038,32 @@ input:checked + .slider:before {
 
 .badge-tag.compatible {
   color: #34d399;
-  border-color: rgba(16, 185, 129, 0.3);
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.08);
 }
 
 .badge-tag.transcode {
   color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.3);
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
 }
 
 .badge-tag.live {
   color: #34d399;
-  border-color: rgba(16, 185, 129, 0.4);
+  border-color: rgba(16, 185, 129, 0.5);
+  background: rgba(16, 185, 129, 0.12);
 }
 
 .badge-tag.badge-active {
-  background: #27272a;
-  color: #fafafa;
-  border-color: #3f3f46;
+  background: #27272e;
+  color: #ffffff;
+  border-color: #52525b;
 }
 
 .badge-tag.badge-paired {
-  background: #18181b;
+  background: #1c1c22;
   color: #d4d4d8;
-  border-color: #27272a;
+  border-color: #3f3f46;
 }
 
 .video-actions {
