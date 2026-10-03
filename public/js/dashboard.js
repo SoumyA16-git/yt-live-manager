@@ -119,6 +119,20 @@ const bwAllowanceFill  = document.getElementById('bw-allowance-fill');
 const bwForecast       = document.getElementById('bw-forecast-sentence');
 const periodBadge      = document.getElementById('period-badge');
 
+// Bandwidth Infographic Elements
+const bwHeadlineUsed   = document.getElementById('bw-headline-used');
+const bwHeadlineLimit  = document.getElementById('bw-headline-limit');
+const bwStatusPill     = document.getElementById('bw-status-pill');
+const bwProjectedArea  = document.getElementById('bw-projected-area');
+const bwProjectedLine  = document.getElementById('bw-projected-line');
+const bwActualArea     = document.getElementById('bw-actual-area');
+const bwActualLine     = document.getElementById('bw-actual-line');
+const bwActualDot      = document.getElementById('bw-actual-dot');
+const bwKpiPace        = document.getElementById('bw-kpi-pace');
+const bwKpiProjected   = document.getElementById('bw-kpi-projected');
+const bwKpiHeadroom    = document.getElementById('bw-kpi-headroom');
+const bwKpiHeadroomSub = document.getElementById('bw-kpi-headroom-sub');
+
 // Video Library
 const activeVideoName  = document.getElementById('active-video-name');
 const uploadZone       = document.getElementById('upload-zone');
@@ -307,36 +321,148 @@ async function fetchBandwidth() {
 }
 
 function renderBandwidth(data) {
-  periodBadge.textContent = `Period: ${data.periodId || ''}`;
+  if (periodBadge) periodBadge.textContent = `Period: ${data.periodId || ''}`;
 
   const usedBytes = data.usedBytes || 0;
-  quickUsage.textContent = formatBytes(usedBytes, data.unitBase);
+  if (quickUsage) quickUsage.textContent = formatBytes(usedBytes, data.unitBase);
+
+  // Infographic Headline
+  if (bwHeadlineUsed) bwHeadlineUsed.textContent = formatBytes(usedBytes, data.unitBase);
+  if (bwHeadlineLimit) bwHeadlineLimit.textContent = formatBytes(data.limitBytes, data.unitBase);
 
   // Safety Limit Progress
   const pctSafety = Math.min(100, Math.max(0, data.pctOfSafety || 0));
-  bwSafetyText.textContent = `${formatBytes(usedBytes, data.unitBase)} / ${formatBytes(data.limitBytes, data.unitBase)} (${pctSafety.toFixed(1)}%)`;
-  bwSafetyFill.style.width = `${pctSafety}%`;
-  bwSafetyFill.className = `progress-bar-fill ${pctSafety >= 90 ? 'danger' : pctSafety >= 70 ? 'warning' : ''}`;
+  if (bwSafetyText) {
+    bwSafetyText.textContent = `${formatBytes(usedBytes, data.unitBase)} / ${formatBytes(data.limitBytes, data.unitBase)} (${pctSafety.toFixed(1)}%)`;
+  }
+  if (bwSafetyFill) {
+    bwSafetyFill.style.width = `${pctSafety}%`;
+    bwSafetyFill.className = `progress-bar-fill ${pctSafety >= 90 ? 'danger' : pctSafety >= 70 ? 'warning' : ''}`;
+  }
+
+  // Status Pill
+  if (bwStatusPill) {
+    if (pctSafety >= 90) {
+      bwStatusPill.className = 'badge-tag incompatible';
+      bwStatusPill.textContent = `${pctSafety.toFixed(1)}% Used · Critical`;
+    } else if (pctSafety >= 70) {
+      bwStatusPill.className = 'badge-tag warning';
+      bwStatusPill.textContent = `${pctSafety.toFixed(1)}% Used · Warning`;
+    } else {
+      bwStatusPill.className = 'badge-tag compatible';
+      bwStatusPill.textContent = `${pctSafety.toFixed(1)}% Used · Optimal`;
+    }
+  }
 
   // Full Allowance Progress
   const pctAllowance = Math.min(100, Math.max(0, data.pctOfAllowance || 0));
-  bwAllowanceText.textContent = `${formatBytes(usedBytes, data.unitBase)} / ${formatBytes(data.allowanceBytes, data.unitBase)} (${pctAllowance.toFixed(1)}%)`;
-  bwAllowanceFill.style.width = `${pctAllowance}%`;
-
-  // Alert Banner
-  if (data.alertLevel && data.alertLevel !== 'normal') {
-    bwAlertBanner.style.display = 'block';
-    bwAlertBanner.className = `bw-alert-banner ${data.alertLevel.includes('critical') || data.alertLevel === 'limit' ? 'critical' : 'warning'}`;
-    bwAlertBanner.textContent = data.alertLevel === 'limit'
-      ? 'Safety limit reached. Streaming stopped.'
-      : `Bandwidth alert level: ${data.alertLevel} (${pctSafety.toFixed(1)}% of safety limit)`;
-  } else {
-    bwAlertBanner.style.display = 'none';
+  if (bwAllowanceText) {
+    bwAllowanceText.textContent = `${formatBytes(usedBytes, data.unitBase)} / ${formatBytes(data.allowanceBytes, data.unitBase)} (${pctAllowance.toFixed(1)}%)`;
+  }
+  if (bwAllowanceFill) {
+    bwAllowanceFill.style.width = `${pctAllowance}%`;
   }
 
+  // Alert Banner
+  if (bwAlertBanner) {
+    if (data.alertLevel && data.alertLevel !== 'normal') {
+      bwAlertBanner.style.display = 'block';
+      bwAlertBanner.className = `bw-alert-banner ${data.alertLevel.includes('critical') || data.alertLevel === 'limit' ? 'critical' : 'warning'}`;
+      bwAlertBanner.textContent = data.alertLevel === 'limit'
+        ? 'Safety limit reached. Streaming stopped.'
+        : `Bandwidth alert level: ${data.alertLevel} (${pctSafety.toFixed(1)}% of safety limit)`;
+    } else {
+      bwAlertBanner.style.display = 'none';
+    }
+  }
+
+  // Infographic KPI Tiles & Dynamic SVG Trajectory Chart
+  updateBandwidthInfographic(data, usedBytes, pctSafety);
+
   // Forecast Sentence
-  if (data.forecast) {
-    bwForecast.textContent = data.forecast.summarySentence || 'Projections calculating...';
+  if (bwForecast) {
+    if (data.forecast) {
+      bwForecast.textContent = data.forecast.summarySentence || 'Projections calculating...';
+    }
+  }
+}
+
+function updateBandwidthInfographic(data, usedBytes, pctSafety) {
+  const forecast = data.forecast || {};
+  const limitBytes = data.limitBytes || (9 * 1e12);
+  const unitBase = data.unitBase ?? 1000;
+  const gbDivisor = unitBase === 1024 ? 1073741824 : 1000000000;
+
+  // 1. KPI Cards
+  if (bwKpiPace) {
+    if (forecast.currentMonthlyAverageGBPerDay != null && !isNaN(forecast.currentMonthlyAverageGBPerDay)) {
+      bwKpiPace.textContent = `${Number(forecast.currentMonthlyAverageGBPerDay).toFixed(2)} GB/d`;
+    } else {
+      bwKpiPace.textContent = '—';
+    }
+  }
+
+  if (bwKpiProjected) {
+    if (forecast.projected30DayUsageGB != null && !isNaN(forecast.projected30DayUsageGB)) {
+      const proj = Number(forecast.projected30DayUsageGB);
+      if (proj >= 1000) {
+        bwKpiProjected.textContent = `${(proj / 1000).toFixed(2)} TB`;
+      } else {
+        bwKpiProjected.textContent = `${proj.toFixed(1)} GB`;
+      }
+    } else {
+      bwKpiProjected.textContent = '—';
+    }
+  }
+
+  if (bwKpiHeadroom) {
+    const headroomBytes = Math.max(0, limitBytes - usedBytes);
+    bwKpiHeadroom.textContent = formatBytes(headroomBytes, unitBase);
+  }
+  if (bwKpiHeadroomSub) {
+    if (forecast.remainingSafeDays != null && Number.isFinite(forecast.remainingSafeDays)) {
+      bwKpiHeadroomSub.textContent = `≈ ${Number(forecast.remainingSafeDays).toFixed(1)} days safe`;
+    } else {
+      bwKpiHeadroomSub.textContent = 'Safe Quota Left';
+    }
+  }
+
+  // 2. Dynamic SVG Chart Trajectory
+  // Chart dimensions: viewBox="0 0 400 95"
+  // Baseline: Y=85 (0 GB), Cap line (9 TB): Y=16. Usable chart height = 69px.
+  if (!bwActualLine || !bwActualArea) return;
+
+  const now = new Date();
+  let dayOfMonth = now.getDate() + (now.getHours() / 24);
+  if (data.periodStart) {
+    const startMs = new Date(data.periodStart).getTime();
+    const elapsedDays = (now.getTime() - startMs) / (24 * 3600 * 1000);
+    if (elapsedDays > 0) dayOfMonth = elapsedDays;
+  }
+  const dayClamped = Math.min(30, Math.max(0.2, dayOfMonth));
+  const currentX = Math.round((dayClamped / 30) * 400);
+
+  const usedGB = forecast.usedGB ?? (usedBytes / gbDivisor);
+  const limitGB = forecast.limitGB ?? (limitBytes / gbDivisor) ?? 9000;
+  const projectedGB = forecast.projected30DayUsageGB ?? (usedGB * (30 / dayClamped));
+
+  // Scale: 0 GB = 85, limitGB = 16
+  const scale = 69 / (limitGB || 9000);
+  const currentY = Math.max(10, Math.min(85, 85 - (usedGB * scale)));
+  const projY = Math.max(6, Math.min(85, 85 - (projectedGB * scale)));
+
+  // Update Actual Area & Line
+  bwActualArea.setAttribute('points', `0,85 0,85 ${currentX},${currentY.toFixed(1)} ${currentX},85`);
+  bwActualLine.setAttribute('d', `M 0 85 L ${currentX} ${currentY.toFixed(1)}`);
+  if (bwActualDot) {
+    bwActualDot.setAttribute('cx', currentX);
+    bwActualDot.setAttribute('cy', currentY.toFixed(1));
+  }
+
+  // Update Projected Area & Line (from current point to Day 30)
+  if (bwProjectedArea && bwProjectedLine) {
+    bwProjectedArea.setAttribute('points', `${currentX},85 ${currentX},${currentY.toFixed(1)} 400,${projY.toFixed(1)} 400,85`);
+    bwProjectedLine.setAttribute('d', `M ${currentX} ${currentY.toFixed(1)} L 400 ${projY.toFixed(1)}`);
   }
 }
 
