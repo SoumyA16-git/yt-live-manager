@@ -30,7 +30,7 @@
       <div class="header-actions">
         <span id="user-display" class="header-user">admin</span>
         <button id="btn-open-settings" class="btn btn-secondary btn-sm" title="Open Configuration Settings">
-          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Settings
         </button>
         <button id="btn-logout" class="btn btn-outline btn-sm" title="Sign Out">
@@ -51,7 +51,7 @@
             <span id="status-text" class="status-text">STOPPED</span>
           </div>
           <span id="reachability-badge" class="reachability-pill">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
             Checking ingest...
           </span>
           <span id="deck-stream-key-badge" class="reachability-pill" style="cursor: pointer;" title="YouTube Stream Key status. Click to open Settings.">
@@ -119,7 +119,7 @@
       </button>
     </div>
 
-    <!-- 2. Main Dashboard Collapsible Grid -->
+    <!-- 2. Balanced 2-Column Dashboard Grid -->
     <div class="dashboard-grid">
 
       <!-- Panel A: Stream Telemetry & Performance -->
@@ -196,7 +196,7 @@
           <div class="progress-container">
             <div class="progress-header">
               <span style="color: var(--text-secondary); font-weight: 500;">Safety Limit (9 TB)</span>
-              <span id="bw-safety-text" style="font-family: var(--font-mono); color: var(--text-main);">0 GB / 9.00 TB (0%)</span>
+              <span id="bw-safety-text" style="color: var(--text-main); font-weight: 500;">0 GB / 9.00 TB (0%)</span>
             </div>
             <div class="progress-track">
               <div id="bw-safety-fill" class="progress-fill" style="width: 0%;"></div>
@@ -207,7 +207,7 @@
           <div class="progress-container">
             <div class="progress-header">
               <span style="color: var(--text-muted);">OCI Free Allowance (10 TB)</span>
-              <span id="bw-allowance-text" style="font-family: var(--font-mono); color: var(--text-muted);">0 GB / 10.00 TB (0%)</span>
+              <span id="bw-allowance-text" style="color: var(--text-muted);">0 GB / 10.00 TB (0%)</span>
             </div>
             <div class="progress-track">
               <div id="bw-allowance-fill" class="progress-fill" style="width: 0%; background: var(--text-muted);"></div>
@@ -222,7 +222,7 @@
       </div>
 
       <!-- Panel C: Video Library & Media Switcher -->
-      <div class="card grid-span-2" id="panel-videos">
+      <div class="card" id="panel-videos">
         <div class="collapsible-header" data-target="body-videos">
           <span class="card-title">
             <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
@@ -230,7 +230,6 @@
           </span>
           <div class="header-right">
             <span id="video-count-badge" class="brand-tag">0 Videos</span>
-            <span id="active-video-name" class="meta-tag">Active: None</span>
             <button class="panel-toggle-btn" data-target="body-videos" aria-label="Toggle Video Library Panel">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -238,6 +237,12 @@
         </div>
 
         <div class="panel-body" id="body-videos">
+          <!-- Active Stream Video Banner (Dedicated full-width row with clean text ellipsis) -->
+          <div class="active-video-banner">
+            <span class="active-video-label">Active:</span>
+            <span id="active-video-name" class="active-video-title">None selected</span>
+          </div>
+
           <!-- Video Ingestion Tab Switcher -->
           <div id="video-ingest-tabs" class="ingest-tabs-nav">
             <button id="tab-upload" class="ingest-tab-btn active">
@@ -254,8 +259,8 @@
           <div id="upload-zone" class="upload-dropzone">
             <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <div style="font-size: 0.8125rem; font-weight: 500; color: var(--text-main);">Tap or Drag Vertical MP4 Video Here</div>
-            <div style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps</div>
-            <div style="font-size: 0.6875rem; color: var(--text-dim); font-family: var(--font-mono);">Multi-Video Playlist: Select multiple videos to stream sequentially or in shuffle loop.</div>
+            <div style="font-size: 0.6875rem; color: var(--text-muted);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps</div>
+            <div style="font-size: 0.6875rem; color: var(--text-dim);">Multi-Video Playlist: Select multiple videos to stream sequentially or in shuffle loop.</div>
             <input type="file" id="file-input" accept=".mp4,.mov,.m4v,.mkv" style="display: none;">
           </div>
 
@@ -294,7 +299,7 @@
                   Download
                 </button>
               </div>
-              <div style="font-size: 0.6875rem; color: var(--text-dim); font-family: var(--font-mono);">
+              <div style="font-size: 0.6875rem; color: var(--text-dim);">
                 Supports: youtube.com/watch &nbsp;&bull;&nbsp; youtu.be &nbsp;&bull;&nbsp; /shorts/ &nbsp;&bull;&nbsp; /live/
               </div>
             </div>
@@ -306,14 +311,14 @@
                   <svg id="yt-stage-icon" class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
                   <span id="yt-stage-label">Fetching info...</span>
                 </span>
-                <span id="yt-dl-pct" style="font-family: var(--font-mono); font-weight: 600; font-size: 0.75rem; color: var(--text-main);">0%</span>
+                <span id="yt-dl-pct" style="font-weight: 600; font-size: 0.75rem; color: var(--text-main);">0%</span>
               </div>
-              <div id="yt-dl-title" style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono); margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+              <div id="yt-dl-title" style="font-size: 0.6875rem; color: var(--text-muted); margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
               <div class="progress-track">
                 <div id="yt-dl-fill" class="progress-fill" style="width: 0%;"></div>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem;">
-                <span id="yt-dl-details" style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono);">Waiting...</span>
+                <span id="yt-dl-details" style="font-size: 0.6875rem; color: var(--text-muted);">Waiting...</span>
                 <button id="btn-cancel-yt-dl" class="btn btn-outline btn-sm" style="height: 24px; padding: 0 0.5rem; font-size: 0.6875rem;">
                   Cancel
                 </button>
@@ -325,12 +330,12 @@
           <div id="upload-progress-box" style="display: none;" class="progress-container">
             <div class="progress-header">
               <span id="upload-status-text" style="color: var(--text-main); font-weight: 500; font-size: 0.75rem;">Uploading file to server...</span>
-              <span id="upload-pct" style="font-family: var(--font-mono); font-weight: 600; font-size: 0.75rem;">0%</span>
+              <span id="upload-pct" style="font-weight: 600; font-size: 0.75rem;">0%</span>
             </div>
             <div class="progress-track">
               <div id="upload-fill" class="progress-fill" style="width: 0%;"></div>
             </div>
-            <div id="upload-details-text" style="font-size: 0.6875rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 0.25rem; display: flex; justify-content: space-between;">
+            <div id="upload-details-text" style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; justify-content: space-between;">
               <span id="upload-bytes-text">0 MB / 0 MB</span>
               <span id="upload-speed-text">0 MB/s</span>
             </div>
@@ -395,7 +400,7 @@
             <div class="kpi-card" id="card-disk-storage">
               <div style="display: flex; justify-content: space-between; align-items: baseline;">
                 <span class="kpi-label">Disk Storage</span>
-                <span id="metric-disk-pct" style="font-size: 0.6875rem; font-family: var(--font-mono); font-weight: 600; color: var(--text-main);">0%</span>
+                <span id="metric-disk-pct" style="font-size: 0.6875rem; font-weight: 600; color: var(--text-main);">0%</span>
               </div>
               <span id="metric-disk" class="kpi-val">0 GB / 0 GB</span>
               <div style="width: 100%; height: 4px; background: var(--bg-canvas); border-radius: 2px; overflow: hidden; margin: 2px 0;">
@@ -410,15 +415,15 @@
             </div>
           </div>
 
-          <div style="font-size: 0.6875rem; font-family: var(--font-mono); color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
+          <div style="font-size: 0.6875rem; color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
             <span>Logs: <span id="dir-logs" style="color: var(--text-secondary);">0 MB</span></span>
             <span>Backups: <span id="dir-backups" style="color: var(--text-secondary);">0 MB</span></span>
           </div>
         </div>
       </div>
 
-      <!-- Panel E: Application & Stream Logs (Full Width) -->
-      <div class="card grid-span-3" id="panel-logs">
+      <!-- Panel E: Application & Stream Logs (Full Width Spanning 2 Columns) -->
+      <div class="card grid-full-width" id="panel-logs">
         <div class="collapsible-header" data-target="body-logs">
           <span class="card-title">
             <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
@@ -537,7 +542,7 @@
         <!-- Live Projection Box -->
         <div style="background: var(--bg-canvas); border: 1px solid var(--border-muted); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
           <span style="color: var(--text-muted);">Projected Egress (+10% overhead):</span>
-          <span style="font-family: var(--font-mono); color: var(--text-main); font-weight: 500;">
+          <span style="color: var(--text-main); font-weight: 500;">
             <span id="preview-gb-day">49.04 GB/day</span> · <span id="preview-tb-month">1.471 TB/30d</span>
           </span>
         </div>

@@ -265,7 +265,7 @@ function renderStatus(data) {
   // Metrics
   metricMode.textContent     = data.streamMode || 'auto';
   metricPid.textContent      = data.ffmpegPid || '—';
-  metricRestarts.textContent = `${data.restartCountSession || 0} session / ${data.restartCountTotal || 0} total`;
+  metricRestarts.textContent = `${data.restartCountSession || 0} / ${data.restartCountTotal || 0}`;
 
   const p = data.progress;
   if (p) {
