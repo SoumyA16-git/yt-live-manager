@@ -134,6 +134,7 @@ export function findPairedHorizontalVideo(verticalVideo, allVideos = []) {
 let _videosIndex = PATHS.videosIndex;
 let _videosDir   = PATHS.videos;
 let _incomingDir = PATHS.videosIncoming;
+let _syncPromise = null;
 
 // ─── Metadata Library Index ──────────────────────────────────────────────────
 
@@ -141,10 +142,24 @@ let _incomingDir = PATHS.videosIncoming;
  * Scan videos/ (and videos/.incoming/) directory on disk.
  * Discovers untracked video files, probes them, and syncs them into data/videos.json.
  * Also recovers completed .tmp files from .incoming.
+ * Guarded against re-entrant and concurrent executions.
  *
  * @returns {Promise<Array<object>>} Updated videos catalog
  */
 export async function syncDiskVideos() {
+  if (_syncPromise) {
+    return _syncPromise;
+  }
+
+  _syncPromise = _executeDiskSync();
+  try {
+    return await _syncPromise;
+  } finally {
+    _syncPromise = null;
+  }
+}
+
+async function _executeDiskSync() {
   const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
   let videos = Array.isArray(data?.videos) ? [...data.videos] : [];
   let changed = false;
@@ -279,6 +294,11 @@ export async function syncDiskVideos() {
     return v;
   });
 
+  // 3b. Persist updated index immediately BEFORE auto-activation or returning
+  if (changed) {
+    await saveVideosIndex(videos);
+  }
+
   // 4. If we have videos, ensure an active video is set
   const currentSettings = getSettings();
   const currentState = getState();
@@ -288,15 +308,16 @@ export async function syncDiskVideos() {
   if (videos.length > 0 && (!activeId || !activeExists)) {
     const firstId = videos[0].id;
     try {
-      await setActiveVideo(firstId);
+      let playlist = Array.isArray(currentSettings?.stream?.playlist) ? [...currentSettings.stream.playlist] : [];
+      if (!playlist.includes(firstId)) {
+        playlist.unshift(firstId);
+      }
+      await saveSettings({ stream: { videoId: firstId, playlist } });
+      await saveState({ activeVideoId: firstId });
       logger.info('video.auto_activated', `Automatically selected ${firstId} as active video`);
     } catch (err) {
       logger.warn('video.auto_activate_failed', `Could not set active video: ${err.message}`);
     }
-  }
-
-  if (changed) {
-    await saveVideosIndex(videos);
   }
 
   return videos;
@@ -311,12 +332,12 @@ export async function syncDiskVideos() {
  * @returns {Promise<Array<object>>}
  */
 export async function listVideos({ forceSync = false } = {}) {
-  const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+  const { data, source } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
   let videos = data?.videos ?? [];
   let changed = false;
 
-  // If index is empty or forced, scan disk to auto-discover existing video files
-  if (videos.length === 0 || forceSync) {
+  // Auto-discover if index file did not exist on disk yet (source === 'default') or forceSync requested
+  if ((source === 'default' && videos.length === 0) || forceSync) {
     try {
       const diskVideos = await syncDiskVideos();
       if (diskVideos.length > 0) {
@@ -391,6 +412,11 @@ export async function listVideos({ forceSync = false } = {}) {
  * @returns {Promise<object|null>}
  */
 export async function getVideo(id) {
+  const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+  if (Array.isArray(data?.videos)) {
+    const found = data.videos.find(v => v.id === id);
+    if (found) return found;
+  }
   const videos = await listVideos();
   return videos.find(v => v.id === id) || null;
 }
@@ -814,4 +840,5 @@ export function _setPathsForTest(videosDir, incomingDir, videosIndex) {
   _videosDir   = videosDir;
   _incomingDir = incomingDir;
   _videosIndex = videosIndex;
+  _syncPromise = null;
 }
