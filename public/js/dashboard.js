@@ -575,28 +575,31 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
     }
 
     item.innerHTML = `
-      <div class="video-item-left">
+      <div class="video-item-leading">
         ${chkAreaHtml}
-        <div class="video-info">
-          <div class="video-name">${v.label || v.originalName}</div>
-          <div class="video-meta">
-            <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
-            <span class="meta-tag">${v.probe?.aspectRatio || (isHorizontal ? '1920:1080' : '1080:1920')}</span>
-            <span class="meta-tag">${v.probe?.fps || 30}fps</span>
-            <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
-            <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
-            ${v.paired
-              ? `<span class="meta-tag" title="Paired with ${v.paired.label || v.paired.originalName}">Pair: ${v.paired.label || v.paired.originalName}</span>`
-              : ''
-            }
-          </div>
+      </div>
+      <div class="video-item-content">
+        <div class="video-name" title="${v.label || v.originalName}">${v.label || v.originalName}</div>
+        <div class="video-meta">
+          <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
+          <span class="meta-tag">${v.probe?.aspectRatio || (isHorizontal ? '1920:1080' : '1080:1920')}</span>
+          <span class="meta-tag">${v.probe?.fps || 30}fps</span>
+          <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
+          <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
         </div>
+        ${v.paired
+          ? `<div class="video-pair-info" title="Paired companion: ${v.paired.label || v.paired.originalName}">
+               <span class="pair-label">Pair:</span>
+               <span class="pair-val">${v.paired.label || v.paired.originalName}</span>
+             </div>`
+          : ''
+        }
       </div>
       <div class="video-actions">
         ${isSelected
           ? `<span class="badge-tag badge-active">${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}</span>`
           : isPairedFeedActive
-            ? `<span class="badge-tag">DUAL FEED (16:9)</span>`
+            ? `<span class="badge-tag badge-paired">DUAL FEED (16:9)</span>`
             : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                  Play Solo

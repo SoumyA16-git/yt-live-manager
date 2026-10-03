@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v5">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v6">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -342,8 +342,8 @@
           </div>
 
           <!-- Playlist Controls Toolbar -->
-          <div id="playlist-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; padding: 0.4rem 0.625rem; background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm);">
-            <div style="display: flex; align-items: center; gap: 0.375rem; flex-wrap: wrap;">
+          <div id="playlist-toolbar" class="playlist-toolbar">
+            <div class="playlist-toolbar-left">
               <button id="btn-select-all-videos" type="button" class="btn btn-outline btn-sm">
                 Select All
               </button>
@@ -354,9 +354,9 @@
                 0 Selected
               </span>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.35rem;">
-              <span style="font-size: 0.6875rem; color: var(--text-muted); font-weight: 500;">Loop:</span>
-              <select id="sel-playback-order" class="form-control" style="height: 30px; padding: 0 0.5rem; font-size: 0.75rem; width: auto;">
+            <div class="playlist-toolbar-right">
+              <span class="loop-label">Loop:</span>
+              <select id="sel-playback-order" class="form-control loop-select">
                 <option value="sequential">Sequential</option>
                 <option value="shuffle">Shuffle</option>
               </select>
