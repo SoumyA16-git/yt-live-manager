@@ -135,8 +135,6 @@ const iconEyeShow            = document.getElementById('icon-eye-show');
 const iconEyeHide            = document.getElementById('icon-eye-hide');
 const btnRevealText          = document.getElementById('btn-reveal-text');
 
-let _currentActiveVideoId = null;
-
 // ─── Network Event Listeners ──────────────────────────────────────────────────
 
 window.addEventListener('dashboard:disconnected', () => {
