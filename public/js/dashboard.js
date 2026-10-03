@@ -226,6 +226,30 @@ const iconEyeHideHoriz       = document.getElementById('icon-eye-hide-horiz');
 const btnRevealHorizText     = document.getElementById('btn-reveal-horiz-text');
 const cfgDualStreamEnabled   = document.getElementById('cfg-dual-stream-enabled');
 
+// Scheduler & Auto-Recycle DOM Elements
+const panelScheduler           = document.getElementById('panel-scheduler');
+const schedIstClock            = document.getElementById('sched-ist-clock');
+const schedModeBadge           = document.getElementById('sched-mode-badge');
+const schedStatusBanner        = document.getElementById('sched-status-banner');
+const schedStatusText          = document.getElementById('sched-status-text');
+const btnModeContinuous        = document.getElementById('btn-mode-continuous');
+const btnModeScheduled         = document.getElementById('btn-mode-scheduled');
+const schedWindowsCard         = document.getElementById('sched-windows-card');
+const schedSlot1Enabled        = document.getElementById('sched-slot1-enabled');
+const schedSlot1Badge          = document.getElementById('sched-slot1-badge');
+const schedSlot1Start          = document.getElementById('sched-slot1-start');
+const schedSlot1Stop           = document.getElementById('sched-slot1-stop');
+const schedSlot2Enabled        = document.getElementById('sched-slot2-enabled');
+const schedSlot2Badge          = document.getElementById('sched-slot2-badge');
+const schedSlot2Start          = document.getElementById('sched-slot2-start');
+const schedSlot2Stop           = document.getElementById('sched-slot2-stop');
+const schedRecycleCard         = document.getElementById('sched-recycle-card');
+const schedRecycleStatusBadge  = document.getElementById('sched-recycle-status-badge');
+const schedRecycleEnabled      = document.getElementById('sched-recycle-enabled');
+const schedRecycleHours        = document.getElementById('sched-recycle-hours');
+const schedPauseMins           = document.getElementById('sched-pause-mins');
+const btnSaveSchedule          = document.getElementById('btn-save-schedule');
+
 // ─── Network Event Listeners ──────────────────────────────────────────────────
 
 window.addEventListener('dashboard:disconnected', () => {
@@ -561,6 +585,177 @@ function updateBandwidthInfographic(data, usedBytes, pctSafety) {
       pathD += ` L ${wavePoints[wavePoints.length - 1].x} ${yBase} Z`;
       bwBarWavePath.setAttribute('d', pathD);
     }
+  }
+}
+
+// ─── Stream Scheduler & Auto-Recycle Controller ──────────────────────────────
+
+let _currentScheduler = null;
+let _schedSelectedMode = 'continuous';
+
+async function fetchScheduler() {
+  try {
+    const data = await apiGet('/api/scheduler');
+    _currentScheduler = data;
+    renderScheduler(data);
+    return data;
+  } catch (err) {
+    console.error('Fetch scheduler failed:', err);
+  }
+}
+
+function renderScheduler(data) {
+  if (!data) return;
+
+  // 1. Live IST Clock
+  if (schedIstClock && data.clockStr) {
+    schedIstClock.textContent = data.clockStr;
+  }
+
+  // 2. Mode State & Toggle Buttons
+  _schedSelectedMode = data.mode === 'scheduled' ? 'scheduled' : 'continuous';
+  if (_schedSelectedMode === 'scheduled') {
+    btnModeScheduled?.classList.add('active');
+    btnModeContinuous?.classList.remove('active');
+    if (schedModeBadge) {
+      schedModeBadge.textContent = 'Scheduled (IST)';
+      schedModeBadge.className = 'badge-tag warning';
+    }
+  } else {
+    btnModeContinuous?.classList.add('active');
+    btnModeScheduled?.classList.remove('active');
+    if (schedModeBadge) {
+      schedModeBadge.textContent = '24×7 Continuous';
+      schedModeBadge.className = 'badge-tag compatible';
+    }
+  }
+
+  // 3. Daily Streaming Windows (Slots 1 & 2 in IST)
+  const windows = Array.isArray(data.windows) ? data.windows : [];
+  if (windows.length > 0 && windows[0]) {
+    if (schedSlot1Start) schedSlot1Start.value = windows[0].start || '10:00';
+    if (schedSlot1Stop)  schedSlot1Stop.value  = windows[0].stop  || '14:00';
+    if (schedSlot1Enabled) schedSlot1Enabled.checked = true;
+  }
+  if (windows.length > 1 && windows[1]) {
+    if (schedSlot2Start) schedSlot2Start.value = windows[1].start || '18:00';
+    if (schedSlot2Stop)  schedSlot2Stop.value  = windows[1].stop  || '22:00';
+    if (schedSlot2Enabled) schedSlot2Enabled.checked = true;
+  } else if (windows.length === 1) {
+    if (schedSlot2Enabled) schedSlot2Enabled.checked = false;
+  }
+
+  updateSlotBadges();
+
+  // 4. Auto-Recycle Settings (VOD Archive Protection)
+  const ar = data.autoRecycle || {};
+  if (schedRecycleEnabled) schedRecycleEnabled.checked = !!ar.enabled;
+  if (schedRecycleHours)   schedRecycleHours.value = ar.maxSessionHours || 8;
+  if (schedPauseMins)      schedPauseMins.value    = ar.pauseMinutes || 60;
+  if (schedRecycleStatusBadge) {
+    schedRecycleStatusBadge.textContent = ar.enabled ? 'Protected' : 'Off';
+    schedRecycleStatusBadge.className = `badge-tag ${ar.enabled ? 'compatible' : 'disabled'}`;
+  }
+
+  // 5. Dynamic Status Banner
+  if (schedStatusBanner && schedStatusText) {
+    if (data.recycleState && data.recycleState.isRecycling) {
+      schedStatusBanner.className = 'sched-banner recycle';
+      schedStatusText.innerHTML = `<strong>VOD Finalize Pause in Progress:</strong> Stream paused for ${data.recycleState.remainingMinutes} min so YouTube can index & save previous broadcast as permanent VOD, then will resume automatically.`;
+    } else if (data.mode === 'scheduled') {
+      if (data.insideWindow) {
+        schedStatusBanner.className = 'sched-banner live';
+        schedStatusText.innerHTML = `<strong>Active Streaming Window (IST):</strong> Stream is running within configured daily slot. ${data.nextEvent?.label ? '(' + data.nextEvent.label + ')' : ''}`;
+      } else {
+        schedStatusBanner.className = 'sched-banner waiting';
+        schedStatusText.innerHTML = `<strong>Waiting for Schedule Slot:</strong> Stream is paused outside active hours. ${data.nextEvent?.label ? 'Next: ' + data.nextEvent.label : 'Waiting for next active slot.'}`;
+      }
+    } else {
+      if (ar.enabled) {
+        schedStatusBanner.className = 'sched-banner live';
+        schedStatusText.innerHTML = `<strong>24×7 Continuous Streaming (Auto-Recycle Enabled):</strong> Running non-stop with automatic ${ar.maxSessionHours || 8}h session rotation & ${ar.pauseMinutes || 60}m archive pause to build your channel's public video catalog.`;
+      } else {
+        schedStatusBanner.className = 'sched-banner info';
+        schedStatusText.innerHTML = `<strong>24×7 Continuous Streaming Active:</strong> Stream runs uninterrupted. Note: Streams exceeding 12h are not archived by YouTube into channel videos. Enable Auto-Recycle to save past streams automatically.`;
+      }
+    }
+  }
+}
+
+function updateSlotBadges() {
+  if (schedSlot1Badge && schedSlot1Enabled) {
+    schedSlot1Badge.textContent = schedSlot1Enabled.checked ? 'Active' : 'Disabled';
+    schedSlot1Badge.className = `badge-tag ${schedSlot1Enabled.checked ? 'compatible' : 'disabled'}`;
+  }
+  if (schedSlot2Badge && schedSlot2Enabled) {
+    schedSlot2Badge.textContent = schedSlot2Enabled.checked ? 'Active' : 'Disabled';
+    schedSlot2Badge.className = `badge-tag ${schedSlot2Enabled.checked ? 'compatible' : 'disabled'}`;
+  }
+}
+
+function tickLocalSchedulerClock() {
+  if (!schedIstClock) return;
+  try {
+    const now = new Date();
+    const istTimeStr = now.toLocaleTimeString('en-US', {
+      timeZone: 'Asia/Kolkata',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+    schedIstClock.textContent = `IST ${istTimeStr}`;
+  } catch {
+    // ignore
+  }
+}
+
+async function saveSchedulerSettings() {
+  if (!btnSaveSchedule) return;
+
+  const origHtml = btnSaveSchedule.innerHTML;
+  btnSaveSchedule.disabled = true;
+  btnSaveSchedule.innerHTML = '<span class="status-dot starting"></span> Saving...';
+
+  try {
+    const windows = [];
+    if (schedSlot1Enabled?.checked && schedSlot1Start?.value && schedSlot1Stop?.value) {
+      windows.push({
+        days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+        start: schedSlot1Start.value,
+        stop: schedSlot1Stop.value,
+      });
+    }
+    if (schedSlot2Enabled?.checked && schedSlot2Start?.value && schedSlot2Stop?.value) {
+      windows.push({
+        days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+        start: schedSlot2Start.value,
+        stop: schedSlot2Stop.value,
+      });
+    }
+
+    const payload = {
+      mode: _schedSelectedMode,
+      timezone: 'Asia/Kolkata',
+      windows,
+      autoRecycle: {
+        enabled: schedRecycleEnabled ? schedRecycleEnabled.checked : false,
+        maxSessionHours: parseFloat(schedRecycleHours?.value) || 8,
+        pauseMinutes: parseInt(schedPauseMins?.value, 10) || 60,
+      },
+    };
+
+    const res = await apiPut('/api/scheduler', payload);
+    if (res?.scheduler) {
+      renderScheduler(res.scheduler);
+    }
+    showToast('Stream schedule and auto-recycle preferences applied!', 'success', 'Schedule Updated');
+    await fetchStatus();
+  } catch (err) {
+    showToast(err.message, 'error', 'Could Not Save Schedule');
+  } finally {
+    btnSaveSchedule.disabled = false;
+    btnSaveSchedule.innerHTML = origHtml;
   }
 }
 
@@ -1437,6 +1632,7 @@ async function refreshAll() {
     fetchStatus(),
     fetchSettings(),
     fetchBandwidth(),
+    fetchScheduler(),
     fetchSystem(),
     fetchVideos(),
     fetchLogs(),
@@ -1445,10 +1641,11 @@ async function refreshAll() {
 
 function startPolling() {
   stopPolling();
-  // PRD §15.2: status every 3s, bandwidth & system every 10s
+  // PRD §15.2: status every 3s, bandwidth, scheduler & system every 10s
   _pollStatusTimer = setInterval(fetchStatus, 3000);
   _pollSlowTimer   = setInterval(() => {
     fetchBandwidth();
+    fetchScheduler();
     fetchSystem();
   }, 10000);
 }
@@ -1818,6 +2015,55 @@ async function init() {
       await updatePlaylist(_currentPlaylist, newOrder);
     });
   }
+
+  // 4c. Stream Scheduler & Auto-Recycle Listeners
+  if (btnModeContinuous) {
+    btnModeContinuous.addEventListener('click', () => {
+      _schedSelectedMode = 'continuous';
+      btnModeContinuous.classList.add('active');
+      btnModeScheduled?.classList.remove('active');
+      if (schedModeBadge) {
+        schedModeBadge.textContent = '24×7 Continuous';
+        schedModeBadge.className = 'badge-tag compatible';
+      }
+    });
+  }
+
+  if (btnModeScheduled) {
+    btnModeScheduled.addEventListener('click', () => {
+      _schedSelectedMode = 'scheduled';
+      btnModeScheduled.classList.add('active');
+      btnModeContinuous?.classList.remove('active');
+      if (schedModeBadge) {
+        schedModeBadge.textContent = 'Scheduled (IST)';
+        schedModeBadge.className = 'badge-tag warning';
+      }
+    });
+  }
+
+  if (schedSlot1Enabled) {
+    schedSlot1Enabled.addEventListener('change', updateSlotBadges);
+  }
+
+  if (schedSlot2Enabled) {
+    schedSlot2Enabled.addEventListener('change', updateSlotBadges);
+  }
+
+  if (schedRecycleEnabled) {
+    schedRecycleEnabled.addEventListener('change', () => {
+      if (schedRecycleStatusBadge) {
+        schedRecycleStatusBadge.textContent = schedRecycleEnabled.checked ? 'Protected' : 'Off';
+        schedRecycleStatusBadge.className = `badge-tag ${schedRecycleEnabled.checked ? 'compatible' : 'disabled'}`;
+      }
+    });
+  }
+
+  if (btnSaveSchedule) {
+    btnSaveSchedule.addEventListener('click', saveSchedulerSettings);
+  }
+
+  // Live 1-second IST clock ticking
+  setInterval(tickLocalSchedulerClock, 1000);
 
   // 5. Authenticate Session
   const user = await initSession();

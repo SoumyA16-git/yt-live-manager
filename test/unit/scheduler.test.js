@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   getLocalTimeInZone,
   isInsideWindow,
+  getNextScheduleEvent,
 } from '../../src/scheduler.js';
 
 describe('scheduler — getLocalTimeInZone', () => {
@@ -66,3 +67,31 @@ describe('scheduler — isInsideWindow', () => {
     assert.equal(isInsideWindow(wedMorning, overnightWindow, 'UTC'), false);
   });
 });
+
+describe('scheduler — getNextScheduleEvent', () => {
+  const windows = [
+    { days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], start: '10:00', stop: '14:00' },
+    { days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'], start: '18:00', stop: '22:00' },
+  ];
+
+  test('calculates next start event when currently before slot 1', () => {
+    // 2026-10-02T02:30:00Z is 08:00 IST
+    const t8am = new Date('2026-10-02T02:30:00Z');
+    const evt = getNextScheduleEvent(t8am, windows, 'Asia/Kolkata');
+    assert.equal(evt.hasEvent, true);
+    assert.equal(evt.type, 'start');
+    assert.equal(evt.timeStr, '10:00');
+    assert.equal(evt.inMinutes, 120);
+  });
+
+  test('calculates next stop event when inside slot 1', () => {
+    // 2026-10-02T05:30:00Z is 11:00 IST
+    const t11am = new Date('2026-10-02T05:30:00Z');
+    const evt = getNextScheduleEvent(t11am, windows, 'Asia/Kolkata');
+    assert.equal(evt.hasEvent, true);
+    assert.equal(evt.type, 'stop');
+    assert.equal(evt.timeStr, '14:00');
+    assert.equal(evt.inMinutes, 180);
+  });
+});
+

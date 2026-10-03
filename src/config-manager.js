@@ -85,6 +85,11 @@ export const DEFAULTS = Object.freeze({
     mode:     'continuous',
     timezone: 'Asia/Kolkata',
     windows:  [],
+    autoRecycle: {
+      enabled:         false,
+      maxSessionHours: 8,
+      pauseMinutes:    60,
+    },
   },
   uploads: {
     maxBytes:          4 * 1024 * 1024 * 1024,  // 4 GiB

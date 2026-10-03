@@ -24,6 +24,7 @@ import { createSettingsRouter } from './api/settings.routes.js';
 import { createBandwidthRouter } from './api/bandwidth.routes.js';
 import { createVideosRouter } from './api/videos.routes.js';
 import { createSystemRouter } from './api/system.routes.js';
+import { createSchedulerRouter } from './api/scheduler.routes.js';
 import PATHS from './lib/paths.js';
 
 export async function createApp(envConfig = {}) {
@@ -85,6 +86,7 @@ export async function createApp(envConfig = {}) {
   });
   app.use('/api/settings',  authMw, csrfMw, createSettingsRouter(authEnv));
   app.use('/api/bandwidth', authMw, csrfMw, createBandwidthRouter(authEnv));
+  app.use('/api/scheduler', authMw, csrfMw, createSchedulerRouter());
   app.use('/api/videos',    authMw, csrfMw, createVideosRouter());
   app.use('/api/system',    authMw, systemRouter);
   app.get('/api/logs', authMw, (req, res, next) => {

@@ -226,6 +226,20 @@ function validateSchedulerWindows(fPath, windows, errors) {
   }
 }
 
+function validateAutoRecycle(fPath, ar, errors) {
+  if (!isObject(ar)) { errors.push(fieldErr(fPath, 'must be an object')); return; }
+  if (ar.enabled !== undefined && typeof ar.enabled !== 'boolean')
+    errors.push(fieldErr(`${fPath}.enabled`, 'must be a boolean'));
+  if (ar.maxSessionHours !== undefined && (typeof ar.maxSessionHours !== 'number' || ar.maxSessionHours < 0.5 || ar.maxSessionHours > 24))
+    errors.push(fieldErr(`${fPath}.maxSessionHours`, 'must be a number between 0.5 and 24'));
+  if (ar.pauseMinutes !== undefined && (typeof ar.pauseMinutes !== 'number' || ar.pauseMinutes < 1 || ar.pauseMinutes > 1440))
+    errors.push(fieldErr(`${fPath}.pauseMinutes`, 'must be an integer between 1 and 1440'));
+  for (const k of Object.keys(ar)) {
+    if (!['enabled', 'maxSessionHours', 'pauseMinutes'].includes(k))
+      errors.push(fieldErr(`${fPath}.${k}`, 'unknown field'));
+  }
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 /**
@@ -359,7 +373,9 @@ export function validateSettings(input, { partial = true } = {}) {
       validateTimezone('scheduler.timezone', sc.timezone, errors);
       if (sc.windows !== undefined)
         validateSchedulerWindows('scheduler.windows', sc.windows, errors);
-      const KNOWN_SC = new Set([...Object.keys(SCHEDULER_SCHEMA), 'windows']);
+      if (sc.autoRecycle !== undefined)
+        validateAutoRecycle('scheduler.autoRecycle', sc.autoRecycle, errors);
+      const KNOWN_SC = new Set([...Object.keys(SCHEDULER_SCHEMA), 'windows', 'autoRecycle']);
       for (const k of Object.keys(sc)) {
         if (!KNOWN_SC.has(k)) errors.push(fieldErr(`scheduler.${k}`, 'unknown field'));
       }

@@ -95,6 +95,124 @@ export function isInsideWindow(date, windows = [], timezone = 'Asia/Kolkata') {
   return false;
 }
 
+/**
+ * Calculate the next scheduled event (start or stop) and countdown.
+ *
+ * @param {Date} date
+ * @param {Array<object>} windows
+ * @param {string} timezone
+ * @returns {object} Next event details
+ */
+export function getNextScheduleEvent(date, windows = [], timezone = 'Asia/Kolkata') {
+  if (!Array.isArray(windows) || windows.length === 0) {
+    return { hasEvent: false, label: 'No scheduled windows configured' };
+  }
+
+  const current = getLocalTimeInZone(date, timezone);
+  const currentMins = current.minutes;
+  const todayDay = current.dayOfWeek;
+  const todayIdx = DAY_MAP.indexOf(todayDay);
+
+  let bestDiff = Infinity;
+  let nextEvt = null;
+
+  for (let dayOffset = 0; dayOffset < 7; dayOffset++) {
+    const checkDay = DAY_MAP[(todayIdx + dayOffset) % 7];
+
+    for (const win of windows) {
+      const days = (win.days || []).map(d => d.toLowerCase());
+      if (!days.includes(checkDay)) continue;
+
+      const startMins = parseTimeToMinutes(win.start);
+      const stopMins  = parseTimeToMinutes(win.stop);
+
+      // Candidate 1: Window Start
+      let diffStart = (dayOffset * 1440) + (startMins - currentMins);
+      if (diffStart > 0 && diffStart < bestDiff) {
+        bestDiff = diffStart;
+        nextEvt = {
+          type: 'start',
+          timeStr: win.start,
+          day: checkDay,
+          inMinutes: diffStart,
+          label: `Starts at ${win.start} IST (${checkDay.toUpperCase()})`,
+        };
+      }
+
+      // Candidate 2: Window Stop
+      let diffStop = (dayOffset * 1440) + (stopMins - currentMins);
+      if (diffStop > 0 && diffStop < bestDiff) {
+        bestDiff = diffStop;
+        nextEvt = {
+          type: 'stop',
+          timeStr: win.stop,
+          day: checkDay,
+          inMinutes: diffStop,
+          label: `Ends at ${win.stop} IST (${checkDay.toUpperCase()})`,
+        };
+      }
+    }
+
+    if (nextEvt && dayOffset > 0) break; // Found nearest upcoming event
+  }
+
+  return nextEvt ? { hasEvent: true, ...nextEvt } : { hasEvent: false, label: 'No upcoming events' };
+}
+
+/**
+ * Return live scheduler status snapshot for API & UI.
+ *
+ * @param {Date} [now=new Date()]
+ * @returns {object}
+ */
+export function getSchedulerStatus(now = new Date()) {
+  const settings = getSettings();
+  const state    = getState();
+
+  const mode = settings.scheduler?.mode || 'continuous';
+  const tz   = settings.scheduler?.timezone || 'Asia/Kolkata';
+  const windows = settings.scheduler?.windows || [];
+  const autoRecycle = settings.scheduler?.autoRecycle || { enabled: false, maxSessionHours: 8, pauseMinutes: 60 };
+
+  const currentLocal = getLocalTimeInZone(now, tz);
+  const inside = isInsideWindow(now, windows, tz);
+  const nextEvent = getNextScheduleEvent(now, windows, tz);
+
+  let recycleState = null;
+  if (state.recyclingUntil) {
+    const untilMs = new Date(state.recyclingUntil).getTime();
+    const remainingMins = Math.max(0, Math.ceil((untilMs - now.getTime()) / 60000));
+    recycleState = {
+      isRecycling: true,
+      until: state.recyclingUntil,
+      remainingMinutes: remainingMins,
+      label: `VOD Finalize Pause (Resuming in ${remainingMins}m)`,
+    };
+  }
+
+  // Format 12-hour IST Clock string
+  const h12 = currentLocal.hour % 12 || 12;
+  const ampm = currentLocal.hour >= 12 ? 'PM' : 'AM';
+  const minPad = String(currentLocal.minute).padStart(2, '0');
+  const sec = String(now.getSeconds()).padStart(2, '0');
+  const clockStr = `${h12}:${minPad}:${sec} ${ampm} IST`;
+
+  return {
+    mode,
+    timezone: tz,
+    clockStr,
+    hour: currentLocal.hour,
+    minute: currentLocal.minute,
+    dayOfWeek: currentLocal.dayOfWeek,
+    insideWindow: inside,
+    windows,
+    autoRecycle,
+    recycleState,
+    nextEvent,
+    status: state.status,
+  };
+}
+
 // ─── Scheduler Loop ───────────────────────────────────────────────────────────
 
 let _timer = null;
@@ -111,15 +229,49 @@ export async function tickScheduler(now = new Date()) {
 
   const mode = settings.scheduler?.mode || 'continuous';
   const tz   = settings.scheduler?.timezone || 'Asia/Kolkata';
+  const windows = settings.scheduler?.windows || [];
+  const autoRecycle = settings.scheduler?.autoRecycle || { enabled: false, maxSessionHours: 8, pauseMinutes: 60 };
 
   if (mode === 'manual') {
-    // Manual mode: scheduler takes no action
     return { mode: 'manual' };
   }
 
+  // Check VOD recycle pause state
+  if (state.recyclingUntil) {
+    const untilMs = new Date(state.recyclingUntil).getTime();
+    if (now.getTime() < untilMs) {
+      const remainingMins = Math.ceil((untilMs - now.getTime()) / 60000);
+      logger.debug('scheduler.recycling_wait', `In VOD recycle pause; resuming in ${remainingMins}m`);
+      return { mode, recycling: true, remainingMins };
+    } else {
+      logger.info('scheduler.recycling_finished', 'VOD recycle pause completed; auto-resuming stream session');
+      await saveState({ recyclingUntil: null });
+      if (mode === 'continuous' || (mode === 'scheduled' && isInsideWindow(now, windows, tz))) {
+        await startStream({ reason: 'scheduler.recycle_resume' });
+      }
+      return { mode, recycling: false };
+    }
+  }
+
   if (mode === 'continuous') {
-    // Continuous mode: if stopped but desired is running, start
-    if (state.desiredState === 'running' && state.status === 'STOPPED') {
+    // Check autoRecycle max duration in continuous mode
+    if (autoRecycle.enabled && state.status === 'RUNNING' && state.streamStartedAt) {
+      const startedMs = new Date(state.streamStartedAt).getTime();
+      const elapsedHours = (now.getTime() - startedMs) / 3600000;
+      const limitHours = autoRecycle.maxSessionHours || 8;
+
+      if (elapsedHours >= limitHours) {
+        const pauseMins = autoRecycle.pauseMinutes || 60;
+        logger.info('scheduler.auto_recycle_triggered', `Stream reached ${elapsedHours.toFixed(2)}h (limit ${limitHours}h). Pausing for ${pauseMins}m to finalize YouTube VOD archive.`);
+        await stopStream({ keepDesiredRunning: true, reason: 'scheduler.auto_recycle' });
+        const recyclingUntil = new Date(now.getTime() + pauseMins * 60000).toISOString();
+        await saveState({ recyclingUntil, status: 'SCHEDULED' });
+        return { mode: 'continuous', autoRecycleTriggered: true };
+      }
+    }
+
+    // Continuous mode: if stopped but desired is running and not recycling
+    if (state.desiredState === 'running' && state.status === 'STOPPED' && !state.recyclingUntil) {
       logger.info('scheduler.continuous_start', 'Continuous mode active; initiating stream start');
       await startStream({ reason: 'scheduler.continuous' });
     }
@@ -127,7 +279,7 @@ export async function tickScheduler(now = new Date()) {
   }
 
   if (mode === 'scheduled') {
-    const inside = isInsideWindow(now, settings.scheduler?.windows || [], tz);
+    const inside = isInsideWindow(now, windows, tz);
 
     if (inside) {
       // Window is open
@@ -159,11 +311,6 @@ export async function tickScheduler(now = new Date()) {
  */
 export function startScheduler() {
   if (_timer) return;
-  const mode = getSettings()?.scheduler?.mode ?? 'continuous';
-  if (mode !== 'scheduled') {
-    logger.info('scheduler.inactive', `Scheduler in ${mode} mode; interval loop disabled to minimize RAM`);
-    return;
-  }
   _timer = setInterval(async () => {
     try {
       await tickScheduler(new Date());

@@ -252,7 +252,26 @@ describe('validateSettings — scheduler section', () => {
     });
     assert.ok(!valid);
   });
+
+  test('accepts valid autoRecycle settings', () => {
+    const { valid, errors } = validateSettings({
+      scheduler: {
+        autoRecycle: { enabled: true, maxSessionHours: 8, pauseMinutes: 60 },
+      },
+    });
+    assert.ok(valid, errors.join(', '));
+  });
+
+  test('rejects invalid autoRecycle maxSessionHours', () => {
+    const { valid } = validateSettings({
+      scheduler: {
+        autoRecycle: { enabled: true, maxSessionHours: 30, pauseMinutes: 60 },
+      },
+    });
+    assert.ok(!valid);
+  });
 });
+
 
 describe('validateSettings — disk ascending check', () => {
   test('rejects critical <= warn', () => {
