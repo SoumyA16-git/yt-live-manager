@@ -113,4 +113,46 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.ok(args.includes('copy'));
     assert.equal(args[args.length - 1], secretTarget);
   });
+
+  test('Dual Streaming Mode args structure with two outputs', () => {
+    const horizontalMeta = {
+      filePath: '/var/videos/vid_87654321.mp4',
+      isConcat: false,
+    };
+    const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/my-horizontal-key-456';
+    const args = buildFfmpegArgs(dummySettings, dummyMeta, secretTarget, 'copy', dualTarget, horizontalMeta);
+
+    // Verify both inputs present
+    assert.ok(args.includes('/var/videos/vid_12345678.mp4'));
+    assert.ok(args.includes('/var/videos/vid_87654321.mp4'));
+
+    // Verify maps for output 0 (vertical shorts)
+    assert.ok(args.includes('-map'));
+    assert.ok(args.includes('0:v:0'));
+    assert.ok(args.includes('0:a?'));
+
+    // Verify maps for output 1 (horizontal 16:9)
+    assert.ok(args.includes('1:v:0'));
+    assert.ok(args.includes('1:a?'));
+
+    // Verify both outputs use copy mode
+    const copyIndices = [];
+    args.forEach((a, idx) => { if (a === 'copy') copyIndices.push(idx); });
+    assert.ok(copyIndices.length >= 2);
+
+    // Verify both target URLs present
+    assert.ok(args.includes(secretTarget));
+    assert.ok(args.includes(dualTarget));
+  });
+
+  test('Dual Streaming Mode args structure with multi-video concat', () => {
+    const verticalConcatMeta = { isConcat: true };
+    const horizontalConcatMeta = { isConcat: true };
+    const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/my-horizontal-key-456';
+    const args = buildFfmpegArgs(dummySettings, verticalConcatMeta, secretTarget, 'copy', dualTarget, horizontalConcatMeta);
+
+    assert.ok(args.includes(secretTarget));
+    assert.ok(args.includes(dualTarget));
+    assert.ok(args.includes('-safe'));
+  });
 });

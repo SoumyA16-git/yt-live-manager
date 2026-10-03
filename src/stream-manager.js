@@ -20,9 +20,9 @@ import {
   isFfmpegRunning,
   getLatestProgress,
 } from './ffmpeg-manager.js';
-import { getSettings, getStreamKey } from './config-manager.js';
+import { getSettings, getStreamKey, getHorizontalStreamKey, isDualStreamEnabled } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
-import { getVideo, resolveVideoPath, listVideos, setActiveVideo } from './video-manager.js';
+import { getVideo, resolveVideoPath, listVideos, setActiveVideo, findPairedHorizontalVideo } from './video-manager.js';
 import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage } from './usage-manager.js';
 import { logger } from './logger.js';
@@ -273,10 +273,88 @@ export async function evaluateStartGates() {
     return { allowed: false, code: 'E_DESIRED_STOPPED', reason: 'Desired state is stopped' };
   }
 
+  // 9. Dual Stream Resolution (Shorts Vertical + Normal Horizontal)
+  let horizontalMeta = null;
+  let dualTarget = null;
+  const horizontalKey = getHorizontalStreamKey();
+  const dualEnabled = isDualStreamEnabled();
+
+  if (dualEnabled && horizontalKey && horizontalKey.trim()) {
+    const allVideos = await listVideos();
+    const rtmpsUrl = settings.youtube?.rtmpsUrl || 'rtmps://a.rtmps.youtube.com:443/live2';
+
+    if (playlistMetas.length === 1) {
+      const pairedH = findPairedHorizontalVideo(playlistMetas[0], allVideos);
+      if (pairedH) {
+        const hExt = path.extname(pairedH.filename || `${pairedH.id}.mp4`);
+        const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
+        try {
+          await fs.access(resolvedHPath);
+          horizontalMeta = {
+            ...pairedH,
+            filePath: resolvedHPath,
+            isConcat: false,
+          };
+          dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
+          logger.info('stream.dual_stream_paired', `Dual streaming enabled: Paired vertical ${playlistMetas[0].id} with horizontal ${pairedH.id}`);
+        } catch {
+          logger.warn('stream.dual_stream_file_missing', `Paired horizontal video file missing: ${resolvedHPath}; streaming vertical only`);
+        }
+      } else {
+        logger.info('stream.dual_stream_no_pair', 'Horizontal stream key configured, but no matching horizontal video found. Streaming vertical only.');
+      }
+    } else {
+      // Multi-video playlist: find paired horizontal video for each
+      const horizontalMetas = [];
+      let allPaired = true;
+
+      for (const vMeta of playlistMetas) {
+        const pairedH = findPairedHorizontalVideo(vMeta, allVideos);
+        if (!pairedH) {
+          allPaired = false;
+          break;
+        }
+        const hExt = path.extname(pairedH.filename || `${pairedH.id}.mp4`);
+        const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
+        try {
+          await fs.access(resolvedHPath);
+          horizontalMetas.push({ ...pairedH, filePath: resolvedHPath });
+        } catch {
+          allPaired = false;
+          break;
+        }
+      }
+
+      if (allPaired && horizontalMetas.length === playlistMetas.length) {
+        // Build loop_horizontal.ffconcat in same order as vertical
+        const concatLines = ['ffconcat version 1.0'];
+        for (const meta of horizontalMetas) {
+          const normalized = meta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
+          concatLines.push(`file '${normalized}'`);
+        }
+        await fs.mkdir(path.dirname(PATHS.loopConcatHorizontal), { recursive: true });
+        await fs.writeFile(PATHS.loopConcatHorizontal, concatLines.join('\n') + '\n', 'utf8');
+
+        horizontalMeta = {
+          ...horizontalMetas[0],
+          filePath: PATHS.loopConcatHorizontal,
+          isConcat: true,
+          playlistCount: horizontalMetas.length,
+        };
+        dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
+        logger.info('stream.dual_stream_playlist_paired', `Dual streaming enabled for playlist: paired ${horizontalMetas.length} horizontal videos`);
+      } else {
+        logger.warn('stream.dual_stream_playlist_partial', 'Not all playlist videos have matching horizontal videos. Streaming vertical only.');
+      }
+    }
+  }
+
   return {
     allowed: true,
     videoMeta,
     mode: selectedMode,
+    horizontalMeta,
+    dualTarget,
   };
 }
 
@@ -376,7 +454,14 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
   const destUrl = `${rtmpsUrl}/${secretKey.trim()}`;
 
-  const args = buildFfmpegArgs(settings, gate.videoMeta, destUrl, gate.mode);
+  const args = buildFfmpegArgs(
+    settings,
+    gate.videoMeta,
+    destUrl,
+    gate.mode,
+    gate.dualTarget,
+    gate.horizontalMeta
+  );
 
   try {
     const { pid } = await spawnFfmpeg({
@@ -394,8 +479,16 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           activeVideoId: gate.videoMeta.id,
           ffmpegPid: pid,
           streamStartedAt: new Date().toISOString(),
+          isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+          pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
         });
-        await appendHistory({ event: 'start', mode: gate.mode, videoId: gate.videoMeta.id, pid });
+        await appendHistory({
+          event: 'start',
+          mode: gate.mode,
+          videoId: gate.videoMeta.id,
+          pid,
+          isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+        });
 
         // Start stability timer
         const stableSec = settings.recovery?.stableAfterSeconds ?? 120;
@@ -414,6 +507,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
         await saveState({
           ffmpegPid: null,
+          isDualStream: false,
+          pairedHorizontalVideoId: null,
           lastExit: { code, signal, at: new Date().toISOString() },
         });
 
@@ -424,6 +519,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           expected,
           durationSec,
           lastError,
+          isDualStream: false,
         });
 
         if (expected) {
@@ -446,7 +542,12 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       ffmpegPid: pid,
     });
 
-    return { started: true, pid, mode: gate.mode };
+    return {
+      started: true,
+      pid,
+      mode: gate.mode,
+      isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+    };
   } catch (err) {
     logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);
     await transitionState('ERROR', err.message);
@@ -471,9 +572,11 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
   if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
   if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
 
-  if (!keepDesiredRunning) {
-    await saveState({ desiredState: 'stopped' });
-  }
+  await saveState({
+    ...(keepDesiredRunning ? {} : { desiredState: 'stopped' }),
+    isDualStream: false,
+    pairedHorizontalVideoId: null,
+  });
 
   const settings = getSettings();
   const graceSec = settings.stream?.stopGraceSeconds ?? 8;

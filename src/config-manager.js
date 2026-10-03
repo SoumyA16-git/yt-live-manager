@@ -52,10 +52,12 @@ export const DEFAULTS = Object.freeze({
     stopGraceSeconds:      8,
   },
   youtube: {
-    rtmpsUrl:  'rtmps://a.rtmps.youtube.com:443/live2',
-    streamKey: '',
-    title:     '',
-    label:     '',
+    rtmpsUrl:            'rtmps://a.rtmps.youtube.com:443/live2',
+    streamKey:           '',
+    horizontalStreamKey: '',
+    dualStreamEnabled:   true,
+    title:               '',
+    label:               '',
   },
   youtubeGuidance: { recommendedMbps: [3, 9] },
   bandwidth: {
@@ -177,9 +179,12 @@ export async function loadSettings() {
     }
   }
 
-  // Register stream key — must happen before any log line that might contain it
+  // Register stream keys — must happen before any log line that might contain them
   if (_settings.youtube?.streamKey) {
     setSecret(_settings.youtube.streamKey);
+  }
+  if (_settings.youtube?.horizontalStreamKey) {
+    setSecret(_settings.youtube.horizontalStreamKey);
   }
 
   return _settings;
@@ -217,9 +222,12 @@ export async function saveSettings(patch, { skipBackup = false } = {}) {
 
   await writeJSON(_settingsPath, candidate, { mode: 0o600, backupFn });
 
-  // Update redact module if key changed
+  // Update redact module if keys changed
   if (candidate.youtube?.streamKey) {
     setSecret(candidate.youtube.streamKey);
+  }
+  if (candidate.youtube?.horizontalStreamKey) {
+    setSecret(candidate.youtube.horizontalStreamKey);
   }
 
   _settings = candidate;
@@ -237,7 +245,7 @@ export function getSettings() {
 }
 
 /**
- * Return settings safe for API responses — stream key replaced with hint.
+ * Return settings safe for API responses — stream keys replaced with hints.
  */
 export function getMaskedSettings() {
   const s   = getSettings();
@@ -250,6 +258,17 @@ export function getMaskedSettings() {
     s.youtube.streamKeyHint = '';
   }
   delete s.youtube.streamKey;
+
+  const hKey = s.youtube?.horizontalStreamKey;
+  if (hKey) {
+    s.youtube.horizontalStreamKeySet  = true;
+    s.youtube.horizontalStreamKeyHint = hKey.slice(-4);
+  } else {
+    s.youtube.horizontalStreamKeySet  = false;
+    s.youtube.horizontalStreamKeyHint = '';
+  }
+  delete s.youtube.horizontalStreamKey;
+
   return s;
 }
 
@@ -259,6 +278,21 @@ export function getMaskedSettings() {
  */
 export function getStreamKey() {
   return _settings?.youtube?.streamKey ?? '';
+}
+
+/**
+ * Return the raw horizontal stream key for internal use ONLY.
+ * Never log the return value.
+ */
+export function getHorizontalStreamKey() {
+  return _settings?.youtube?.horizontalStreamKey ?? '';
+}
+
+/**
+ * Check if dual streaming is enabled in settings.
+ */
+export function isDualStreamEnabled() {
+  return _settings?.youtube?.dualStreamEnabled !== false;
 }
 
 // ─── Computed byte helpers ────────────────────────────────────────────────────

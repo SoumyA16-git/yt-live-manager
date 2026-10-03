@@ -61,6 +61,74 @@ export function resolveVideoPath(id, ext = '.mp4') {
   return resolved;
 }
 
+/**
+ * Clean a video label or filename to its core base title by stripping
+ * common aspect ratio / format tags (case-insensitive).
+ */
+export function getBaseVideoName(name) {
+  if (!name || typeof name !== 'string') return '';
+  return name
+    .replace(/\.[^/.]+$/, '') // remove extension
+    .replace(/^vid_[0-9a-f]{8}_?/i, '') // remove vid_ prefix if any
+    .replace(/[_-]?(vertical_shorts|vertical|shorts|yt1080x1920|1080p_clean|crisp_ready|horizontal_16x9|horizontal|16x9|1080p|clean|ready)/gi, '') // remove format suffixes
+    .replace(/[_\s-]+$/g, '') // trim trailing separators
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Find matching horizontal video for a given vertical video.
+ *
+ * @param {object} verticalVideo
+ * @param {Array<object>} allVideos
+ * @returns {object|null}
+ */
+export function findPairedHorizontalVideo(verticalVideo, allVideos = []) {
+  if (!verticalVideo) return null;
+
+  // Filter for horizontal video candidates (width > height)
+  const horizontalVideos = allVideos.filter(v => {
+    if (v.id === verticalVideo.id) return false;
+    const w = v.probe?.width || 0;
+    const h = v.probe?.height || 0;
+    return w > h;
+  });
+
+  if (horizontalVideos.length === 0) return null;
+
+  // 1. Explicit pairing if configured in metadata
+  if (verticalVideo.pairedVideoId) {
+    const explicit = horizontalVideos.find(v => v.id === verticalVideo.pairedVideoId);
+    if (explicit) return explicit;
+  }
+
+  // 2. Base name match
+  const vertBase = getBaseVideoName(verticalVideo.originalName || verticalVideo.label || '');
+  if (vertBase) {
+    const exactMatch = horizontalVideos.find(v => {
+      const horizBase = getBaseVideoName(v.originalName || v.label || '');
+      return horizBase && horizBase === vertBase;
+    });
+    if (exactMatch) return exactMatch;
+  }
+
+  // 3. Prefix matching: if vertBase starts with horizBase or vice versa
+  if (vertBase && vertBase.length >= 3) {
+    const prefixMatch = horizontalVideos.find(v => {
+      const horizBase = getBaseVideoName(v.originalName || v.label || '');
+      return horizBase && horizBase.length >= 3 && (vertBase.startsWith(horizBase) || horizBase.startsWith(vertBase));
+    });
+    if (prefixMatch) return prefixMatch;
+  }
+
+  // 4. If there is only ONE horizontal video in the entire library, auto-pair with it
+  if (horizontalVideos.length === 1) {
+    return horizontalVideos[0];
+  }
+
+  return null;
+}
+
 // ─── Module State ────────────────────────────────────────────────────────────
 
 let _videosIndex = PATHS.videosIndex;
@@ -164,7 +232,8 @@ export async function syncDiskVideos() {
           }
 
           const probe = await probeMedia(targetPath);
-          const compatibility = evaluateCompatibility(probe, settings);
+          const targetOrient = (probe && probe.width > probe.height) ? 'horizontal' : 'vertical';
+          const compatibility = evaluateCompatibility(probe, settings, targetOrient);
           const originalName = filename;
           const cleanLabel = baseName.replace(/^vid_[0-9a-f]{8}_?/i, '').trim() || originalName.replace(/\.[^/.]+$/, '');
 
@@ -196,7 +265,8 @@ export async function syncDiskVideos() {
   videos = videos.map(v => {
     if (v.probe) {
       try {
-        const freshCompat = evaluateCompatibility(v.probe, settings);
+        const targetOrient = (v.probe && v.probe.width > v.probe.height) ? 'horizontal' : 'vertical';
+        const freshCompat = evaluateCompatibility(v.probe, settings, targetOrient);
         if (!v.compatibility || v.compatibility.status !== freshCompat.status ||
             JSON.stringify(v.compatibility.reasons) !== JSON.stringify(freshCompat.reasons)) {
           v.compatibility = freshCompat;
@@ -265,7 +335,8 @@ export async function listVideos({ forceSync = false } = {}) {
   const evaluatedVideos = videos.map(v => {
     if (v.probe) {
       try {
-        const freshCompat = evaluateCompatibility(v.probe, settings);
+        const targetOrient = (v.probe && v.probe.width > v.probe.height) ? 'horizontal' : 'vertical';
+        const freshCompat = evaluateCompatibility(v.probe, settings, targetOrient);
         if (!v.compatibility || v.compatibility.status !== freshCompat.status ||
             JSON.stringify(v.compatibility.reasons) !== JSON.stringify(freshCompat.reasons)) {
           v.compatibility = freshCompat;
@@ -284,7 +355,33 @@ export async function listVideos({ forceSync = false } = {}) {
     });
   }
 
-  return evaluatedVideos;
+  const enrichedVideos = evaluatedVideos.map(v => {
+    const isVertical = !v.probe || (v.probe.height >= v.probe.width);
+    const orientation = isVertical ? 'vertical' : 'horizontal';
+    let paired = null;
+    if (isVertical) {
+      const hVideo = findPairedHorizontalVideo(v, evaluatedVideos);
+      if (hVideo) {
+        paired = { id: hVideo.id, label: hVideo.label, originalName: hVideo.originalName };
+      }
+    } else {
+      const vVideo = evaluatedVideos.find(cand => {
+        if (!cand.probe || cand.probe.height < cand.probe.width) return false;
+        const match = findPairedHorizontalVideo(cand, evaluatedVideos);
+        return match && match.id === v.id;
+      });
+      if (vVideo) {
+        paired = { id: vVideo.id, label: vVideo.label, originalName: vVideo.originalName };
+      }
+    }
+    return {
+      ...v,
+      orientation,
+      paired,
+    };
+  });
+
+  return enrichedVideos;
 }
 
 /**
@@ -415,7 +512,8 @@ export async function processUpload(fileStream, fileInfo) {
   }
 
   // Evaluate compatibility
-  const compatibility = evaluateCompatibility(probe, settings);
+  const targetOrient = (probe && probe.width > probe.height) ? 'horizontal' : 'vertical';
+  const compatibility = evaluateCompatibility(probe, settings, targetOrient);
 
   const videoMeta = {
     id,
@@ -481,7 +579,8 @@ export async function importConvertedVideo(tempPath, originalName, { autoSetActi
 
   // Probe the converted file
   const probe = await probeMedia(targetPath);
-  const compatibility = evaluateCompatibility(probe, settings);
+  const targetOrient = (probe && probe.width > probe.height) ? 'horizontal' : 'vertical';
+  const compatibility = evaluateCompatibility(probe, settings, targetOrient);
 
   const cleanLabel = originalName.replace(/\.[^/.]+$/, '').trim() || `YouTube_${id}`;
   const videoMeta = {
@@ -667,7 +766,8 @@ export async function revalidateVideo(id) {
   const stat = await fs.stat(filePath);
   const probe = await probeMedia(filePath);
   const settings = getSettings();
-  const compatibility = evaluateCompatibility(probe, settings);
+  const targetOrient = (probe && probe.width > probe.height) ? 'horizontal' : 'vertical';
+  const compatibility = evaluateCompatibility(probe, settings, targetOrient);
 
   video.mtimeMs = stat.mtimeMs;
   video.sizeBytes = stat.size;

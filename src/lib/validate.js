@@ -100,10 +100,12 @@ const STREAM_SCHEMA = {
 };
 
 const YOUTUBE_SCHEMA = {
-  rtmpsUrl:  { type: 'string', pattern: /^rtmps:\/\//i },
-  streamKey: { type: 'string', maxLen: 256 },   // special handling below
-  title:     { type: 'string', maxLen: 200 },
-  label:     { type: 'string', maxLen: 100 },
+  rtmpsUrl:            { type: 'string', pattern: /^rtmps:\/\//i },
+  streamKey:           { type: 'string', maxLen: 256 },   // special handling below
+  horizontalStreamKey: { type: 'string', maxLen: 256 },   // special handling below
+  dualStreamEnabled:   { type: 'boolean' },
+  title:               { type: 'string', maxLen: 200 },
+  label:               { type: 'string', maxLen: 100 },
 };
 
 const BANDWIDTH_ACCOUNTING_SCHEMA = {
@@ -167,6 +169,7 @@ const RESTART_KEYS = new Set([
   'stream.audioBitrateKbps', 'stream.audioSampleRate', 'stream.keyframeSeconds',
   'stream.keyframeMaxSeconds', 'stream.x264Preset', 'stream.loopStrategy',
   'stream.videoId', 'stream.playlist', 'stream.playbackOrder', 'youtube.rtmpsUrl', 'youtube.streamKey',
+  'youtube.horizontalStreamKey', 'youtube.dualStreamEnabled',
 ]);
 
 // ─── Section validators ───────────────────────────────────────────────────────
@@ -270,11 +273,22 @@ export function validateSettings(input, { partial = true } = {}) {
         if (!r.valid) errors.push(...r.errors.map(e => `youtube.streamKey: ${e}`));
         requiresRestart = true;
       }
+      // horizontalStreamKey — empty string means "clear"
+      if (yt.horizontalStreamKey !== undefined && yt.horizontalStreamKey !== '') {
+        const r = validateStreamKey(yt.horizontalStreamKey);
+        if (!r.valid) errors.push(...r.errors.map(e => `youtube.horizontalStreamKey: ${e}`));
+        requiresRestart = true;
+      }
+      // dualStreamEnabled
+      if (yt.dualStreamEnabled !== undefined) {
+        validateField('youtube.dualStreamEnabled', yt.dualStreamEnabled, YOUTUBE_SCHEMA.dualStreamEnabled, errors);
+        requiresRestart = true;
+      }
       // title, label
       if (yt.title !== undefined) validateField('youtube.title', yt.title, YOUTUBE_SCHEMA.title, errors);
       if (yt.label !== undefined) validateField('youtube.label', yt.label, YOUTUBE_SCHEMA.label, errors);
       for (const k of Object.keys(yt)) {
-        if (!['rtmpsUrl','streamKey','title','label'].includes(k))
+        if (!['rtmpsUrl','streamKey','horizontalStreamKey','dualStreamEnabled','title','label'].includes(k))
           errors.push(fieldErr(`youtube.${k}`, 'unknown field'));
       }
     }

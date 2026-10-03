@@ -125,6 +125,7 @@ export function parseProbeOutput(probeJson, keyframeCsv = '') {
     width,
     height,
     aspectRatio,
+    orientation: height >= width ? 'vertical' : 'horizontal',
     durationSec: Number(durationSec.toFixed(2)),
     fps,
     isVFR,
@@ -161,24 +162,26 @@ export function parseProbeOutput(probeJson, keyframeCsv = '') {
  * @param {object} settings Stream configuration
  * @returns {object} Evaluation verdict: { status, reasons, warnings, explanations, modeAllowed }
  */
-export function evaluateCompatibility(meta, settings = {}) {
+export function evaluateCompatibility(meta, settings = {}, targetOrientation = 'vertical') {
   const reasons      = [];
   const warnings     = [];
   const explanations = [];
 
   const streamCfg = settings.stream || {};
 
-  const targetRes   = streamCfg.resolution || '1080x1920';
+  const isHorizontalTarget = targetOrientation === 'horizontal';
+  const targetRes   = isHorizontalTarget ? '1920x1080' : (streamCfg.resolution || '1080x1920');
   const targetFps   = streamCfg.fps ?? 30;
   const copyMinMbps = streamCfg.copyMinMbps ?? 0.1;
   const copyMaxMbps = streamCfg.copyMaxMbps ?? 4.0;
   const keyframeMax = streamCfg.keyframeMaxSeconds ?? 6.0;
 
-  // 1. Resolution Check: exact target match OR any vertical portrait resolution (height >= width, exact or approx 9:16)
+  // 1. Resolution Check
   const currentRes = `${meta.width}x${meta.height}`;
   const isExactMatch = currentRes === targetRes;
-  const isVertical = meta.height >= meta.width;
-  const isResolutionSupported = isExactMatch || isVertical;
+  const isResolutionSupported = isHorizontalTarget
+    ? (isExactMatch || meta.width >= meta.height)
+    : (isExactMatch || meta.height >= meta.width);
 
   if (!isResolutionSupported) {
     reasons.push('RES_MISMATCH');

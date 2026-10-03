@@ -54,6 +54,9 @@
           <span id="deck-stream-key-badge" class="reachability-pill" style="cursor: pointer;" title="YouTube Stream Key status. Click to open Settings.">
             Checking Key...
           </span>
+          <span id="deck-dual-stream-badge" class="reachability-pill" style="display: none; cursor: pointer; background: rgba(56, 189, 248, 0.15); border: 1px solid rgba(56, 189, 248, 0.4); color: var(--accent-cyan);" title="Dual live streaming active: Shorts (9:16) + Normal (16:9). Click to open Settings.">
+            Dual Live: Shorts + 16:9
+          </span>
         </div>
 
         <div class="deck-meta-stats">
@@ -461,13 +464,16 @@
           <input type="text" id="cfg-rtmps-url" class="form-control" required placeholder="rtmps://a.rtmps.youtube.com/live2">
         </div>
 
+        <!-- Primary YouTube Stream Key (Shorts Feed) -->
         <div class="form-group">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
-            <label class="form-label" for="cfg-stream-key" style="margin-bottom: 0;">YouTube Stream Key</label>
+            <label class="form-label" for="cfg-stream-key" style="margin-bottom: 0;">
+              YouTube Stream Key <span style="font-size: 0.725rem; color: #a855f7; font-weight: 600;">(Shorts Feed 9:16)</span>
+            </label>
             <span id="key-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; background: rgba(255,255,255,0.06);">Checking...</span>
           </div>
           <div style="display: flex; gap: 0.5rem;">
-            <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter stream key" style="flex: 1;" autocomplete="new-password">
+            <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Shorts stream key" style="flex: 1;" autocomplete="new-password">
             <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="display: flex; align-items: center; gap: 0.35rem; min-width: 72px; justify-content: center;">
               <svg id="icon-eye-show" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
               <svg id="icon-eye-hide" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -475,6 +481,33 @@
             </button>
           </div>
           <div id="key-hint-text" style="color: var(--text-muted); font-size: 0.725rem; margin-top: 0.35rem; line-height: 1.4;">Checking key configuration...</div>
+        </div>
+
+        <!-- Secondary YouTube Stream Key (Normal 16:9 Feed) -->
+        <div class="form-group">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <label class="form-label" for="cfg-horizontal-stream-key" style="margin-bottom: 0;">
+              Horizontal Stream Key <span style="font-size: 0.725rem; color: var(--accent-cyan); font-weight: 600;">(Normal Feed 16:9)</span>
+            </label>
+            <span id="horizontal-key-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; background: rgba(255,255,255,0.06);">Optional</span>
+          </div>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="password" id="cfg-horizontal-stream-key" class="form-control" placeholder="Enter normal feed stream key (optional)" style="flex: 1;" autocomplete="new-password">
+            <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="display: flex; align-items: center; gap: 0.35rem; min-width: 72px; justify-content: center;">
+              <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              <span id="btn-reveal-horiz-text">Show</span>
+            </button>
+          </div>
+          <div id="horizontal-key-hint-text" style="color: var(--text-muted); font-size: 0.725rem; margin-top: 0.35rem; line-height: 1.4;">Optional: Stream simultaneously to YouTube Shorts (9:16) and Normal Live (16:9).</div>
+        </div>
+
+        <!-- Dual Streaming Enable Switch -->
+        <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; margin-top: -0.25rem;">
+          <input type="checkbox" id="cfg-dual-stream-enabled" checked style="accent-color: var(--accent-cyan); width: 16px; height: 16px; cursor: pointer;">
+          <label for="cfg-dual-stream-enabled" class="form-label" style="margin-bottom: 0; cursor: pointer; font-size: 0.775rem;">
+            Enable Dual Streaming (simultaneously stream Shorts 9:16 and Normal 16:9 when matching videos are present)
+          </label>
         </div>
 
         <!-- Encoding & Bitrate -->

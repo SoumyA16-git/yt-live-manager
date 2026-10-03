@@ -162,6 +162,25 @@ describe('validateSettings — partial mode (API patch)', () => {
     const { requiresRestart } = validateSettings({ logs: { level: 'debug' } });
     assert.ok(!requiresRestart);
   });
+
+  test('accepts valid horizontalStreamKey and dualStreamEnabled in youtube section', () => {
+    const { valid, errors, requiresRestart } = validateSettings({
+      youtube: {
+        horizontalStreamKey: 'abcd-1234-efgh-5678-ijkl',
+        dualStreamEnabled: true,
+      },
+    });
+    assert.ok(valid, errors.join(', '));
+    assert.ok(requiresRestart);
+  });
+
+  test('rejects invalid horizontalStreamKey', () => {
+    const { valid, errors } = validateSettings({
+      youtube: { horizontalStreamKey: 'short' },
+    });
+    assert.ok(!valid);
+    assert.ok(errors.some(e => e.includes('horizontalStreamKey')));
+  });
 });
 
 describe('validateSettings — bandwidth section', () => {

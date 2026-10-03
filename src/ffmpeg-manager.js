@@ -29,9 +29,11 @@ import PATHS from './lib/paths.js';
  * @param {object} videoMeta
  * @param {string} secretTarget Full destination URL (rtmpsUrl + "/" + streamKey)
  * @param {'copy'|'hybrid'|'transcode'} [mode='copy']
+ * @param {string|null} [dualTarget=null] Optional secondary horizontal destination URL
+ * @param {object|null} [horizontalMeta=null] Optional matching horizontal video metadata
  * @returns {string[]} Argument array (safe for child_process.spawn with shell: false)
  */
-export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy') {
+export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy', dualTarget = null, horizontalMeta = null) {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
 
@@ -43,6 +45,50 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     '-progress', 'pipe:1',
     '-re',
   ];
+
+  const isDual = Boolean(dualTarget && horizontalMeta);
+
+  if (isDual) {
+    // Dual Streaming Mode: Simultaneously output to Shorts (Vertical) and Normal (Horizontal)
+    // Input 0: Vertical Shorts Video (file or concat)
+    const isConcat = Boolean(videoMeta?.isConcat) || streamCfg.loopStrategy === 'concat' || (Array.isArray(streamCfg.playlist) && streamCfg.playlist.length > 1);
+    if (isConcat) {
+      args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
+    } else {
+      args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
+    }
+
+    // Input 1: Horizontal 16:9 Video (file or concat)
+    const isHorizontalConcat = Boolean(horizontalMeta?.isConcat);
+    const horizPath = horizontalMeta?.filePath || horizontalMeta?.path || '';
+    if (isHorizontalConcat) {
+      args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcatHorizontal);
+    } else {
+      args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
+    }
+
+    // Output 0: YouTube Shorts Feed (Vertical 9:16)
+    args.push(
+      '-map', '0:v:0',
+      '-map', '0:a?',
+      '-c', 'copy',
+      '-flvflags', 'no_duration_filesize',
+      '-f', 'flv',
+      secretTarget
+    );
+
+    // Output 1: YouTube Normal Feed (Horizontal 16:9)
+    args.push(
+      '-map', '1:v:0',
+      '-map', '1:a?',
+      '-c', 'copy',
+      '-flvflags', 'no_duration_filesize',
+      '-f', 'flv',
+      dualTarget
+    );
+
+    return args;
+  }
 
   // Infinite looping (PRD §4.5)
   const isConcat = Boolean(videoMeta?.isConcat) || streamCfg.loopStrategy === 'concat' || (Array.isArray(streamCfg.playlist) && streamCfg.playlist.length > 1);

@@ -128,12 +128,23 @@ const previewTbMonth   = document.getElementById('preview-tb-month');
 
 // Stream Key UI & Maintenance DOM Elements
 const deckStreamKeyBadge     = document.getElementById('deck-stream-key-badge');
+const deckDualStreamBadge    = document.getElementById('deck-dual-stream-badge');
 const bannerMaintenance      = document.getElementById('banner-maintenance');
 const btnDisableMaintenance  = document.getElementById('btn-disable-maintenance');
 const keyBadge               = document.getElementById('key-badge');
 const iconEyeShow            = document.getElementById('icon-eye-show');
 const iconEyeHide            = document.getElementById('icon-eye-hide');
 const btnRevealText          = document.getElementById('btn-reveal-text');
+
+// Horizontal Stream Key DOM Elements
+const cfgHorizontalStreamKey = document.getElementById('cfg-horizontal-stream-key');
+const btnRevealHorizKey      = document.getElementById('btn-reveal-horizontal-key');
+const horizontalKeyBadge     = document.getElementById('horizontal-key-badge');
+const horizontalKeyHintText  = document.getElementById('horizontal-key-hint-text');
+const iconEyeShowHoriz       = document.getElementById('icon-eye-show-horiz');
+const iconEyeHideHoriz       = document.getElementById('icon-eye-hide-horiz');
+const btnRevealHorizText     = document.getElementById('btn-reveal-horiz-text');
+const cfgDualStreamEnabled   = document.getElementById('cfg-dual-stream-enabled');
 
 // ─── Network Event Listeners ──────────────────────────────────────────────────
 
@@ -158,9 +169,19 @@ async function fetchStatus() {
 
 function renderStatus(data) {
   _currentStatus = data.status || 'STOPPED';
+  const isDual = Boolean(data.isDualStream);
+
   // Update status badge & dot
-  statusText.textContent = data.status;
+  if (data.status === 'RUNNING' && isDual) {
+    statusText.textContent = 'DUAL LIVE';
+  } else {
+    statusText.textContent = data.status;
+  }
   quickStatus.textContent = data.status;
+
+  if (deckDualStreamBadge) {
+    deckDualStreamBadge.style.display = (data.status === 'RUNNING' && isDual) ? 'inline-flex' : 'none';
+  }
 
   statusDot.className = 'status-dot';
   if (data.status === 'RUNNING')       statusDot.classList.add('live');
@@ -459,10 +480,18 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
         <div class="video-info">
           <div class="video-name">${v.label || v.originalName}</div>
           <div class="video-meta">
-            <span class="meta-tag">${v.probe?.aspectRatio || '1080:1920'}</span>
+            ${v.orientation === 'horizontal' || (v.probe?.width > v.probe?.height)
+              ? '<span class="badge-tag" style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-weight: 600;">16:9 Horizontal</span>'
+              : '<span class="badge-tag" style="background: rgba(168, 85, 247, 0.15); color: #c084fc; font-weight: 600;">9:16 Shorts</span>'
+            }
+            <span class="meta-tag">${v.probe?.aspectRatio || (v.orientation === 'horizontal' ? '1920:1080' : '1080:1920')}</span>
             <span class="meta-tag">${v.probe?.fps || 30}fps</span>
             <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
             <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
+            ${v.paired
+              ? `<span class="meta-tag" style="color: var(--accent-cyan); font-weight: 500;" title="Paired with ${v.paired.label || v.paired.originalName}">🔗 Pair: ${v.paired.label || v.paired.originalName}</span>`
+              : ''
+            }
           </div>
         </div>
       </div>
@@ -590,6 +619,29 @@ function updateKeyFeedback() {
   }
 }
 
+function updateHorizontalKeyFeedback() {
+  if (!horizontalKeyBadge || !horizontalKeyHintText || !cfgHorizontalStreamKey) return;
+  const val = cfgHorizontalStreamKey.value.trim();
+  if (val.length > 0) {
+    horizontalKeyBadge.textContent = 'Unsaved Entry';
+    horizontalKeyBadge.style.background = 'rgba(96, 165, 250, 0.2)';
+    horizontalKeyBadge.style.color = '#60a5fa';
+    horizontalKeyHintText.innerHTML = `✏️ <strong style="color: #60a5fa;">New horizontal stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> to apply.`;
+  } else if (_currentSettings?.youtube?.horizontalStreamKeySet) {
+    horizontalKeyBadge.textContent = `Saved (...${_currentSettings.youtube.horizontalStreamKeyHint})`;
+    horizontalKeyBadge.style.background = 'rgba(56, 189, 248, 0.2)';
+    horizontalKeyBadge.style.color = 'var(--accent-cyan)';
+    cfgHorizontalStreamKey.placeholder = `•••••••••••• (Saved. Leave blank to keep key ending in ...${_currentSettings.youtube.horizontalStreamKeyHint})`;
+    horizontalKeyHintText.innerHTML = `✅ <strong style="color: var(--accent-cyan);">Horizontal stream key saved</strong> (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Stream copy will broadcast to both Shorts and Normal feeds simultaneously.`;
+  } else {
+    horizontalKeyBadge.textContent = 'Optional';
+    horizontalKeyBadge.style.background = 'rgba(255, 255, 255, 0.06)';
+    horizontalKeyBadge.style.color = 'var(--text-muted)';
+    cfgHorizontalStreamKey.placeholder = 'Paste Normal Feed Stream Key (optional for dual live)';
+    horizontalKeyHintText.innerHTML = 'Optional: Add a stream key to simultaneously live stream to YouTube Normal 16:9 feed alongside Shorts feed.';
+  }
+}
+
 async function fetchSettings() {
   try {
     const settings = await apiGet('/api/settings');
@@ -615,6 +667,18 @@ async function openSettings() {
     if (btnRevealText) btnRevealText.textContent = 'Show';
 
     updateKeyFeedback();
+
+    if (cfgHorizontalStreamKey) {
+      cfgHorizontalStreamKey.value = '';
+      cfgHorizontalStreamKey.type = 'password';
+      if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'inline';
+      if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'none';
+      if (btnRevealHorizText) btnRevealHorizText.textContent = 'Show';
+      updateHorizontalKeyFeedback();
+    }
+    if (cfgDualStreamEnabled) {
+      cfgDualStreamEnabled.checked = settings.youtube?.dualStreamEnabled !== false;
+    }
 
     cfgModePref.value = settings.stream?.modePreference || 'auto';
     if (cfgAllowTranscode) {
@@ -1282,6 +1346,50 @@ async function init() {
   // Live input feedback on key typing
   cfgStreamKey.addEventListener('input', updateKeyFeedback);
 
+  if (cfgHorizontalStreamKey) {
+    cfgHorizontalStreamKey.addEventListener('input', updateHorizontalKeyFeedback);
+  }
+
+  if (btnRevealHorizKey) {
+    btnRevealHorizKey.addEventListener('click', async () => {
+      // If input currently has text typed, toggle visibility
+      if (cfgHorizontalStreamKey.value.length > 0) {
+        if (cfgHorizontalStreamKey.type === 'password') {
+          cfgHorizontalStreamKey.type = 'text';
+          if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'none';
+          if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'inline';
+          if (btnRevealHorizText) btnRevealHorizText.textContent = 'Hide';
+        } else {
+          cfgHorizontalStreamKey.type = 'password';
+          if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'inline';
+          if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'none';
+          if (btnRevealHorizText) btnRevealHorizText.textContent = 'Show';
+        }
+        return;
+      }
+
+      // Input is empty: if horizontal key is configured on server, reveal it securely
+      if (_currentSettings?.youtube?.horizontalStreamKeySet) {
+        const password = prompt('Re-enter admin password to reveal saved horizontal stream key:');
+        if (!password) return;
+
+        try {
+          const res = await apiPost('/api/settings/reveal-stream-key', { password });
+          cfgHorizontalStreamKey.value = res.horizontalStreamKey || '';
+          cfgHorizontalStreamKey.type = 'text';
+          if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'none';
+          if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'inline';
+          if (btnRevealHorizText) btnRevealHorizText.textContent = 'Hide';
+          updateHorizontalKeyFeedback();
+        } catch (err) {
+          alert(`Key reveal failed: ${err.message}`);
+        }
+      } else {
+        alert('No horizontal stream key is configured yet. Paste your horizontal stream key into the box.');
+      }
+    });
+  }
+
   // Wire up maintenance banner disable button
   if (btnDisableMaintenance) {
     btnDisableMaintenance.addEventListener('click', async () => {
@@ -1298,6 +1406,9 @@ async function init() {
   // Wire up Deck stream key badge
   if (deckStreamKeyBadge) {
     deckStreamKeyBadge.addEventListener('click', openSettings);
+  }
+  if (deckDualStreamBadge) {
+    deckDualStreamBadge.addEventListener('click', openSettings);
   }
 
   settingsForm.addEventListener('submit', async (e) => {
@@ -1324,6 +1435,7 @@ async function init() {
       },
       youtube: {
         rtmpsUrl,
+        dualStreamEnabled: cfgDualStreamEnabled ? Boolean(cfgDualStreamEnabled.checked) : true,
       },
       bandwidth: {
         ...(Number.isFinite(safetyLimit) ? { safetyLimitTB: safetyLimit } : {}),
@@ -1334,6 +1446,9 @@ async function init() {
     if (cfgStreamKey.value.trim()) {
       patch.youtube.streamKey = cfgStreamKey.value.trim();
     }
+    if (cfgHorizontalStreamKey && cfgHorizontalStreamKey.value.trim() !== '') {
+      patch.youtube.horizontalStreamKey = cfgHorizontalStreamKey.value.trim();
+    }
 
     try {
       const res = await apiPut('/api/settings', patch);
@@ -1342,12 +1457,12 @@ async function init() {
       modalSettings.classList.remove('open');
       await refreshAll();
 
-      if (patch.youtube?.streamKey) {
-        alert('✅ Settings saved!\n\nYouTube stream key is active and verified.');
+      if (patch.youtube?.streamKey || patch.youtube?.horizontalStreamKey) {
+        alert('✅ Settings saved!\n\nYouTube stream configuration and dual stream preferences are active.');
       }
 
       if (res.requiresRestart) {
-        const isLive = statusText.textContent === 'RUNNING' || statusText.textContent === 'STARTING';
+        const isLive = statusText.textContent === 'RUNNING' || statusText.textContent === 'STARTING' || statusText.textContent === 'DUAL LIVE';
         if (isLive && confirm('Settings saved! You modified parameters that require an FFmpeg restart. Restart the live stream now to apply changes?')) {
           await apiPost('/api/stream/restart');
           await fetchStatus();

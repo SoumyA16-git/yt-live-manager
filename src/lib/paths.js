@@ -37,11 +37,12 @@ const PATHS = {
 
   // Data files
   streamState:     r('data', 'stream-state.json'),
-  bandwidthUsage:  r('data', 'bandwidth-usage.json'),
-  streamHistory:   r('data', 'stream-history.json'),
-  videosIndex:     r('data', 'videos.json'),
-  ffmpegLock:      r('data', 'ffmpeg.lock'),
-  loopConcat:      r('data', 'loop.ffconcat'),
+  bandwidthUsage:       r('data', 'bandwidth-usage.json'),
+  streamHistory:        r('data', 'stream-history.json'),
+  videosIndex:          r('data', 'videos.json'),
+  ffmpegLock:           r('data', 'ffmpeg.lock'),
+  loopConcat:           r('data', 'loop.ffconcat'),
+  loopConcatHorizontal: r('data', 'loop_horizontal.ffconcat'),
 
   // Log file
   appLog:          r('logs', 'app.log'),

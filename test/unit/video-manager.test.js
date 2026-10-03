@@ -15,6 +15,8 @@ import {
   deleteVideo,
   setActiveVideo,
   setPlaylist,
+  getBaseVideoName,
+  findPairedHorizontalVideo,
   _setPathsForTest as _setVideoPaths,
 } from '../../src/video-manager.js';
 import {
@@ -190,5 +192,39 @@ describe('video-manager — library operations', () => {
     assert.deepEqual(getSettings().stream.playlist, ['vid_cccc3333', 'vid_aaaa1111']);
     assert.equal(getSettings().stream.playbackOrder, 'shuffle');
     assert.equal(getState().activeVideoId, 'vid_cccc3333');
+  });
+
+  test('getBaseVideoName cleans resolution, aspect tags, and prefixes', () => {
+    assert.equal(getBaseVideoName('my_stream_Vertical_Shorts.mp4'), 'my_stream');
+    assert.equal(getBaseVideoName('my_stream_Horizontal_16x9.mp4'), 'my_stream');
+    assert.equal(getBaseVideoName('vid_a1b2c3d4_promo_vertical.mov'), 'promo');
+    assert.equal(getBaseVideoName('daily_vlog_shorts.mkv'), 'daily_vlog');
+  });
+
+  test('findPairedHorizontalVideo matches 16:9 counterpart to 9:16 video', () => {
+    const verticalVideo = {
+      id: 'vid_vert1111',
+      originalName: 'gameplay_Vertical_Shorts.mp4',
+      label: 'gameplay_Vertical_Shorts',
+      probe: { width: 1080, height: 1920 },
+    };
+
+    const horizontalVideo = {
+      id: 'vid_horiz222',
+      originalName: 'gameplay_Horizontal_16x9.mp4',
+      label: 'gameplay_Horizontal_16x9',
+      probe: { width: 1920, height: 1080 },
+    };
+
+    const unrelatedVideo = {
+      id: 'vid_other333',
+      originalName: 'another_video.mp4',
+      label: 'another_video',
+      probe: { width: 1920, height: 1080 },
+    };
+
+    const match = findPairedHorizontalVideo(verticalVideo, [verticalVideo, unrelatedVideo, horizontalVideo]);
+    assert.ok(match);
+    assert.equal(match.id, 'vid_horiz222');
   });
 });
