@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v8">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v9">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -192,63 +192,118 @@
         <div class="panel-body" id="body-bandwidth">
           <div id="bw-alert-banner" class="bw-alert-banner"></div>
 
-          <!-- Infographic Headline: Primary Consumption Figure + Quota Cap -->
-          <div class="bw-infographic-header">
-            <div class="bw-headline-group">
-              <span id="bw-headline-used" class="bw-headline-val">0.00 GB</span>
-              <span class="bw-headline-sub">consumed of <strong id="bw-headline-limit">9.00 TB</strong> safe quota</span>
+          <!-- 1. Top Infographic KPI Summary (4 Metrics matching Reference Dashboard) -->
+          <div class="bw-kpi-summary-row">
+            <div class="bw-summary-tile">
+              <span class="bw-summary-label">Total Consumed</span>
+              <div class="bw-summary-stat">
+                <span id="bw-headline-used" class="bw-summary-val">0.00 GB</span>
+                <span id="bw-status-pill" class="badge-tag compatible">0.2%</span>
+              </div>
+              <span class="bw-summary-sub">of <strong id="bw-headline-limit">9.00 TB</strong> safe quota</span>
             </div>
-            <div class="bw-headline-status">
-              <span id="bw-status-pill" class="badge-tag compatible">0.2% Used · Optimal</span>
+
+            <div class="bw-summary-tile">
+              <span class="bw-summary-label">Daily Pace</span>
+              <div class="bw-summary-stat">
+                <span id="bw-kpi-pace" class="bw-summary-val">—</span>
+              </div>
+              <span class="bw-summary-sub">Avg Egress / Day</span>
+            </div>
+
+            <div class="bw-summary-tile">
+              <span class="bw-summary-label">30d Projected</span>
+              <div class="bw-summary-stat">
+                <span id="bw-kpi-projected" class="bw-summary-val">—</span>
+              </div>
+              <span class="bw-summary-sub">Estimated Total</span>
+            </div>
+
+            <div class="bw-summary-tile">
+              <span class="bw-summary-label">Safe Headroom</span>
+              <div class="bw-summary-stat">
+                <span id="bw-kpi-headroom" class="bw-summary-val">—</span>
+              </div>
+              <span id="bw-kpi-headroom-sub" class="bw-summary-sub">Remaining Time</span>
             </div>
           </div>
 
-          <!-- Visual Infographic Graph (Interactive SVG Area Trajectory & Quota Line) -->
-          <div class="bw-chart-card">
-            <div class="bw-chart-meta">
-              <span class="bw-chart-title">30-Day Egress Trajectory</span>
-              <span class="bw-chart-legend">
-                <span class="legend-dot used"></span> Actual
-                <span class="legend-dot projected"></span> Projected
-                <span class="legend-dot cap"></span> 9 TB Cap
-              </span>
+          <!-- 2. Dual Charts: Bar Chart (7-Day Daily Egress) + Pie/Donut Chart (Quota Distribution) -->
+          <div class="bw-dual-charts-grid">
+            <!-- Left: Bar Chart with Area Wave Backdrop -->
+            <div class="bw-chart-card bw-barchart-card">
+              <div class="bw-chart-meta">
+                <span class="bw-chart-title">Daily Egress (7-Day Trend)</span>
+                <span class="bw-chart-legend">
+                  <span class="legend-dot bar"></span> Daily
+                  <span class="legend-dot wave"></span> Trend Area
+                </span>
+              </div>
+              <div class="bw-svg-container barchart-container">
+                <svg id="bw-bar-svg" viewBox="0 0 280 125" preserveAspectRatio="none" class="bw-svg-graph">
+                  <defs>
+                    <linearGradient id="bw-bar-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#3b82f6" stop-opacity="1.0"/>
+                      <stop offset="100%" stop-color="#2563eb" stop-opacity="0.75"/>
+                    </linearGradient>
+                    <linearGradient id="bw-wave-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25"/>
+                      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0"/>
+                    </linearGradient>
+                  </defs>
+                  <!-- Horizontal Grid Reference Lines -->
+                  <line x1="10" y1="28" x2="270" y2="28" stroke="#222227" stroke-dasharray="3,3" stroke-width="1"/>
+                  <line x1="10" y1="62" x2="270" y2="62" stroke="#222227" stroke-dasharray="3,3" stroke-width="1"/>
+                  <line x1="10" y1="95" x2="270" y2="95" stroke="#27272a" stroke-width="1"/>
+
+                  <!-- Dynamic Area Wave behind Bars -->
+                  <path id="bw-bar-wave-path" d="M 28 95 L 256 95 Z" fill="url(#bw-wave-grad)"/>
+
+                  <!-- Dynamic Bars & Day Group -->
+                  <g id="bw-bars-group">
+                    <!-- Rendered dynamically by dashboard.js -->
+                  </g>
+                </svg>
+              </div>
             </div>
-            <div class="bw-svg-container">
-              <svg id="bw-svg-chart" viewBox="0 0 400 95" preserveAspectRatio="none" class="bw-svg-graph">
-                <defs>
-                  <linearGradient id="bw-gradient-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#10b981" stop-opacity="0.35"/>
-                    <stop offset="100%" stop-color="#10b981" stop-opacity="0.0"/>
-                  </linearGradient>
-                  <linearGradient id="bw-gradient-projected" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stop-color="#60a5fa" stop-opacity="0.15"/>
-                    <stop offset="100%" stop-color="#60a5fa" stop-opacity="0.0"/>
-                  </linearGradient>
-                </defs>
-                <!-- Reference Grid Lines -->
-                <line x1="0" y1="20" x2="400" y2="20" stroke="#222227" stroke-dasharray="3,3" stroke-width="1"/>
-                <line x1="0" y1="52" x2="400" y2="52" stroke="#222227" stroke-dasharray="3,3" stroke-width="1"/>
-                <line x1="0" y1="85" x2="400" y2="85" stroke="#222227" stroke-width="1"/>
 
-                <!-- 9 TB Safety Cap Reference Line -->
-                <line x1="0" y1="16" x2="400" y2="16" stroke="#f59e0b" stroke-dasharray="4,4" stroke-width="1.2" stroke-opacity="0.7"/>
-                <text x="395" y="13" fill="#a1a1aa" font-size="8" text-anchor="end" font-family="var(--font-sans)">9 TB Cap</text>
-
-                <!-- Projected Gradient & Path -->
-                <polygon id="bw-projected-area" points="0,85 50,83 400,72 400,85" fill="url(#bw-gradient-projected)"/>
-                <path id="bw-projected-line" d="M 50 83 L 400 72" stroke="#60a5fa" stroke-width="1.5" stroke-dasharray="3,3" fill="none"/>
-
-                <!-- Actual Used Gradient & Path -->
-                <polygon id="bw-actual-area" points="0,85 0,85 50,83 50,85" fill="url(#bw-gradient-fill)"/>
-                <path id="bw-actual-line" d="M 0 85 L 50 83" stroke="#10b981" stroke-width="2" fill="none"/>
-                <circle id="bw-actual-dot" cx="50" cy="83" r="3.5" fill="#10b981" stroke="#09090b" stroke-width="1.5"/>
-              </svg>
-            </div>
-            <div class="bw-chart-axis">
-              <span>Day 1</span>
-              <span>Day 10</span>
-              <span>Day 20</span>
-              <span>Day 30 (Reset)</span>
+            <!-- Right: Quota Breakdown Donut / Pie Chart -->
+            <div class="bw-chart-card bw-piechart-card">
+              <div class="bw-chart-meta">
+                <span class="bw-chart-title">Quota Breakdown</span>
+                <span class="badge-tag compatible" id="bw-pie-safe-badge">Safe</span>
+              </div>
+              <div class="bw-pie-container">
+                <svg id="bw-pie-svg" viewBox="0 0 140 120" class="bw-pie-graph">
+                  <g transform="rotate(-90 70 60)">
+                    <!-- Background Base Track -->
+                    <circle cx="70" cy="60" r="44" fill="none" stroke="#222227" stroke-width="16" />
+                    <!-- OCI Buffer Slice (10 TB - 9 TB = 10%) -->
+                    <circle id="bw-pie-slice-buffer" cx="70" cy="60" r="44" fill="none" stroke="#f97316" stroke-width="16" stroke-dasharray="27.6 248.8" stroke-dashoffset="0" stroke-linecap="round" />
+                    <!-- Safe Quota Remaining Slice (89.8%) -->
+                    <circle id="bw-pie-slice-safe" cx="70" cy="60" r="44" fill="none" stroke="#6366f1" stroke-width="16" stroke-dasharray="248 28.4" stroke-dashoffset="-27.6" />
+                    <!-- Used Bandwidth Slice (0.2%) -->
+                    <circle id="bw-pie-slice-used" cx="70" cy="60" r="44" fill="none" stroke="#3b82f6" stroke-width="16" stroke-dasharray="2 274.4" stroke-dashoffset="0" stroke-linecap="round" />
+                  </g>
+                  <!-- Center Donut Counter -->
+                  <text id="bw-pie-center-val" x="70" y="58" text-anchor="middle" font-size="11" font-weight="700" fill="#fafafa">0 GB</text>
+                  <text x="70" y="70" text-anchor="middle" font-size="8" font-weight="500" fill="#71717a">Consumed</text>
+                </svg>
+              </div>
+              <div class="bw-pie-legend">
+                <div class="bw-legend-row">
+                  <span class="bw-legend-name"><span class="legend-dot used-pie"></span> Consumed</span>
+                  <strong id="bw-pie-used-val" class="bw-legend-val">0.0 GB</strong>
+                </div>
+                <div class="bw-legend-row">
+                  <span class="bw-legend-name"><span class="legend-dot safe-pie"></span> Safe Left</span>
+                  <strong id="bw-pie-safe-val" class="bw-legend-val">9.0 TB</strong>
+                </div>
+                <div class="bw-legend-row">
+                  <span class="bw-legend-name"><span class="legend-dot buffer-pie"></span> OCI Buffer</span>
+                  <strong id="bw-pie-buffer-val" class="bw-legend-val">1.0 TB</strong>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -271,25 +326,6 @@
             </div>
             <div class="progress-track">
               <div id="bw-allowance-fill" class="progress-fill" style="width: 0%; background: var(--text-muted);"></div>
-            </div>
-          </div>
-
-          <!-- Infographic Metrics Grid (3 Tiles) -->
-          <div class="kpi-grid cols-3" style="margin-top: 0.15rem;">
-            <div class="kpi-card">
-              <span class="kpi-label">Daily Pace</span>
-              <span id="bw-kpi-pace" class="kpi-val">—</span>
-              <span class="kpi-sub">Avg Egress / Day</span>
-            </div>
-            <div class="kpi-card">
-              <span class="kpi-label">30d Projected</span>
-              <span id="bw-kpi-projected" class="kpi-val">—</span>
-              <span class="kpi-sub">Estimated Total</span>
-            </div>
-            <div class="kpi-card">
-              <span class="kpi-label">Safe Headroom</span>
-              <span id="bw-kpi-headroom" class="kpi-val">—</span>
-              <span class="kpi-sub" id="bw-kpi-headroom-sub">Remaining Time</span>
             </div>
           </div>
 
