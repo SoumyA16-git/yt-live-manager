@@ -249,4 +249,71 @@ describe('stream-manager — evaluateStartGates', () => {
     assert.equal(getState().status, 'STOPPED');
     assert.equal(getState().lastError, null);
   });
+
+  test('multi-video playlist generates concat file and resolves copy mode when compatible', async () => {
+    const sPath = path.join(tmpDir, 'settings-7.json');
+    const stPath = path.join(tmpDir, 'state-7.json');
+    const hPath  = path.join(tmpDir, 'hist-7.json');
+    const vDir   = path.join(tmpDir, 'videos-7');
+    const inDir  = path.join(tmpDir, 'incoming-7');
+    const vIndex = path.join(tmpDir, 'vindex-7.json');
+    const bDir   = path.join(tmpDir, 'backups-7');
+
+    await fs.mkdir(vDir, { recursive: true });
+
+    _setConfigPaths(sPath, bDir);
+    _setStatePaths(stPath, hPath, bDir);
+    _setVideoPaths(vDir, inDir, vIndex);
+
+    await loadSettings();
+    await loadState();
+    await setDisabled(false);
+    await setMaintenance(false);
+    await saveState({ bandwidthLock: { active: false }, desiredState: 'running' });
+
+    const vid1 = 'vid_77771111';
+    const vid2 = 'vid_77772222';
+    await fs.writeFile(path.join(vDir, `${vid1}.mp4`), 'mock-data-1');
+    await fs.writeFile(path.join(vDir, `${vid2}.mp4`), 'mock-data-2');
+
+    await writeJSON(vIndex, {
+      schemaVersion: 1,
+      videos: [
+        {
+          id: vid1,
+          filename: `${vid1}.mp4`,
+          originalName: 'clip1.mp4',
+          compatibility: { status: 'COMPATIBLE', modeAllowed: { copy: true, hybrid: true } },
+        },
+        {
+          id: vid2,
+          filename: `${vid2}.mp4`,
+          originalName: 'clip2.mp4',
+          compatibility: { status: 'COMPATIBLE', modeAllowed: { copy: true, hybrid: true } },
+        },
+      ],
+    });
+
+    await saveSettings({
+      youtube: { streamKey: 'valid-test-key-7777' },
+      stream: {
+        playlist: [vid1, vid2],
+        playbackOrder: 'sequential',
+        modePreference: 'copy',
+      },
+    });
+
+    const gate = await evaluateStartGates();
+    assert.equal(gate.allowed, true);
+    assert.equal(gate.mode, 'copy');
+    assert.equal(gate.videoMeta.isConcat, true);
+    assert.equal(gate.videoMeta.playlistCount, 2);
+
+    // Verify concat file was written
+    const { default: PATHS } = await import('../../src/lib/paths.js');
+    const concatContent = await fs.readFile(PATHS.loopConcat, 'utf8');
+    assert.ok(concatContent.includes('ffconcat version 1.0'));
+    assert.ok(concatContent.includes(`${vid1}.mp4`));
+    assert.ok(concatContent.includes(`${vid2}.mp4`));
+  });
 });

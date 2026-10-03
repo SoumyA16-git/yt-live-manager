@@ -64,6 +64,11 @@ function validateField(fPath, value, spec, errors) {
       if (!isBoolean(value))
         errors.push(fieldErr(fPath, 'must be a boolean'));
       break;
+
+    case 'array':
+      if (!isArray(value))
+        errors.push(fieldErr(fPath, 'must be an array'));
+      break;
   }
 }
 
@@ -71,6 +76,8 @@ function validateField(fPath, value, spec, errors) {
 
 const STREAM_SCHEMA = {
   videoId:               { type: 'string', maxLen: 50 },
+  playlist:              { type: 'array' },
+  playbackOrder:         { type: 'string', enum: ['sequential', 'shuffle'] },
   modePreference:        { type: 'string', enum: ['auto', 'copy', 'transcode'] },
   allowTranscode:        { type: 'boolean' },
   autoResume:            { type: 'boolean' },
@@ -159,7 +166,7 @@ const RESTART_KEYS = new Set([
   'stream.resolution', 'stream.fps', 'stream.videoBitrateMbps',
   'stream.audioBitrateKbps', 'stream.audioSampleRate', 'stream.keyframeSeconds',
   'stream.keyframeMaxSeconds', 'stream.x264Preset', 'stream.loopStrategy',
-  'stream.videoId', 'youtube.rtmpsUrl', 'youtube.streamKey',
+  'stream.videoId', 'stream.playlist', 'stream.playbackOrder', 'youtube.rtmpsUrl', 'youtube.streamKey',
 ]);
 
 // ─── Section validators ───────────────────────────────────────────────────────

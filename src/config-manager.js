@@ -29,6 +29,8 @@ export const DEFAULTS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
   stream: {
     videoId:               '',
+    playlist:              [],
+    playbackOrder:         'sequential',
     modePreference:        'auto',
     allowTranscode:        true,
     autoResume:            true,
@@ -158,6 +160,12 @@ export async function loadSettings() {
 
   // Auto-heal stream copy settings: ensure floor is 0.1 Mbps and keyframeMax is 8.0s
   if (_settings.stream) {
+    if (!Array.isArray(_settings.stream.playlist)) {
+      _settings.stream.playlist = _settings.stream.videoId ? [_settings.stream.videoId] : [];
+    }
+    if (!_settings.stream.playbackOrder || !['sequential', 'shuffle'].includes(_settings.stream.playbackOrder)) {
+      _settings.stream.playbackOrder = 'sequential';
+    }
     if (_settings.stream.copyMinMbps === undefined || _settings.stream.copyMinMbps > 0.1) {
       _settings.stream.copyMinMbps = 0.1;
     }

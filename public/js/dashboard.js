@@ -11,9 +11,14 @@ import { calculateBitrateMetrics, formatBytes } from './calc.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-let _pollStatusTimer = null;
-let _pollSlowTimer   = null;
-let _currentSettings = null;
+let _pollStatusTimer      = null;
+let _pollSlowTimer        = null;
+let _currentSettings      = null;
+let _currentStatus        = 'STOPPED';
+let _currentActiveVideoId = null;
+let _currentPlaylist      = [];
+let _currentPlaybackOrder = 'sequential';
+let _cachedVideos         = [];
 
 // ─── DOM References ───────────────────────────────────────────────────────────
 
@@ -65,8 +70,13 @@ const uploadPct        = document.getElementById('upload-pct');
 const uploadFill       = document.getElementById('upload-fill');
 const uploadBytesText  = document.getElementById('upload-bytes-text');
 const uploadSpeedText  = document.getElementById('upload-speed-text');
-const videosList       = document.getElementById('videos-list');
-const videoCountBadge  = document.getElementById('video-count-badge');
+const videosList            = document.getElementById('videos-list');
+const videoCountBadge       = document.getElementById('video-count-badge');
+const playlistToolbar       = document.getElementById('playlist-toolbar');
+const btnSelectAllVideos    = document.getElementById('btn-select-all-videos');
+const btnDeselectAllVideos  = document.getElementById('btn-deselect-all-videos');
+const playlistSelectedCount = document.getElementById('playlist-selected-count');
+const selPlaybackOrder      = document.getElementById('sel-playback-order');
 
 // YouTube Import UI
 const ytImportPanel    = document.getElementById('yt-import-panel');
@@ -149,6 +159,7 @@ async function fetchStatus() {
 }
 
 function renderStatus(data) {
+  _currentStatus = data.status || 'STOPPED';
   // Update status badge & dot
   statusText.textContent = data.status;
   quickStatus.textContent = data.status;
@@ -332,18 +343,55 @@ async function fetchVideos() {
     if (data.activeVideoId) {
       _currentActiveVideoId = data.activeVideoId;
     }
-    renderVideos(data.videos || [], data.activeVideoId);
+    _cachedVideos = data.videos || [];
+    _currentPlaylist = Array.isArray(data.playlist) ? data.playlist : (_currentActiveVideoId ? [_currentActiveVideoId] : []);
+    _currentPlaybackOrder = data.playbackOrder || 'sequential';
+    renderVideos(_cachedVideos, data.activeVideoId, _currentPlaylist, _currentPlaybackOrder);
   } catch (err) {
     console.error('Fetch videos failed:', err);
   }
 }
 
-function renderVideos(videos, activeIdFromApi = null) {
+async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder) {
+  const isLive = _currentStatus === 'RUNNING' || _currentStatus === 'STARTING';
+  let shouldRestart = false;
+
+  if (isLive) {
+    shouldRestart = confirm(
+      'Playlist updated.\n\nThe live stream is currently active on YouTube. Do you want to restart the stream now with the new playlist?'
+    );
+  }
+
+  try {
+    const url = `/api/videos/playlist${shouldRestart ? '?restart=true' : ''}`;
+    const res = await apiPost(url, { playlist: newPlaylist, playbackOrder });
+    _currentPlaylist = res.playlist || newPlaylist;
+    _currentPlaybackOrder = res.playbackOrder || playbackOrder;
+    await fetchVideos();
+    if (shouldRestart) {
+      await fetchStatus();
+    }
+  } catch (err) {
+    alert(`Could not update playlist: ${err.message}`);
+    await fetchVideos();
+  }
+}
+
+function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylist, playbackOrder = _currentPlaybackOrder) {
   videosList.innerHTML = '';
   const currentVideoId = activeIdFromApi || _currentActiveVideoId || _currentSettings?.stream?.videoId;
 
   if (videoCountBadge) {
     videoCountBadge.textContent = `${videos.length} ${videos.length === 1 ? 'Video' : 'Videos'}`;
+  }
+
+  if (playlistSelectedCount) {
+    const count = playlist.length;
+    playlistSelectedCount.textContent = `${count} ${count === 1 ? 'Video' : 'Videos'} in Playlist`;
+  }
+
+  if (selPlaybackOrder) {
+    selPlaybackOrder.value = playbackOrder || 'sequential';
   }
 
   if (videos.length === 0) {
@@ -380,40 +428,55 @@ function renderVideos(videos, activeIdFromApi = null) {
     return;
   }
 
-  let foundActive = false;
+  // Update active video header summary
+  if (playlist.length === 0) {
+    activeVideoName.textContent = 'Active: None';
+  } else if (playlist.length === 1) {
+    const single = videos.find(v => v.id === playlist[0]);
+    activeVideoName.textContent = `Looping 1: ${single ? (single.label || single.originalName) : playlist[0]}`;
+  } else {
+    activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})`;
+  }
+
   videos.forEach(v => {
-    const isActive = v.id === currentVideoId;
-    if (isActive) {
-      foundActive = true;
-      activeVideoName.textContent = `${v.label || v.originalName} (${v.probe?.aspectRatio || '1080:1920'})`;
-    }
+    const isSelected = playlist.includes(v.id);
+    const orderIndex = playlist.indexOf(v.id);
+    const isSoloActive = isSelected && playlist.length === 1;
 
     const item = document.createElement('div');
-    item.className = `video-item ${isActive ? 'active' : ''}`;
+    item.className = `video-item ${isSelected ? 'in-playlist' : ''} ${isSoloActive ? 'active' : ''}`;
 
     const compat = v.compatibility?.status === 'COMPATIBLE' ? 'compatible' : 'transcode';
     const compatLabel = v.compatibility?.status === 'COMPATIBLE' ? 'Stream-Copy Ready' : 'Needs Transcode';
 
     item.innerHTML = `
-      <div class="video-info">
-        <div class="video-name">${v.label || v.originalName}</div>
-        <div class="video-meta">
-          <span class="meta-tag">${v.probe?.aspectRatio || '1080:1920'}</span>
-          <span class="meta-tag">${v.probe?.fps || 30}fps</span>
-          <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
-          <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
+      <div class="video-item-left">
+        <label class="video-chk-label" title="${isSelected ? 'Deselect from loop playlist' : 'Select for loop playlist'}">
+          <input type="checkbox" class="video-select-chk" data-id="${v.id}" ${isSelected ? 'checked' : ''}>
+        </label>
+        ${isSelected
+          ? `<span class="playlist-seq-badge" title="Position #${orderIndex + 1}">#${orderIndex + 1}</span>`
+          : ''
+        }
+        <div class="video-info">
+          <div class="video-name">${v.label || v.originalName}</div>
+          <div class="video-meta">
+            <span class="meta-tag">${v.probe?.aspectRatio || '1080:1920'}</span>
+            <span class="meta-tag">${v.probe?.fps || 30}fps</span>
+            <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
+            <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
+          </div>
         </div>
       </div>
       <div class="video-actions">
-        ${!isActive
-          ? `<button class="btn btn-secondary btn-sm btn-select" data-id="${v.id}" title="Select for streaming">
-               <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-               Select
-             </button>`
-          : `<span class="badge-tag live" style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 700;">
-               <span class="status-dot live" style="width: 6px; height: 6px;"></span>
-               ACTIVE VIDEO
+        ${isSelected
+          ? `<span class="badge-tag" style="background: rgba(99, 102, 241, 0.15); color: #818cf8; font-weight: 600;">
+               ${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}
              </span>`
+          : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
+               <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+               Play Solo
+             </button>`
         }
         <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video" style="color: #f43f5e; padding: 0.35rem 0.5rem;">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
@@ -424,26 +487,29 @@ function renderVideos(videos, activeIdFromApi = null) {
     videosList.appendChild(item);
   });
 
-  // Attach button events
-  videosList.querySelectorAll('.btn-select').forEach(b => {
-    b.addEventListener('click', async () => {
-      const id = b.getAttribute('data-id');
-      try {
-        await apiPost(`/api/videos/${id}/select`);
-        await refreshAll();
-      } catch (err) {
-        if (err.code === 'E_STREAM_LIVE') {
-          if (confirm('Stream is live. Restart onto this video now?')) {
-            await apiPost(`/api/videos/${id}/select?restart=true`);
-            await refreshAll();
-          }
-        } else {
-          alert(err.message);
-        }
+  // Attach Checkbox Events
+  videosList.querySelectorAll('.video-select-chk').forEach(chk => {
+    chk.addEventListener('change', async () => {
+      const id = chk.getAttribute('data-id');
+      let updated = [..._currentPlaylist];
+      if (chk.checked) {
+        if (!updated.includes(id)) updated.push(id);
+      } else {
+        updated = updated.filter(x => x !== id);
       }
+      await updatePlaylist(updated, _currentPlaybackOrder);
     });
   });
 
+  // Attach "Play Solo" Events
+  videosList.querySelectorAll('.btn-play-solo').forEach(b => {
+    b.addEventListener('click', async () => {
+      const id = b.getAttribute('data-id');
+      await updatePlaylist([id], _currentPlaybackOrder);
+    });
+  });
+
+  // Attach Delete Events
   videosList.querySelectorAll('.btn-delete').forEach(b => {
     b.addEventListener('click', async () => {
       const id = b.getAttribute('data-id');
@@ -1299,6 +1365,27 @@ async function init() {
 
   setupUploads();
   setupYouTubeDownload();
+
+  // 4b. Multi-Video Playlist Toolbar Handlers
+  if (btnSelectAllVideos) {
+    btnSelectAllVideos.addEventListener('click', async () => {
+      const allIds = _cachedVideos.map(v => v.id);
+      await updatePlaylist(allIds, _currentPlaybackOrder);
+    });
+  }
+
+  if (btnDeselectAllVideos) {
+    btnDeselectAllVideos.addEventListener('click', async () => {
+      await updatePlaylist([], _currentPlaybackOrder);
+    });
+  }
+
+  if (selPlaybackOrder) {
+    selPlaybackOrder.addEventListener('change', async (e) => {
+      const newOrder = e.target.value;
+      await updatePlaylist(_currentPlaylist, newOrder);
+    });
+  }
 
   // 5. Authenticate Session
   const user = await initSession();

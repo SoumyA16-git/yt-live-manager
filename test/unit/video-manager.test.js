@@ -14,6 +14,7 @@ import {
   getVideo,
   deleteVideo,
   setActiveVideo,
+  setPlaylist,
   _setPathsForTest as _setVideoPaths,
 } from '../../src/video-manager.js';
 import {
@@ -154,5 +155,40 @@ describe('video-manager — library operations', () => {
 
     const remaining = await listVideos();
     assert.equal(remaining.length, 0);
+  });
+
+  test('setPlaylist validates video IDs, updates settings and state', async () => {
+    const vDir   = path.join(tmpDir, 'videos-4');
+    const inDir  = path.join(tmpDir, 'incoming-4');
+    const vIndex = path.join(tmpDir, 'videos-index-4.json');
+    const sPath  = path.join(tmpDir, 'settings-4.json');
+    const stPath = path.join(tmpDir, 'state-4.json');
+    const hPath  = path.join(tmpDir, 'hist-4.json');
+    const bDir   = path.join(tmpDir, 'backups-4');
+
+    await fs.mkdir(vDir, { recursive: true });
+    _setVideoPaths(vDir, inDir, vIndex);
+    _setConfigPaths(sPath, bDir);
+    _setStatePaths(stPath, hPath, bDir);
+
+    await loadSettings();
+    await loadState();
+
+    const mockVideos = [
+      { id: 'vid_aaaa1111', originalName: 'clip1.mp4' },
+      { id: 'vid_bbbb2222', originalName: 'clip2.mp4' },
+      { id: 'vid_cccc3333', originalName: 'clip3.mp4' },
+    ];
+    await writeJSON(vIndex, { schemaVersion: 1, videos: mockVideos });
+
+    // Include valid IDs, duplicates, and non-existent IDs
+    const result = await setPlaylist(['vid_cccc3333', 'vid_aaaa1111', 'vid_cccc3333', 'vid_unknown99'], 'shuffle');
+
+    assert.deepEqual(result.playlist, ['vid_cccc3333', 'vid_aaaa1111']);
+    assert.equal(result.playbackOrder, 'shuffle');
+    assert.equal(getSettings().stream.videoId, 'vid_cccc3333');
+    assert.deepEqual(getSettings().stream.playlist, ['vid_cccc3333', 'vid_aaaa1111']);
+    assert.equal(getSettings().stream.playbackOrder, 'shuffle');
+    assert.equal(getState().activeVideoId, 'vid_cccc3333');
   });
 });

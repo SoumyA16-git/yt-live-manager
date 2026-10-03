@@ -317,7 +317,7 @@ async function saveVideosIndex(videos) {
  * @param {number} requiredBytes
  * @param {number} [reserveBytes]
  */
-export async function checkDiskSpace(requiredBytes, reserveBytes = 500 * 1024 * 1024) {
+export async function checkDiskSpace(requiredBytes, reserveBytes = 2 * 1024 * 1024 * 1024) {
   if (typeof fs.statfs !== 'function') return true; // Node older than 18.15 or unsupported FS
 
   try {
@@ -375,7 +375,7 @@ export async function processUpload(fileStream, fileInfo) {
 
   // Pre-check disk space if Content-Length was known
   if (fileInfo.sizeBytes > 0) {
-    const reserve = settings.uploads?.diskReserveBytes ?? 500 * 1024 * 1024;
+    const reserve = settings.uploads?.diskReserveBytes ?? (2 * 1024 * 1024 * 1024);
     await checkDiskSpace(fileInfo.sizeBytes, reserve);
   }
 
@@ -429,26 +429,18 @@ export async function processUpload(fileStream, fileInfo) {
     compatibility,
   };
 
-  // Auto-purge all previous video files (Single-video rotation: PRD §13 / User directive)
-  const previousVideos = await listVideos();
-  for (const old of previousVideos) {
-    if (old.id !== id) {
-      try {
-        const ext = path.extname(old.filename || `${old.id}.mp4`);
-        const oldPath = resolveVideoPath(old.id, ext);
-        await fs.unlink(oldPath).catch(() => {});
-        logger.info('video.auto_purged', `Auto-purged previous video file ${old.id} (${old.originalName}) on new upload`);
-      } catch (err) {
-        logger.warn('video.auto_purge_failed', `Could not delete old video file ${old.id}: ${err.message}`);
-      }
-    }
+  // Multi-video library: append newly uploaded video without purging existing library
+  const existingVideos = await listVideos();
+  const updatedVideos = [videoMeta, ...existingVideos.filter(v => v.id !== id)];
+  await saveVideosIndex(updatedVideos);
+
+  // If no active video or playlist configured, auto-select this new video
+  const currentSettings = getSettings();
+  const currentPlaylist = currentSettings?.stream?.playlist;
+  const currentActive = currentSettings?.stream?.videoId;
+  if (!currentActive || !Array.isArray(currentPlaylist) || currentPlaylist.length === 0) {
+    await setActiveVideo(id);
   }
-
-  // Save catalog containing only the newly uploaded video
-  await saveVideosIndex([videoMeta]);
-
-  // Automatically mark the new video as active
-  await setActiveVideo(id);
 
   logger.info('video.uploaded', `Uploaded video ${id} (${originalName}) - ${compatibility.status}`, {
     id,
@@ -536,8 +528,10 @@ export async function deleteVideo(id) {
   }
 
   const state = getState();
+  const settings = getSettings();
   const isCurrentlyStreaming = state.status === 'RUNNING' || state.status === 'STARTING';
-  if (state.activeVideoId === id && isCurrentlyStreaming) {
+  const isInActiveStream = (state.activeVideoId === id) || (Array.isArray(settings.stream?.playlist) && settings.stream.playlist.includes(id));
+  if (isInActiveStream && isCurrentlyStreaming) {
     throw Object.assign(new Error('Cannot delete video while it is being actively streamed'), {
       code: 'E_VIDEO_IN_USE',
     });
@@ -554,13 +548,26 @@ export async function deleteVideo(id) {
     }
   }
 
-  // If deleted video was configured as active, clear it
-  const settings = getSettings();
-  if (settings.stream?.videoId === id) {
-    await saveSettings({ stream: { videoId: '' } });
+  // If deleted video was configured in playlist or as active, update settings
+  const currentStream = settings.stream || {};
+  let needSettingsSave = false;
+  const newStreamSettings = {};
+
+  if (Array.isArray(currentStream.playlist) && currentStream.playlist.includes(id)) {
+    newStreamSettings.playlist = currentStream.playlist.filter(vid => vid !== id);
+    needSettingsSave = true;
+  }
+
+  if (currentStream.videoId === id) {
+    newStreamSettings.videoId = (newStreamSettings.playlist && newStreamSettings.playlist[0]) || '';
+    needSettingsSave = true;
+  }
+
+  if (needSettingsSave) {
+    await saveSettings({ stream: newStreamSettings });
   }
   if (state.activeVideoId === id) {
-    await saveState({ activeVideoId: null });
+    await saveState({ activeVideoId: newStreamSettings.videoId || null });
   }
 
   // Remove from catalog
@@ -572,7 +579,7 @@ export async function deleteVideo(id) {
   return { deleted: true, id };
 }
 
-// ─── Set Active Video ────────────────────────────────────────────────────────
+// ─── Set Active Video & Playlist ─────────────────────────────────────────────
 
 /**
  * Set active video ID in config and state.
@@ -585,10 +592,60 @@ export async function setActiveVideo(id) {
     throw Object.assign(new Error('Video not found'), { code: 'E_NOT_FOUND' });
   }
 
-  await saveSettings({ stream: { videoId: id } });
+  const currentSettings = getSettings();
+  let playlist = Array.isArray(currentSettings.stream?.playlist) ? [...currentSettings.stream.playlist] : [];
+  if (!playlist.includes(id)) {
+    playlist.unshift(id);
+  }
+
+  await saveSettings({ stream: { videoId: id, playlist } });
   await saveState({ activeVideoId: id });
   logger.info('video.active_changed', `Set active video to ${id} (${video.originalName})`);
   return video;
+}
+
+/**
+ * Set stream playlist and playback order.
+ *
+ * @param {string[]} playlistIds Array of video IDs
+ * @param {'sequential'|'shuffle'} [playbackOrder='sequential']
+ * @returns {Promise<{ playlist: string[], playbackOrder: string }>}
+ */
+export async function setPlaylist(playlistIds, playbackOrder = 'sequential') {
+  if (!Array.isArray(playlistIds)) {
+    throw Object.assign(new Error('Playlist must be an array of video IDs'), { code: 'E_INVALID_PLAYLIST' });
+  }
+
+  const validOrder = ['sequential', 'shuffle'].includes(playbackOrder) ? playbackOrder : 'sequential';
+  const existingVideos = await listVideos();
+  const existingMap = new Map(existingVideos.map(v => [v.id, v]));
+
+  // Validate all video IDs exist and preserve order without duplicates
+  const validatedIds = [];
+  for (const id of playlistIds) {
+    if (existingMap.has(id) && !validatedIds.includes(id)) {
+      validatedIds.push(id);
+    }
+  }
+
+  const primaryVideoId = validatedIds[0] || '';
+
+  await saveSettings({
+    stream: {
+      videoId: primaryVideoId,
+      playlist: validatedIds,
+      playbackOrder: validOrder,
+    },
+  });
+
+  await saveState({ activeVideoId: primaryVideoId || null });
+
+  logger.info('video.playlist_updated', `Updated stream playlist (${validatedIds.length} videos, order: ${validOrder})`, {
+    playlist: validatedIds,
+    playbackOrder: validOrder,
+  });
+
+  return { playlist: validatedIds, playbackOrder: validOrder };
 }
 
 // ─── Re-validate (PRD §5.1) ──────────────────────────────────────────────────

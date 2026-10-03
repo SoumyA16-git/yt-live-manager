@@ -246,6 +246,32 @@ describe('REST API Endpoints', () => {
     assert.ok(typeof sys.uptimeSec === 'number');
   });
 
+  test('GET & POST /api/videos/playlist manages playlist and playbackOrder', async () => {
+    // GET initial playlist
+    const res1 = await fetch(`${baseUrl}/api/videos/playlist`, {
+      headers: { Cookie: sessionCookie },
+    });
+    assert.equal(res1.status, 200);
+    const body1 = await res1.json();
+    assert.ok(Array.isArray(body1.playlist));
+    assert.ok(['sequential', 'shuffle'].includes(body1.playbackOrder));
+
+    // POST updated playlist
+    const res2 = await fetch(`${baseUrl}/api/videos/playlist`, {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      body: JSON.stringify({ playlist: [], playbackOrder: 'shuffle' }),
+    });
+    assert.equal(res2.status, 200);
+    const body2 = await res2.json();
+    assert.equal(body2.success, true);
+    assert.equal(body2.playbackOrder, 'shuffle');
+  });
+
   test('POST /api/auth/logout invalidates session', async () => {
     const res = await fetch(`${baseUrl}/api/auth/logout`, {
       method: 'POST',

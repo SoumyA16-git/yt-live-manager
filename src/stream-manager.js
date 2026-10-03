@@ -129,39 +129,101 @@ export async function evaluateStartGates() {
     return { allowed: false, code: 'E_KEY_MISSING', reason: 'YouTube stream key is not configured' };
   }
 
-  // 5. Video Selected and Valid
-  let videoId = settings.stream?.videoId;
-  if (!videoId) {
-    const allVideos = await listVideos();
-    if (allVideos.length === 1) {
-      videoId = allVideos[0].id;
-      await setActiveVideo(videoId);
-      logger.info('stream.auto_select_single', `Auto-selected sole library video ${videoId} for stream start`);
+  // 5. Video / Playlist Selected and Valid
+  let playlist = settings.stream?.playlist;
+  if (!Array.isArray(playlist) || playlist.length === 0) {
+    if (settings.stream?.videoId) {
+      playlist = [settings.stream.videoId];
     } else {
-      return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
+      const allVideos = await listVideos();
+      if (allVideos.length === 1) {
+        playlist = [allVideos[0].id];
+        await setActiveVideo(allVideos[0].id);
+        logger.info('stream.auto_select_single', `Auto-selected sole library video ${allVideos[0].id} for stream start`);
+      } else {
+        return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
+      }
     }
   }
 
-  const videoMeta = await getVideo(videoId);
-  if (!videoMeta) {
-    return { allowed: false, code: 'E_VIDEO_NOT_FOUND', reason: `Configured video ${videoId} not found in library` };
+  // Load and validate all videos in playlist
+  const playlistMetas = [];
+  for (const vId of playlist) {
+    const vMeta = await getVideo(vId);
+    if (!vMeta) {
+      return { allowed: false, code: 'E_VIDEO_NOT_FOUND', reason: `Configured video ${vId} not found in library` };
+    }
+    const ext = path.extname(vMeta.filename || `${vId}.mp4`);
+    const resolvedPath = resolveVideoPath(vId, ext);
+    try {
+      await fs.access(resolvedPath);
+    } catch {
+      return { allowed: false, code: 'E_VIDEO_FILE_MISSING', reason: `Video file missing on disk: ${resolvedPath}` };
+    }
+    vMeta.filePath = resolvedPath;
+    playlistMetas.push(vMeta);
   }
 
-  const ext = path.extname(videoMeta.filename || `${videoId}.mp4`);
-  const resolvedPath = resolveVideoPath(videoId, ext);
-  try {
-    await fs.access(resolvedPath);
-  } catch {
-    return { allowed: false, code: 'E_VIDEO_FILE_MISSING', reason: `Video file missing on disk: ${resolvedPath}` };
+  if (playlistMetas.length === 0) {
+    return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
   }
 
-  videoMeta.filePath = resolvedPath;
+  let videoMeta;
+  if (playlistMetas.length === 1) {
+    videoMeta = playlistMetas[0];
+    videoMeta.isConcat = false;
+  } else {
+    // Multi-video playlist
+    let orderedMetas = [...playlistMetas];
+    const playbackOrder = settings.stream?.playbackOrder || 'sequential';
+    if (playbackOrder === 'shuffle') {
+      for (let i = orderedMetas.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [orderedMetas[i], orderedMetas[j]] = [orderedMetas[j], orderedMetas[i]];
+      }
+    }
+
+    const concatLines = ['ffconcat version 1.0'];
+    for (const meta of orderedMetas) {
+      const normalized = meta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
+      concatLines.push(`file '${normalized}'`);
+    }
+    await fs.mkdir(path.dirname(PATHS.loopConcat), { recursive: true });
+    await fs.writeFile(PATHS.loopConcat, concatLines.join('\n') + '\n', 'utf8');
+
+    videoMeta = {
+      ...orderedMetas[0],
+      isConcat: true,
+      playlistCount: orderedMetas.length,
+      playlistOrder: playbackOrder,
+    };
+  }
 
   // 6. Mode Selection Resolution
   const modePref = settings.stream?.modePreference || 'auto';
-  // Fresh evaluation using probe and current settings to guarantee real-time accuracy
-  const compat = videoMeta.probe ? evaluateCompatibility(videoMeta.probe, settings) : (videoMeta.compatibility || {});
   const allowTranscode = settings.stream?.allowTranscode !== false;
+
+  let allCompatible = true;
+  let allCopyAllowed = true;
+  for (const m of playlistMetas) {
+    const c = m.probe ? evaluateCompatibility(m.probe, settings) : (m.compatibility || {});
+    if (c.status !== 'COMPATIBLE') {
+      allCompatible = false;
+    }
+    if (!c.modeAllowed?.copy) {
+      allCopyAllowed = false;
+    }
+  }
+
+  const compat = {
+    status: allCompatible ? 'COMPATIBLE' : 'NEEDS_TRANSCODE',
+    modeAllowed: {
+      copy: allCompatible && allCopyAllowed,
+      hybrid: allCompatible && !allCopyAllowed,
+      transcode: true,
+    },
+  };
+
   let selectedMode = 'transcode';
 
   if (modePref === 'copy') {
@@ -169,7 +231,9 @@ export async function evaluateStartGates() {
       return {
         allowed: false,
         code: 'E_NEEDS_TRANSCODE',
-        reason: 'Source requires transcoding (not 1080p copy-ready) but copy mode was strictly requested. Switch to Auto or Transcode mode.',
+        reason: playlistMetas.length > 1
+          ? 'One or more selected videos require transcoding (not 1080p copy-ready) but copy mode was strictly requested. Switch to Auto or Transcode mode.'
+          : 'Source requires transcoding (not 1080p copy-ready) but copy mode was strictly requested. Switch to Auto or Transcode mode.',
       };
     }
     selectedMode = compat.modeAllowed?.copy ? 'copy' : 'hybrid';
@@ -184,7 +248,13 @@ export async function evaluateStartGates() {
       selectedMode = compat.modeAllowed?.copy ? 'copy' : 'hybrid';
     } else {
       if (!allowTranscode) {
-        return { allowed: false, code: 'E_NEEDS_TRANSCODE', reason: 'Source requires transcoding but allowTranscode is disabled' };
+        return {
+          allowed: false,
+          code: 'E_NEEDS_TRANSCODE',
+          reason: playlistMetas.length > 1
+            ? 'One or more selected videos require transcoding but allowTranscode is disabled'
+            : 'Source requires transcoding but allowTranscode is disabled',
+        };
       }
       selectedMode = 'transcode';
     }

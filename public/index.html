@@ -249,7 +249,7 @@
             <svg class="icon icon-lg" viewBox="0 0 24 24" style="color: var(--accent-primary);"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <div style="font-size: 0.85rem; font-weight: 600; color: var(--text-main);">Tap or Drag Vertical MP4 Video Here</div>
             <div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps</div>
-            <div style="font-size: 0.675rem; color: var(--accent-primary); font-family: var(--font-mono); margin-top: 0.15rem;">Auto-Cleanup: Uploading a new video automatically deletes old video to save disk space.</div>
+            <div style="font-size: 0.675rem; color: var(--accent-primary); font-family: var(--font-mono); margin-top: 0.15rem;">Multi-Video Playlist: Select multiple videos to stream sequentially or in shuffle loop.</div>
             <input type="file" id="file-input" accept=".mp4,.mov,.m4v,.mkv" style="display: none;">
           </div>
 
@@ -329,6 +329,28 @@
             <div id="upload-details-text" style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono); margin-top: 0.35rem; display: flex; justify-content: space-between;">
               <span id="upload-bytes-text">0 MB / 0 MB</span>
               <span id="upload-speed-text">0 MB/s</span>
+            </div>
+          </div>
+
+          <!-- Playlist Controls Toolbar (Multi-Selection & Loop Mode) -->
+          <div id="playlist-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0 0.5rem 0; padding: 0.5rem 0.75rem; background: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs);">
+            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+              <button id="btn-select-all-videos" type="button" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;">
+                Select All
+              </button>
+              <button id="btn-deselect-all-videos" type="button" class="btn btn-outline btn-sm" style="font-size: 0.72rem; padding: 0.25rem 0.55rem;">
+                Deselect All
+              </button>
+              <span id="playlist-selected-count" style="font-size: 0.72rem; font-family: var(--font-mono); color: var(--accent-primary); font-weight: 600;">
+                0 Selected
+              </span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.45rem;">
+              <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: 500;">Loop Mode:</span>
+              <select id="sel-playback-order" style="padding: 0.25rem 0.5rem; font-size: 0.72rem; font-family: var(--font-sans); background: var(--bg-canvas); color: var(--text-main); border: 1px solid var(--border-subtle); border-radius: var(--radius-xs); cursor: pointer; outline: none;">
+                <option value="sequential">Sequential (1 by 1)</option>
+                <option value="shuffle">Shuffle (Random)</option>
+              </select>
             </div>
           </div>
 

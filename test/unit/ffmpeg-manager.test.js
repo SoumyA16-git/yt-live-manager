@@ -99,4 +99,18 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     const highBIndex = highArgs.indexOf('-b:v');
     assert.equal(highArgs[highBIndex + 1], '4000k');
   });
+
+  test('Concat Mode args structure for multi-video playlist', () => {
+    const concatMeta = { ...dummyMeta, isConcat: true };
+    const args = buildFfmpegArgs(dummySettings, concatMeta, secretTarget, 'copy');
+
+    assert.ok(args.includes('-f'));
+    assert.ok(args.includes('concat'));
+    assert.ok(args.includes('-stream_loop'));
+    assert.ok(args.includes('-safe'));
+    assert.ok(args.includes('0'));
+    assert.ok(args.includes('-c'));
+    assert.ok(args.includes('copy'));
+    assert.equal(args[args.length - 1], secretTarget);
+  });
 });

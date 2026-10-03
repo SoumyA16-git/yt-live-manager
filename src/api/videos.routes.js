@@ -11,6 +11,7 @@ import {
   getVideo,
   deleteVideo,
   setActiveVideo,
+  setPlaylist,
   revalidateVideo,
   processUpload,
   syncDiskVideos,
@@ -35,8 +36,11 @@ export function createVideosRouter() {
     try {
       const forceSync = req.query.sync === '1' || req.query.sync === 'true';
       const videos = await listVideos({ forceSync });
-      const activeVideoId = getSettings().stream?.videoId || getState().activeVideoId || null;
-      res.json({ videos, activeVideoId });
+      const streamSettings = getSettings().stream || {};
+      const activeVideoId = streamSettings.videoId || getState().activeVideoId || null;
+      const playlist = Array.isArray(streamSettings.playlist) ? streamSettings.playlist : (activeVideoId ? [activeVideoId] : []);
+      const playbackOrder = streamSettings.playbackOrder || 'sequential';
+      res.json({ videos, activeVideoId, playlist, playbackOrder });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -50,6 +54,45 @@ export function createVideosRouter() {
       res.json({ success: true, count: videos.length, videos, activeVideoId });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/videos/playlist
+  router.get('/playlist', (req, res) => {
+    const streamSettings = getSettings().stream || {};
+    const playlist = Array.isArray(streamSettings.playlist) ? streamSettings.playlist : [];
+    const playbackOrder = streamSettings.playbackOrder || 'sequential';
+    res.json({ playlist, playbackOrder });
+  });
+
+  // POST /api/videos/playlist
+  router.post('/playlist', async (req, res) => {
+    const { playlist, playbackOrder } = req.body || {};
+    const shouldRestart = req.query.restart === 'true';
+
+    try {
+      const state = getState();
+      const isLive = state.status === 'RUNNING' || state.status === 'STARTING';
+
+      if (isLive && !shouldRestart) {
+        return res.status(409).json({
+          error: 'Stream is currently live. Pass ?restart=true to update playlist with immediate restart.',
+          code: 'E_STREAM_LIVE',
+        });
+      }
+
+      const updated = await setPlaylist(playlist || [], playbackOrder || 'sequential');
+
+      if (isLive && shouldRestart) {
+        logger.info('video.playlist_restart', `Gracefully restarting stream onto new playlist (${updated.playlist.length} videos)`);
+        await stopStream({ keepDesiredRunning: true, reason: 'playlist_change_restart' });
+        await startStream({ reason: 'playlist_change_restart' });
+      }
+
+      res.json({ success: true, ...updated });
+    } catch (err) {
+      const status = err.code === 'E_INVALID_PLAYLIST' ? 400 : 500;
+      res.status(status).json({ error: err.message, code: err.code });
     }
   });
 
@@ -230,16 +273,8 @@ export function createVideosRouter() {
       try {
         const videoMeta = await uploadPromise;
 
-        // If stream is actively live, seamlessly restart onto newly uploaded video
-        const state = getState();
-        const isLive = state.status === 'RUNNING' || state.status === 'STARTING';
-        if (isLive) {
-          logger.info('video.upload_restart', `Stream is active; switching stream onto new upload ${videoMeta.id}`);
-          await stopStream({ keepDesiredRunning: true, reason: 'upload_video_rotation' });
-          await startStream({ reason: 'upload_video_rotation' });
-        }
-
-        res.status(201).json({ success: true, video: videoMeta, autoSelected: true });
+        // Video uploaded successfully to library. Active stream continues without interruption.
+        res.status(201).json({ success: true, video: videoMeta });
       } catch (err) {
         const status = err.code === 'E_DISK_LOW' ? 507
           : err.code === 'E_INVALID_EXTENSION' ? 415

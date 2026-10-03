@@ -45,8 +45,9 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
   ];
 
   // Infinite looping (PRD §4.5)
-  if (streamCfg.loopStrategy === 'concat') {
-    args.push('-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
+  const isConcat = Boolean(videoMeta?.isConcat) || streamCfg.loopStrategy === 'concat' || (Array.isArray(streamCfg.playlist) && streamCfg.playlist.length > 1);
+  if (isConcat) {
+    args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
   } else {
     args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
   }
