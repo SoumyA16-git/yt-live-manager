@@ -22,9 +22,68 @@ let _cachedVideos         = [];
 
 // ─── DOM References ───────────────────────────────────────────────────────────
 
+const toastContainer   = document.getElementById('toast-container');
 const disconnectBanner = document.getElementById('disconnect-banner');
 const userDisplay      = document.getElementById('user-display');
 const btnLogout        = document.getElementById('btn-logout');
+
+// ─── Toast Notifications (Zero Emojis, Pure SVG Vector Icons) ────────────────
+
+export function showToast(message, type = 'info', title = '') {
+  if (!toastContainer) {
+    console.log(`[${type.toUpperCase()}] ${title ? title + ': ' : ''}${message}`);
+    return;
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+
+  let iconSvg = '';
+  if (type === 'success') {
+    iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>`;
+  } else if (type === 'error') {
+    iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`;
+  } else if (type === 'warning') {
+    iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+  } else {
+    iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+  }
+
+  const defaultTitles = {
+    success: 'Success',
+    error: 'Action Failed',
+    warning: 'Notice',
+    info: 'Information',
+  };
+
+  const displayTitle = title || defaultTitles[type] || 'Notification';
+
+  toast.innerHTML = `
+    ${iconSvg}
+    <div class="toast-content">
+      <div class="toast-title">${displayTitle}</div>
+      <div class="toast-message">${message}</div>
+    </div>
+    <button class="toast-close" title="Dismiss">
+      <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+  `;
+
+  const closeBtn = toast.querySelector('.toast-close');
+  const dismiss = () => {
+    toast.classList.add('toast-hiding');
+    setTimeout(() => {
+      try { toast.remove(); } catch { /* ignore */ }
+    }, 200);
+  };
+
+  if (closeBtn) closeBtn.addEventListener('click', dismiss);
+  const timer = setTimeout(dismiss, 4500);
+  toast.addEventListener('mouseenter', () => clearTimeout(timer));
+  toast.addEventListener('mouseleave', () => setTimeout(dismiss, 2500));
+
+  toastContainer.appendChild(toast);
+}
 
 // Health Verdict
 const verdictBadge     = document.getElementById('verdict-badge');
@@ -391,7 +450,7 @@ async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder
       await fetchStatus();
     }
   } catch (err) {
-    alert(`Could not update playlist: ${err.message}`);
+    showToast(err.message, 'error', 'Playlist Update Failed');
     await fetchVideos();
   }
 }
@@ -432,12 +491,12 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
           const res = await apiPost('/api/videos/sync');
           await refreshAll();
           if (res.count > 0) {
-            alert(`Found and indexed ${res.count} video file(s)!`);
+            showToast(`Found and indexed ${res.count} video file(s).`, 'success', 'Scan Complete');
           } else {
-            alert('Scan complete. No video files found in videos/ directory.');
+            showToast('No video files found in videos/ directory.', 'info', 'Scan Complete');
           }
         } catch (err) {
-          alert(`Scan failed: ${err.message}`);
+          showToast(err.message, 'error', 'Scan Failed');
         } finally {
           btnSync.disabled = false;
         }
@@ -458,7 +517,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
     const count = playlist.length;
     let countText = `${count} ${count === 1 ? 'Video' : 'Videos'} in Playlist`;
     if (hasPairedHorizontalInPlaylist) {
-      countText += ' (🔗 16:9 Feed Auto-Paired)';
+      countText += ' (16:9 Feed Auto-Paired)';
     }
     playlistSelectedCount.textContent = countText;
   }
@@ -470,10 +529,10 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
     const label = single ? (single.label || single.originalName) : playlist[0];
     const isPaired = single && videos.some(h => (h.orientation === 'horizontal' || (h.probe?.width > h.probe?.height)) && h.paired?.id === single.id);
     activeVideoName.textContent = isPaired
-      ? `Looping: ${label} + 🔗 Dual 16:9 Feed Active`
+      ? `Looping: ${label} + Dual 16:9 Feed Active`
       : `Looping 1: ${label}`;
   } else {
-    activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})${hasPairedHorizontalInPlaylist ? ' + 🔗 Dual Feeds' : ''}`;
+    activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})${hasPairedHorizontalInPlaylist ? ' + Dual Feeds' : ''}`;
   }
 
   videos.forEach(v => {
@@ -505,7 +564,10 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
         <label class="video-chk-label" title="Automatically linked & active for 16:9 Dual Streaming Feed (Paired with #${pairedVerticalPos})">
           <input type="checkbox" class="video-select-chk" data-id="${v.id}" checked disabled style="opacity: 0.9; accent-color: var(--accent-cyan); cursor: default;">
         </label>
-        <span class="playlist-seq-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4);" title="Auto-Paired 16:9 Feed for #${pairedVerticalPos}">🔗 16:9</span>
+        <span class="playlist-seq-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); display: inline-flex; align-items: center; gap: 0.25rem;" title="Auto-Paired 16:9 Feed for #${pairedVerticalPos}">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" style="width:0.75rem;height:0.75rem;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          16:9
+        </span>
       `;
     } else {
       chkAreaHtml = `
@@ -530,7 +592,10 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
             <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
             <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
             ${v.paired
-              ? `<span class="meta-tag" style="color: var(--accent-cyan); font-weight: 500;" title="Paired with ${v.paired.label || v.paired.originalName}">🔗 Pair: ${v.paired.label || v.paired.originalName}</span>`
+              ? `<span class="meta-tag" style="color: var(--accent-cyan); font-weight: 500; display: inline-flex; align-items: center; gap: 0.25rem;" title="Paired with ${v.paired.label || v.paired.originalName}">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24" style="width:0.75rem;height:0.75rem;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  Pair: ${v.paired.label || v.paired.originalName}
+                </span>`
               : ''
             }
           </div>
@@ -542,8 +607,9 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
                ${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}
              </span>`
           : isPairedFeedActive
-            ? `<span class="badge-tag" style="background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-weight: 600;">
-                 🔗 DUAL FEED (16:9 ACTIVE)
+            ? `<span class="badge-tag" style="background: rgba(56, 189, 248, 0.18); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-weight: 600; display: inline-flex; align-items: center; gap: 0.25rem;">
+                 <svg class="icon icon-sm" viewBox="0 0 24 24" style="width:0.75rem;height:0.75rem;"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                 DUAL FEED (16:9 ACTIVE)
                </span>`
             : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -588,9 +654,10 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
       if (confirm('Delete this video from library?')) {
         try {
           await apiDelete(`/api/videos/${id}`);
+          showToast('Video deleted from library.', 'success', 'Video Removed');
           await fetchVideos();
         } catch (err) {
-          alert(err.message);
+          showToast(err.message, 'error', 'Delete Failed');
         }
       }
     });
@@ -629,12 +696,12 @@ function renderLogs(lines) {
 function updateDeckStreamKeyBadge(settings) {
   if (!deckStreamKeyBadge) return;
   if (settings?.youtube?.streamKeySet) {
-    deckStreamKeyBadge.textContent = `YouTube: Configured (ends in ...${settings.youtube.streamKeyHint})`;
+    deckStreamKeyBadge.textContent = `YouTube: Configured (...${settings.youtube.streamKeyHint})`;
     deckStreamKeyBadge.style.borderColor = 'rgba(34, 197, 94, 0.4)';
     deckStreamKeyBadge.style.color = '#4ade80';
     deckStreamKeyBadge.title = `YouTube Stream Key is configured (...${settings.youtube.streamKeyHint}). Click to change.`;
   } else {
-    deckStreamKeyBadge.textContent = '⚠️ YouTube: Key Missing';
+    deckStreamKeyBadge.textContent = 'YouTube: Key Missing';
     deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.5)';
     deckStreamKeyBadge.style.color = '#f87171';
     deckStreamKeyBadge.title = 'YouTube Stream Key is not configured! Click to open Settings.';
@@ -648,19 +715,19 @@ function updateKeyFeedback() {
     keyBadge.textContent = 'Unsaved Entry';
     keyBadge.style.background = 'rgba(96, 165, 250, 0.2)';
     keyBadge.style.color = '#60a5fa';
-    keyHintText.innerHTML = `✏️ <strong style="color: #60a5fa;">New stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> below to apply.`;
+    keyHintText.innerHTML = `<strong style="color: #60a5fa;">New stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> below to apply.`;
   } else if (_currentSettings?.youtube?.streamKeySet) {
     keyBadge.textContent = `Saved (...${_currentSettings.youtube.streamKeyHint})`;
     keyBadge.style.background = 'rgba(34, 197, 94, 0.2)';
     keyBadge.style.color = '#4ade80';
-    cfgStreamKey.placeholder = `•••••••••••• (Saved. Leave blank to keep key ending in ...${_currentSettings.youtube.streamKeyHint})`;
-    keyHintText.innerHTML = `✅ <strong style="color: #4ade80;">Active YouTube Stream Key is saved</strong> (ends in ...${_currentSettings.youtube.streamKeyHint}). Leave empty to keep unchanged, or paste a new key to update.`;
+    cfgStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.streamKeyHint})`;
+    keyHintText.innerHTML = `<strong style="color: #4ade80;">Active YouTube Stream Key is saved</strong> (ends in ...${_currentSettings.youtube.streamKeyHint}). Leave empty to keep unchanged, or paste a new key to update.`;
   } else {
     keyBadge.textContent = 'Not Configured';
     keyBadge.style.background = 'rgba(239, 68, 68, 0.2)';
     keyBadge.style.color = '#f87171';
     cfgStreamKey.placeholder = 'Paste YouTube Stream Key (e.g. xxxx-xxxx-xxxx-xxxx-xxxx)';
-    keyHintText.innerHTML = '⚠️ <strong style="color: #f87171;">No stream key saved.</strong> You must paste your YouTube Stream Key before you can start streaming.';
+    keyHintText.innerHTML = '<strong style="color: #f87171;">No stream key saved.</strong> You must paste your YouTube Stream Key before you can start streaming.';
   }
 }
 
@@ -671,13 +738,13 @@ function updateHorizontalKeyFeedback() {
     horizontalKeyBadge.textContent = 'Unsaved Entry';
     horizontalKeyBadge.style.background = 'rgba(96, 165, 250, 0.2)';
     horizontalKeyBadge.style.color = '#60a5fa';
-    horizontalKeyHintText.innerHTML = `✏️ <strong style="color: #60a5fa;">New horizontal stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> to apply.`;
+    horizontalKeyHintText.innerHTML = `<strong style="color: #60a5fa;">New horizontal stream key entered (${val.length} chars)</strong> — Click <strong>Save Configuration</strong> to apply.`;
   } else if (_currentSettings?.youtube?.horizontalStreamKeySet) {
     horizontalKeyBadge.textContent = `Saved (...${_currentSettings.youtube.horizontalStreamKeyHint})`;
     horizontalKeyBadge.style.background = 'rgba(56, 189, 248, 0.2)';
     horizontalKeyBadge.style.color = 'var(--accent-cyan)';
-    cfgHorizontalStreamKey.placeholder = `•••••••••••• (Saved. Leave blank to keep key ending in ...${_currentSettings.youtube.horizontalStreamKeyHint})`;
-    horizontalKeyHintText.innerHTML = `✅ <strong style="color: var(--accent-cyan);">Horizontal stream key saved</strong> (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Stream copy will broadcast to both Shorts and Normal feeds simultaneously.`;
+    cfgHorizontalStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint})`;
+    horizontalKeyHintText.innerHTML = `<strong style="color: var(--accent-cyan);">Horizontal stream key saved</strong> (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Stream copy will broadcast to both Shorts and Normal feeds simultaneously.`;
   } else {
     horizontalKeyBadge.textContent = 'Optional';
     horizontalKeyBadge.style.background = 'rgba(255, 255, 255, 0.06)';
@@ -736,7 +803,7 @@ async function openSettings() {
     updateLiveBitratePreview();
     modalSettings.classList.add('open');
   } catch (err) {
-    alert(`Could not load settings: ${err.message}`);
+    showToast(err.message, 'error', 'Could Not Load Settings');
   }
 }
 
@@ -818,20 +885,20 @@ function handleFileUpload(file) {
 
   // 1. Client-side sanity checks
   if (file.size === 0) {
-    alert('The selected file is empty (0 bytes). Please choose a valid video.');
+    showToast('The selected file is empty (0 bytes). Please choose a valid video.', 'warning', 'Invalid File');
     return;
   }
 
   const allowedExts = ['.mp4', '.mov', '.m4v', '.mkv'];
   const ext = file.name.slice(file.name.lastIndexOf('.')).toLowerCase();
   if (!allowedExts.includes(ext)) {
-    alert(`File "${file.name}" has an unsupported format. Supported formats: ${allowedExts.join(', ')}`);
+    showToast(`File "${file.name}" has an unsupported format. Supported formats: ${allowedExts.join(', ')}`, 'warning', 'Unsupported Format');
     return;
   }
 
   const maxBytes = 8 * 1024 * 1024 * 1024; // 8 GiB
   if (file.size > maxBytes) {
-    alert(`File is too large (${formatBytes(file.size)}). Maximum supported file size is 8 GiB.`);
+    showToast(`File is too large (${formatBytes(file.size)}). Maximum supported file size is 8 GiB.`, 'warning', 'File Too Large');
     return;
   }
 
@@ -903,6 +970,7 @@ function handleFileUpload(file) {
     if (xhr.status === 201) {
       if (uploadStatusText) uploadStatusText.textContent = 'Upload complete! Video activated.';
       if (uploadSpeedText)  uploadSpeedText.textContent  = 'Live stream updated seamlessly.';
+      showToast(`Successfully uploaded ${file.name}.`, 'success', 'Upload Complete');
       setTimeout(() => {
         uploadBox.style.display = 'none';
       }, 1500);
@@ -919,26 +987,26 @@ function handleFileUpload(file) {
         else if (xhr.status === 415) errorMsg = 'Unsupported video format.';
         else if (xhr.status === 422) errorMsg = 'Video contains no decodable video stream.';
       }
-      alert(`Upload failed (HTTP ${xhr.status}):\n${errorMsg}`);
+      showToast(errorMsg, 'error', `Upload Failed (${xhr.status})`);
     }
   };
 
   xhr.onerror = () => {
     uploadBox.style.display = 'none';
     fileInput.value = '';
-    alert('Upload network error: The connection to the server was interrupted. Please try again.');
+    showToast('The connection to the server was interrupted. Please try again.', 'error', 'Network Error');
   };
 
   xhr.ontimeout = () => {
     uploadBox.style.display = 'none';
     fileInput.value = '';
-    alert('Upload timed out: The upload took longer than 60 minutes.');
+    showToast('The upload took longer than 60 minutes.', 'error', 'Upload Timed Out');
   };
 
   xhr.onabort = () => {
     uploadBox.style.display = 'none';
     fileInput.value = '';
-    alert('Upload was cancelled.');
+    showToast('Upload was cancelled.', 'info', 'Upload Cancelled');
   };
 
   xhr.send(formData);
@@ -1031,7 +1099,7 @@ async function _pollYtDownloadStatus() {
             if (wantActive) {
               apiPost(`/api/videos/${status.videoId}/select`, { restart: false })
                 .then(() => fetchVideos())
-                .catch((err) => alert(`Could not set active video: ${err.message}`));
+                .catch((err) => showToast(err.message, 'error', 'Could Not Select Video'));
             }
             if (ytDlProgressBox) {
               setTimeout(() => { ytDlProgressBox.style.display = 'none'; }, 1500);
@@ -1104,7 +1172,7 @@ function setupYouTubeDownload() {
   btnYtDownload.addEventListener('click', async () => {
     const url = (ytUrlInput?.value || '').trim();
     if (!url) {
-      alert('Please enter a YouTube URL first.');
+      showToast('Please enter a YouTube URL first.', 'warning', 'URL Required');
       ytUrlInput?.focus();
       return;
     }
@@ -1124,14 +1192,14 @@ function setupYouTubeDownload() {
       btnYtDownload.disabled = false;
       const msg = err.message || 'Failed to start download';
       if (err.code === 'E_YTDLP_MISSING') {
-        alert('yt-dlp is not installed on the server.\n\nRun: bash update.sh\non your VPS to install it.');
+        showToast('yt-dlp is not installed on the server. Run: bash update.sh on your VPS to install it.', 'error', 'Missing Dependency');
       } else if (err.code === 'E_JOB_RUNNING') {
-        alert('A download is already in progress. Wait for it to finish or cancel it first.');
+        showToast('A download is already in progress. Wait for it to finish or cancel it first.', 'warning', 'Download Busy');
         if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
         _clearYtPoll();
         _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
       } else {
-        alert(`Download failed:\n${msg}`);
+        showToast(msg, 'error', 'Download Failed');
       }
     }
   });
@@ -1232,13 +1300,14 @@ async function init() {
       // Check if system is in maintenance mode before requesting start
       if (statusText.textContent === 'MAINTENANCE') {
         const disableMaint = confirm(
-          '⚠️ Maintenance Mode is currently active.\n\nWould you like to disable maintenance mode and start live streaming now?'
+          'Maintenance Mode is currently active.\n\nWould you like to disable maintenance mode and start live streaming now?'
         );
         if (!disableMaint) return;
         await apiPost('/api/maintenance', { enabled: false });
       }
 
       await apiPost('/api/stream/start');
+      showToast('Live stream process started.', 'success', 'Streaming Active');
       await refreshAll();
     } catch (err) {
       if (err.code === 'E_NEEDS_TRANSCODE') {
@@ -1254,40 +1323,42 @@ async function init() {
               },
             });
             await apiPost('/api/stream/start');
+            showToast('Live stream started with Auto transcoding.', 'success', 'Streaming Active');
             await refreshAll();
             return;
           } catch (retryErr) {
-            alert(`Start failed after mode update: ${retryErr.message}`);
+            showToast(`Start failed after mode update: ${retryErr.message}`, 'error', 'Start Failed');
           }
         }
       } else if (err.code === 'E_KEY_MISSING') {
-        alert('⚠️ YouTube stream key is not configured.\n\nOpening Settings so you can enter your YouTube Stream Key.');
+        showToast('YouTube stream key is not configured. Opening Settings...', 'warning', 'Stream Key Missing');
         await openSettings();
         if (cfgStreamKey) cfgStreamKey.focus();
       } else if (err.code === 'E_CONFIG_INVALID') {
-        alert(`⚠️ RTMPS configuration is invalid.\n\n${err.message || ''}\n\nOpening Settings so you can verify your YouTube RTMPS URL.`);
+        showToast(`RTMPS configuration is invalid: ${err.message || ''}. Opening Settings...`, 'error', 'Configuration Invalid');
         await openSettings();
       } else if (err.code === 'E_MAINTENANCE') {
         const disableNow = confirm(
-          '⚠️ Maintenance Mode is Active.\n\nStreaming is blocked because server maintenance mode is engaged.\n\nWould you like to disable maintenance mode and start streaming now?'
+          'Maintenance Mode is Active.\n\nStreaming is blocked because server maintenance mode is engaged.\n\nWould you like to disable maintenance mode and start streaming now?'
         );
         if (disableNow) {
           await apiPost('/api/maintenance', { enabled: false });
           try {
             await apiPost('/api/stream/start');
+            showToast('Maintenance disabled and live stream started.', 'success', 'Streaming Active');
             await refreshAll();
             return;
           } catch (retryErr) {
-            alert(`Start failed: ${retryErr.message}`);
+            showToast(`Start failed: ${retryErr.message}`, 'error', 'Start Failed');
           }
         }
       } else if (err.code === 'E_NO_VIDEO') {
-        alert('⚠️ No video selected for streaming.\n\nPlease upload a video or click "Select as Active" in the Video Library below.');
+        showToast('No video selected for streaming. Please upload a video or click "Play Solo" in the Video Library.', 'warning', 'No Video Selected');
         document.getElementById('panel-videos')?.scrollIntoView({ behavior: 'smooth' });
       } else if (err.code === 'E_DISABLED') {
-        alert('⚠️ Master Stream Lock is engaged.\n\nPlease toggle off the "Master Stream Lock" switch at the top of the dashboard to enable streaming.');
+        showToast('Master Stream Lock is engaged. Toggle off the switch at the top of the dashboard to enable streaming.', 'warning', 'Master Stream Lock Active');
       } else {
-        alert(`Start failed: ${err.message || err.error || 'Server rejected stream start'}\nCode: ${err.code || 'unknown'}`);
+        showToast(err.message || err.error || 'Server rejected stream start', 'error', 'Start Stream Failed');
       }
     } finally {
       btnStart.disabled = false;
@@ -1300,9 +1371,10 @@ async function init() {
       btnStop.disabled = true;
       try {
         await apiPost('/api/stream/stop');
+        showToast('Live stream stopped.', 'info', 'Stream Ended');
         await fetchStatus();
       } catch (err) {
-        alert(`Stop failed: ${err.message}`);
+        showToast(`Stop failed: ${err.message}`, 'error', 'Stop Failed');
       } finally {
         btnStop.disabled = false;
         await fetchStatus();
@@ -1315,9 +1387,10 @@ async function init() {
       btnRestart.disabled = true;
       try {
         await apiPost('/api/stream/restart');
+        showToast('Live stream restarted.', 'success', 'Stream Restarted');
         await fetchStatus();
       } catch (err) {
-        alert(`Restart failed: ${err.message}`);
+        showToast(`Restart failed: ${err.message}`, 'error', 'Restart Failed');
       } finally {
         btnRestart.disabled = false;
         await fetchStatus();
@@ -1381,10 +1454,10 @@ async function init() {
         if (btnRevealText) btnRevealText.textContent = 'Hide';
         updateKeyFeedback();
       } catch (err) {
-        alert(`Key reveal failed: ${err.message}`);
+        showToast(`Key reveal failed: ${err.message}`, 'error', 'Reveal Failed');
       }
     } else {
-      alert('No stream key is configured yet. Paste your YouTube Stream Key into the box.');
+      showToast('No stream key is configured yet. Paste your YouTube Stream Key into the box.', 'info', 'Stream Key Empty');
     }
   });
 
@@ -1427,10 +1500,10 @@ async function init() {
           if (btnRevealHorizText) btnRevealHorizText.textContent = 'Hide';
           updateHorizontalKeyFeedback();
         } catch (err) {
-          alert(`Key reveal failed: ${err.message}`);
+          showToast(`Key reveal failed: ${err.message}`, 'error', 'Reveal Failed');
         }
       } else {
-        alert('No horizontal stream key is configured yet. Paste your horizontal stream key into the box.');
+        showToast('No horizontal stream key is configured yet. Paste your horizontal stream key into the box.', 'info', 'Stream Key Empty');
       }
     });
   }
@@ -1441,9 +1514,9 @@ async function init() {
       try {
         await apiPost('/api/maintenance', { enabled: false });
         await fetchStatus();
-        alert('✅ Maintenance mode disabled! You can now start streaming.');
+        showToast('Maintenance mode disabled. You can now start streaming.', 'success', 'Maintenance Mode Disabled');
       } catch (e) {
-        alert(`Failed to disable maintenance mode: ${e.message}`);
+        showToast(`Failed to disable maintenance mode: ${e.message}`, 'error', 'Disable Failed');
       }
     });
   }
@@ -1502,9 +1575,7 @@ async function init() {
       modalSettings.classList.remove('open');
       await refreshAll();
 
-      if (patch.youtube?.streamKey || patch.youtube?.horizontalStreamKey) {
-        alert('✅ Settings saved!\n\nYouTube stream configuration and dual stream preferences are active.');
-      }
+      showToast('YouTube stream configuration and dual stream preferences are active.', 'success', 'Settings Saved');
 
       if (res.requiresRestart) {
         const isLive = statusText.textContent === 'RUNNING' || statusText.textContent === 'STARTING' || statusText.textContent === 'DUAL LIVE';
@@ -1515,9 +1586,9 @@ async function init() {
       }
     } catch (err) {
       const detail = err.errors && err.errors.length > 0
-        ? err.errors.join('\n• ')
+        ? err.errors.join('; ')
         : (err.message || 'Validation error');
-      alert(`Save failed:\n• ${detail}`);
+      showToast(detail, 'error', 'Save Failed');
     }
   });
 
