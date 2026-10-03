@@ -297,12 +297,12 @@ function renderSystem(data) {
     }
 
     if (metricDiskSub) {
-      metricDiskSub.textContent = `Free: ${freeStr} (Khali)`;
-      metricDiskSub.title = `Total Storage: ${totalStr} | Bhara Hua (Used): ${usedStr} (${pct}%) | Khali (Free): ${freeStr}`;
+      metricDiskSub.textContent = `Free: ${freeStr} · Used: ${usedStr}`;
+      metricDiskSub.title = `Total: ${totalStr} | Used: ${usedStr} (${pct.toFixed(1)}%) | Free: ${freeStr}`;
     }
 
     if (cardDiskStorage) {
-      cardDiskStorage.title = `Total: ${totalStr}\nUsed (Bhara): ${usedStr} (${pct}%)\nFree (Khali): ${freeStr}`;
+      cardDiskStorage.title = `Total Storage: ${totalStr}\nUsed: ${usedStr} (${pct.toFixed(1)}%)\nFree: ${freeStr}`;
     }
   }
 
