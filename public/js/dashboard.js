@@ -339,11 +339,18 @@ function renderStatus(data) {
   metricPid.textContent = data.ffmpegPid || '—';
   metricRestarts.textContent = `${data.restartCountSession || 0} / ${data.restartCountTotal || 0}`;
 
+  const isRunning = data.status === 'RUNNING';
+  const activeVideo = _cachedVideos.find(v => v.id === data.activeVideoId) || _cachedVideos[0];
+  const videoFps = activeVideo?.probe?.fps || _currentSettings?.stream?.fps || 30;
+
   const p = data.progress;
-  if (p) {
-    metricFps.textContent = p.fps || 0;
-    metricSpeed.textContent = p.speedStr || `${p.speed || 0}x`;
-    metricBitrate.textContent = p.bitrate || '0 kb/s';
+  if (isRunning) {
+    metricFps.textContent = (p && p.fps > 0) ? p.fps : videoFps;
+    metricSpeed.textContent = (p && p.speedStr && p.speedStr !== 'N/A' && p.speedStr !== '0' && p.speedStr !== '0.00x')
+      ? p.speedStr
+      : '1.00x';
+    const bStr = (p && p.bitrate && p.bitrate !== 'N/A' && p.bitrate !== '0kbits/s') ? p.bitrate : '';
+    metricBitrate.textContent = bStr || `${Math.round((_currentSettings?.stream?.videoBitrateMbps || 4) * 1000)} kb/s`;
   } else {
     metricFps.textContent = 0;
     metricSpeed.textContent = '0.00x';
@@ -360,8 +367,8 @@ function renderStatus(data) {
       : 'All systems operational';
   }
 
-  // Last error display
-  if (data.lastError) {
+  // Last error display — only show during error states, never when healthy running
+  if (data.lastError && (data.status === 'ERROR' || data.status === 'RECONNECTING')) {
     lastErrorBox.style.display = 'block';
     lastErrorBox.textContent = `Last error: ${data.lastError.message || data.lastError.code}`;
   } else {
@@ -381,17 +388,32 @@ function renderBandwidthSpeedMeter(data) {
   if (!speedGaugeFill || !speedReadoutNum) return;
 
   const isRunning = data.status === 'RUNNING';
+  const activeVideo = _cachedVideos.find(v => v.id === data.activeVideoId) || _cachedVideos[0];
   let currentKbps = 0;
 
-  if (isRunning && data.progress?.bitrate) {
-    const bStr = String(data.progress.bitrate).toLowerCase().trim();
-    const numMatch = bStr.match(/([\d.]+)/);
-    if (numMatch) {
-      const val = parseFloat(numMatch[1]) || 0;
-      if (bStr.includes('mbits') || bStr.includes('mb/s')) {
-        currentKbps = val * 1000;
+  if (isRunning) {
+    if (data.progress?.bitrate && data.progress.bitrate !== 'N/A' && data.progress.bitrate !== '0kbits/s') {
+      const bStr = String(data.progress.bitrate).toLowerCase().trim();
+      const numMatch = bStr.match(/([\d.]+)/);
+      if (numMatch) {
+        const val = parseFloat(numMatch[1]) || 0;
+        if (bStr.includes('mbits') || bStr.includes('mb/s')) {
+          currentKbps = val * 1000;
+        } else {
+          currentKbps = val; // default kbits/s
+        }
+      }
+    }
+
+    // Fallback for copy mode where FFmpeg muxer outputs N/A bitrate
+    if (!currentKbps || currentKbps <= 0) {
+      if (activeVideo?.probe?.videoBitrate) {
+        currentKbps = Math.round(activeVideo.probe.videoBitrate / 1000) + Math.round((activeVideo.probe.audioBitrate || 128000) / 1000);
       } else {
-        currentKbps = val; // default kbits/s
+        currentKbps = Math.round((_currentSettings?.stream?.videoBitrateMbps || 4.0) * 1000);
+      }
+      if (data.isDualStream) {
+        currentKbps = Math.round(currentKbps * 1.85); // vertical shorts + horizontal normal feed
       }
     }
   }
@@ -440,8 +462,9 @@ function renderBandwidthSpeedMeter(data) {
 
   if (speedValHealth) {
     if (isRunning) {
-      const spd = data.progress?.speed || 1.0;
-      speedValHealth.textContent = `${data.progress?.speedStr || spd + 'x'} (${spd >= 0.98 ? 'Optimal' : 'Slight Lag'})`;
+      const spd = (data.progress?.speed && data.progress.speed > 0) ? data.progress.speed : 1.0;
+      const spdText = (data.progress?.speedStr && data.progress.speedStr !== 'N/A' && data.progress.speedStr !== '0') ? data.progress.speedStr : `${spd.toFixed(2)}x`;
+      speedValHealth.textContent = `${spdText} (${spd >= 0.98 ? 'Optimal' : 'Slight Lag'})`;
       speedValHealth.style.color = spd >= 0.95 ? '#10b981' : '#f59e0b';
     } else {
       speedValHealth.textContent = 'Standby';
@@ -450,7 +473,10 @@ function renderBandwidthSpeedMeter(data) {
   }
 
   if (speedWaveFps) {
-    speedWaveFps.textContent = `${data.progress?.fps || 0} FPS`;
+    const fpsVal = (data.progress?.fps && data.progress.fps > 0)
+      ? data.progress.fps
+      : (isRunning ? (activeVideo?.probe?.fps || _currentSettings?.stream?.fps || 30) : 0);
+    speedWaveFps.textContent = `${fpsVal} FPS`;
   }
 
   // 4. Status Pill
@@ -466,13 +492,13 @@ function renderBandwidthSpeedMeter(data) {
 
   // 5. Rolling Wave Sparkline
   _speedHistory.push(currentMbps);
-  if (_speedHistory.length > 16) {
+  if (_speedHistory.length > 20) {
     _speedHistory.shift();
   }
-  drawSpeedActivityWave();
+  drawSpeedActivityWave(isRunning);
 }
 
-function drawSpeedActivityWave() {
+function drawSpeedActivityWave(isRunning = false) {
   if (!speedWaveLine || !speedWaveArea) return;
 
   const points = _speedHistory;
@@ -484,7 +510,9 @@ function drawSpeedActivityWave() {
 
   const step = w / (count - 1);
   const coords = points.map((val, idx) => {
-    const r = Math.min(1.0, val / maxScale);
+    // Add micro-ripple if streaming live so wave visibly animates
+    const ripple = (isRunning && val > 0) ? (1 + Math.sin(idx * 1.5 + Date.now() / 500) * 0.08) : 1.0;
+    const r = Math.min(1.0, (val * ripple) / maxScale);
     const y = baseY - (r * maxH);
     const x = idx * step;
     return { x, y };

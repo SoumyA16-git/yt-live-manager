@@ -70,6 +70,8 @@ export function createStreamRouter() {
       consecutiveFailures: state.consecutiveFailures,
       lastExit:            state.lastExit,
       lastError:           state.lastError,
+      isDualStream:        Boolean(state.isDualStream),
+      pairedHorizontalVideoId: state.pairedHorizontalVideoId,
       progress,
       healthVerdict: {
         status: healthStatus,

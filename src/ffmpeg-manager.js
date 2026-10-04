@@ -352,6 +352,9 @@ export async function spawnFfmpeg({
   _lastProgressBytes = 0;
   _lastProgressTime = Date.now();
   _slowStartTime = null;
+  let _lastBitrateCalcTime = Date.now();
+  let _lastBitrateCalcBytes = 0;
+  let _measuredBitrate = 0;
 
   // Masked command for logging (PRD §10, §20)
   const safeLogCmd = args.map(arg => redact(arg)).join(' ');
@@ -420,8 +423,39 @@ export async function spawnFfmpeg({
       const speedStr = (block.speed || '').replace('x', '').trim();
       const speed = parseFloat(speedStr) || 0;
       const fps = parseFloat(block.fps) || 0;
-      const bitrate = block.bitrate || '';
+      const bitrate = (block.bitrate || '').trim();
       const frame = parseInt(block.frame, 10) || 0;
+
+      // In copy mode, FFmpeg does not report bitrate. Compute instantaneous bitrate from total_size delta:
+      const now = Date.now();
+      if (totalSize > 0) {
+        if (_lastBitrateCalcTime > 0 && totalSize > _lastBitrateCalcBytes && _lastBitrateCalcBytes > 0) {
+          const dt = (now - _lastBitrateCalcTime) / 1000;
+          if (dt >= 0.75) {
+            const deltaBytes = totalSize - _lastBitrateCalcBytes;
+            _measuredBitrate = Math.round((deltaBytes * 8) / (dt * 1000));
+            _lastBitrateCalcBytes = totalSize;
+            _lastBitrateCalcTime = now;
+          }
+        } else if (_lastBitrateCalcBytes === 0) {
+          _lastBitrateCalcBytes = totalSize;
+          _lastBitrateCalcTime = now;
+        }
+      }
+
+      let effectiveBitrate = (bitrate && bitrate !== 'N/A' && bitrate !== '0kbits/s') ? bitrate : '';
+      if (!effectiveBitrate && _measuredBitrate > 0) {
+        effectiveBitrate = `${_measuredBitrate}kbits/s`;
+      }
+      if (!effectiveBitrate && becameHealthy) {
+        effectiveBitrate = `${Math.round((settings.stream?.videoBitrateMbps || 4.0) * 1000)}kbits/s`;
+      }
+
+      // In copy mode, FFmpeg video encoder is not active so fps=0; fallback to target stream fps
+      const fallbackFps = settings.stream?.fps || 30;
+      const effectiveFps = (fps > 0) ? fps : (becameHealthy ? fallbackFps : 0);
+      const effectiveSpeed = (speed > 0) ? speed : (becameHealthy ? 1.0 : 0);
+      const effectiveSpeedStr = (speedStr && speedStr !== 'N/A' && speedStr !== '0' && speedStr !== '0.00') ? `${speedStr}x` : (becameHealthy ? '1.00x' : 'N/A');
 
       let outTimeSec = 0;
       if (block.out_time && block.out_time.includes(':')) {
@@ -443,13 +477,13 @@ export async function spawnFfmpeg({
 
       const progressData = {
         frame,
-        fps,
-        bitrate,
+        fps: effectiveFps,
+        bitrate: effectiveBitrate || (becameHealthy ? '4000kbits/s' : '0kbits/s'),
         total_size: totalSize,
         outTimeSec,
         outTimeStr: block.out_time || '',
-        speed,
-        speedStr: block.speed || '',
+        speed: effectiveSpeed,
+        speedStr: effectiveSpeedStr,
         progress: block.progress || '',
         at: new Date().toISOString(),
       };

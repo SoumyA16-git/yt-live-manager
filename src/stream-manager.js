@@ -556,6 +556,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
           pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
           resumeBookmark: null,
+          lastError: null,
         });
         await appendHistory({
           event: 'start',
