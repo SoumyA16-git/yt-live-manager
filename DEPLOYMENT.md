@@ -18,28 +18,64 @@ ssh -i /path/to/your/ssh_key.key -L 8443:127.0.0.1:3000 ubuntu@<YOUR_OCI_VM_PUBL
 # http://localhost:8443
 ```
 
-### 2. Update Application Code (Run on VPS)
+### 2. Service Control Commands (Start / Stop / Restart)
+```bash
+# Start the streaming service on VPS:
+sudo systemctl start yt-live-manager
+
+# Restart the streaming service on VPS:
+sudo systemctl restart yt-live-manager
+
+# Stop the streaming service on VPS:
+sudo systemctl stop yt-live-manager
+
+# Check service status & uptime:
+sudo systemctl status yt-live-manager
+
+# Run locally on your development machine:
+npm start   # or: node src/server.js
+```
+
+### 3. One-Time YouTube OAuth Setup (Autonomous Lifecycle)
+```bash
+# Run one-time OAuth 2.0 bootstrap on VPS (or locally):
+node scripts/oauth-setup.js
+
+# Or pass Client ID and Secret directly:
+node scripts/oauth-setup.js --client-id="<CLIENT_ID>" --client-secret="<CLIENT_SECRET>"
+
+# Append generated YOUTUBE_CLIENT_ID, SECRET, and REFRESH_TOKEN to:
+sudo nano /etc/yt-live-manager/env
+
+# Restart service to activate autonomous lifecycle control:
+sudo systemctl restart yt-live-manager
+```
+
+### 4. Check YouTube Live Lifecycle & Ingest Status (Run on VPS)
+```bash
+# Verify autonomous YouTube Live API state:
+curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
+
+# View full streaming telemetry, bandwidth, and destination states:
+node scripts/status.js
+```
+
+### 5. Update Application Code (Run on VPS)
 ```bash
 # Pull latest code and run safe update with automated backup & health check:
 cd ~/yt-live-manager && git pull origin main && sudo bash update.sh
 ```
 
-### 3. Reclaim ~250 MB+ RAM (Run on VPS)
+### 6. Reclaim ~250 MB+ RAM (Run on VPS)
 ```bash
 # Trim heavy idle background daemons (snapd, journald buffers, caches):
 sudo bash /opt/yt-live-manager/scripts/optimize-vps.sh
 ```
 
-### 4. Service Control & Live Logs (Run on VPS)
+### 7. View Live Logs (Run on VPS)
 ```bash
-# Check service health and uptime:
-sudo systemctl status yt-live-manager
-
-# View live stream logs (stream keys automatically redacted):
+# View live stream logs (stream keys & OAuth tokens automatically redacted):
 sudo journalctl -u yt-live-manager -f
-
-# Restart the live streaming engine:
-sudo systemctl restart yt-live-manager
 ```
 
 ---
@@ -131,18 +167,137 @@ On your **local computer** (Windows Git Bash / PowerShell / Terminal):
 
 ---
 
-## Phase 5: YouTube Studio Broadcast Setup
+## Phase 5: Autonomous YouTube Broadcast Lifecycle & One-Time OAuth Setup
 
-In [YouTube Studio](https://studio.youtube.com):
+The streaming manager features an **autonomous, server-side YouTube Live Data API v3 lifecycle manager**. It allows 24×7 streaming to run **headlessly / unattended with Google Chrome and YouTube Studio completely CLOSED**.
 
-1. Click **Create** → **Go Live**.
-2. Select **Stream** (left menu) to create a new live stream or use your default stream.
-3. Configure settings for 24×7 vertical streaming:
-   - **Stream Key:** Create a new or select a reusable **Default stream key**.
-   - **Auto-start:** Turn **OFF** (or ON if you want YouTube to go live as soon as bytes arrive).
-   - **Auto-stop:** Turn **OFF** (CRITICAL: prevents YouTube from terminating the broadcast on brief network hiccups or server restarts).
-   - **Stream Latency:** Set to **Normal latency** (provides the largest ingestion buffer for maximum 24×7 buffer resilience).
-4. Copy your secret **Stream Key** (format: `xxxx-xxxx-xxxx-xxxx-xxxx`).
+---
+
+### 5.1 Architecture: Transport vs. Broadcast Lifecycle
+
+Streaming to YouTube involves two distinct layers:
+
+1. **RTMPS Ingest Transport (FFmpeg)**:
+   - Connects to Google's edge ingest server (`rtmps://a.rtmps.youtube.com:443/live2/<streamKey>`).
+   - TCP packets and ACK bytes confirm physical data delivery to Google.
+   - YouTube Studio reports `Connection: Excellent`, but the broadcast remains at `Preparing stream` until the lifecycle is transitioned.
+
+2. **Broadcast Lifecycle Management (YouTube Data API v3)**:
+   - **Stream Resolution:** Resolves the `liveStream` resource matching your reusable stream key (`cdn.ingestionInfo.streamName === streamKey`), paginating across channels with >50 streams.
+   - **Ingest Health Polling:** Verifies `liveStream.status.streamStatus === 'active'` before attempting any transition.
+   - **Broadcast Binding:** Resolves the `liveBroadcast` bound to the active stream, prioritizing `live` > `testing` > `ready`.
+   - **Auto-Start Handling:**
+     - If `enableAutoStart === true`: Awaits YouTube's automated ingest-to-live transition (up to 30s).
+     - If `enableAutoStart === false` (or auto-start stalls): Explicitly dispatches `liveBroadcasts.transition(broadcastStatus='live')`.
+   - **Auto-Recycle Rollover:** Once a broadcast ends and transitions to `complete`, YouTube permanently locks it. On the next session start, the manager automatically instantiates a fresh broadcast via `createAndBindBroadcast()`, binds it to the reusable stream, and transitions it to `live`.
+
+---
+
+### 5.2 Decoupled Dashboard Telemetry States
+
+The dashboard and internal telemetry strictly separate encoder health from YouTube publication:
+
+| State | Status Text | Meaning |
+|:---|:---|:---|
+| **FFmpeg Running (Unmanaged)** | `FFMPEG RUNNING (RTMPS ACTIVE • API UNCONFIGURED)` | FFmpeg is transmitting to YouTube RTMPS ingest; YouTube API credentials are not set. The server **never claims YouTube LIVE** without verification. |
+| **Ingest Active, Preparing** | `FFMPEG HEALTHY (INGEST ACTIVE • BROADCAST: PREPARING)` | Google ingest server has received valid video chunks (`streamStatus: active`); broadcast is awaiting auto-start or transition. |
+| **YouTube Broadcast Live** | `YOUTUBE LIVE (BROADCAST LIVE)` | Data API confirms `lifeCycleStatus: live`. Video is published and viewable by your audience. |
+| **Dual Live (Shorts + 16:9)** | `DUAL LIVE (YOUTUBE BROADCAST LIVE)` | Primary Vertical (Shorts) broadcast is verified LIVE, and Secondary Horizontal (16:9) stream is actively transmitting. |
+
+---
+
+### 5.3 One-Time Google Cloud OAuth 2.0 Credentials Setup
+
+YouTube Data API v3 requires OAuth 2.0 user credentials (Service Accounts are **not** supported by YouTube Live Streaming API).
+
+#### Step 1: Create OAuth Client in Google Cloud Console
+1. Open the [Google Cloud Console](https://console.cloud.google.com).
+2. Create a new project (e.g., `YT-Live-Manager`) or select an existing project.
+3. In the left navigation, go to **APIs & Services** → **Library**.
+4. Search for **YouTube Data API v3** and click **Enable**.
+5. Go to **APIs & Services** → **OAuth consent screen**:
+   - Select User Type: **External** and click **Create**.
+   - Fill in **App name** (e.g. `YT Live Manager`) and **User support email**.
+   - Under **Scopes**, click **Add or Remove Scopes**, select `https://www.googleapis.com/auth/youtube`, and click **Update**.
+   - Under **Test users**, click **Add Users** and enter the Google/Gmail address that owns your YouTube channel. Click **Save and Continue**.
+6. Go to **APIs & Services** → **Credentials**:
+   - Click **Create Credentials** → **OAuth client ID**.
+   - Application type: Select **Desktop app** (recommended: works with localhost on any port) *or* **Web application** (Authorized redirect URI: `http://localhost:8085/oauth2callback`).
+   - Click **Create**.
+   - Copy the generated **Client ID** and **Client Secret**.
+
+---
+
+### 5.4 Run the One-Time OAuth Setup CLI
+
+On your OCI VM (or on your local computer), run the included OAuth setup utility:
+
+```bash
+# Interactive mode (prompts for Client ID and Secret):
+node scripts/oauth-setup.js
+
+# Or pass them directly via flags:
+node scripts/oauth-setup.js --client-id="<YOUR_CLIENT_ID>" --client-secret="<YOUR_CLIENT_SECRET>"
+```
+
+#### What Happens:
+1. The tool prints a Google authorization link:
+   ```
+   https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=http%3A%2F%2Flocalhost%3A8085%2Foauth2callback&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube&access_type=offline&prompt=consent&state=...
+   ```
+2. Open that URL in your browser, sign in with the Google account for your YouTube channel, and click **Allow**.
+3. **If running locally or with SSH port forwarding (`ssh -L 8085:localhost:8085 ...`)**:
+   The browser redirects to `http://localhost:8085/oauth2callback` and the CLI automatically captures the code.
+4. **If running directly on the VPS without port forwarding**:
+   Your browser will show a connection error after redirecting to `http://localhost:8085/oauth2callback?code=4/0A...`.
+   **Copy the full URL from your browser's address bar and paste it into the CLI prompt.**
+5. The CLI exchanges the authorization code for a persistent `refresh_token`, verifies your YouTube channel title via `channels.list(mine=true)`, and outputs the exact configuration block.
+
+---
+
+### 5.5 Configure Production Environment & Restart
+
+On your OCI VM, append the three generated variables to `/etc/yt-live-manager/env`:
+
+```bash
+sudo nano /etc/yt-live-manager/env
+```
+
+Add these three lines at the bottom:
+```bash
+YOUTUBE_CLIENT_ID="<your-client-id>.apps.googleusercontent.com"
+YOUTUBE_CLIENT_SECRET="<your-client-secret>"
+YOUTUBE_REFRESH_TOKEN="<your-refresh-token>"
+```
+
+Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X`).
+
+Restart the service:
+```bash
+sudo systemctl restart yt-live-manager
+```
+
+Verify that the lifecycle manager is now configured:
+```bash
+curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
+```
+
+**Expected Output:**
+```json
+{
+  "configured": true,
+  "liveStreamId": null,
+  "broadcastId": null,
+  "streamStatus": "unknown",
+  "healthStatus": "unknown",
+  "lifeCycleStatus": "unknown",
+  "isBroadcastLive": false,
+  "lastCheckedAt": null,
+  "lastError": null
+}
+```
+
+Now, clicking **START** in the dashboard or triggering automated scheduling will autonomously connect FFmpeg, verify ingest stream activation, resolve the bound broadcast, and transition your YouTube channel to **LIVE** with no browser or YouTube Studio window required!
 
 ---
 
@@ -174,11 +329,12 @@ On your editing software (Premiere / DaVinci / CapCut / Handbrake), export your 
    - Confirm Video Bitrate: `4 Mbps`
    - Click **Save Configuration**. Confirm prompt displays `✅ Settings saved! YouTube stream key is active.`
 
-3. **Start the Stream:**
+3. **Start the Stream (Autonomous Headless Flow):**
    - In **Stream Control**, click **START STREAM**.
-   - The status badge will update: `STOPPED` → `STARTING` → `RUNNING` (green pulse).
-   - The **Health Verdict** card will show `HEALTHY` (speed ≥ 1.0x).
-   - In YouTube Studio, verify status transitions to **"Excellent Connection"** with your vertical live video playing!
+   - The encoder status will update: `STOPPED` → `STARTING` → `RUNNING`.
+   - The autonomous lifecycle manager resolves your stream key (`shot`), polls for Google ingest `streamStatus: active`, resolves the bound broadcast, and triggers the transition to `live`.
+   - The status badge will display: `YOUTUBE LIVE (BROADCAST LIVE)` (or `DUAL LIVE (YOUTUBE BROADCAST LIVE)` if dual output is enabled).
+   - Your channel is now live to viewers with **Google Chrome and YouTube Studio completely closed**!
 
 ---
 
@@ -200,6 +356,10 @@ On your editing software (Premiere / DaVinci / CapCut / Handbrake), export your 
 | **A12**| Disk space protection | Video upload rejects files if remaining free space is under 5 GB disk reserve | ✅ Pass |
 | **A13**| Bitrate calculation | Adjust target bitrate in Settings; monthly forecast and daily allowance update immediately | ✅ Pass |
 | **A14**| Safe updater & rollback | Run `sudo bash update.sh`; settings and data are preserved intact; automatic rollback on failure | ✅ Pass |
+| **A15**| Autonomous YouTube Lifecycle | START triggers FFmpeg → `streamStatus: active` → resolves bound broadcast → transitions to `live` (Chrome CLOSED) | ✅ Pass |
+| **A16**| Auto-Recycle Rollover | After recycle, completed broadcast is detected and fresh broadcast is created/bound/transitioned automatically | ✅ Pass |
+| **A17**| Zero secrets leak audit (OAuth) | Audit logs and `/api/status`: `YOUTUBE_CLIENT_SECRET` and `YOUTUBE_REFRESH_TOKEN` matches found: **0** | ✅ Pass |
+| **A18**| Decoupled Dual Live | Primary vertical process runs independently from secondary horizontal process; secondary error cannot crash primary | ✅ Pass |
 
 ---
 
@@ -428,6 +588,27 @@ cat /opt/yt-live-manager/data/stream-state.json
 sudo mkdir -p /opt/yt-live-manager/backups
 sudo tar -czf /opt/yt-live-manager/backups/manual-snapshot-$(date +%Y%m%d%H%M%S).tar.gz -C /opt/yt-live-manager config data
 sudo chown ytlive:ytlive /opt/yt-live-manager/backups/*.tar.gz
+```
+
+#### 7. YouTube Live API Diagnostic & Token Verification
+```bash
+# Verify whether YouTube Data API is configured and view active state:
+curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
+
+# View active stream ingest status and broadcast lifecycle status:
+curl -s http://127.0.0.1:3000/api/stream/status | jq '{status, youtubeIngest, youtubeBroadcast, youtubeStreamActive, youtubeBroadcastLive, youtubeLive}'
+
+# Re-run one-time OAuth setup if tokens need refreshing or updating:
+cd /opt/yt-live-manager && node scripts/oauth-setup.js
+
+# Test Google OAuth token refresh directly from command line (reads /etc/yt-live-manager/env):
+sudo -u ytlive env $(cat /etc/yt-live-manager/env | grep -v '^#' | xargs) node -e "
+import('./src/youtube-api-manager.js').then(async m => {
+  m.initYouTubeApi(process.env);
+  const token = await m.getAccessToken();
+  console.log('✔ OAuth access token refreshed successfully!');
+}).catch(err => console.error('❌ Token refresh failed:', err.message));
+"
 ```
 
 ---
