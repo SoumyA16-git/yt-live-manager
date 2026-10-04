@@ -1224,6 +1224,10 @@ export function getFfmpegPid() {
   return _primaryPid;
 }
 
+export function getSecondaryFfmpegPid() {
+  return _secondaryPid;
+}
+
 export function getLatestProgress() {
   return _latestProgress ? { ..._latestProgress } : null;
 }
