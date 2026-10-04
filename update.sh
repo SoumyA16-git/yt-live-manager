@@ -25,10 +25,18 @@ fi
 echo "--> Stopping systemd service..."
 systemctl stop yt-live-manager || true
 
-# Preserve playback position as bookmark if not already saved
-if [[ -f "${CURRENT_DIR}/scripts/preserve-bookmark.js" ]]; then
-  echo "--> Checking playback bookmark preservation..."
-  node "${CURRENT_DIR}/scripts/preserve-bookmark.js" "${INSTALL_DIR}" || true
+# Clear any stale resume bookmarks so post-update start is 100% clean from 0s with clean IDR keyframe
+if [[ -f "${INSTALL_DIR}/data/stream-state.json" ]]; then
+  echo "--> Ensuring clean stream state for post-update start..."
+  node -e "
+    const fs = require('fs');
+    const p = '${INSTALL_DIR}/data/stream-state.json';
+    try {
+      const d = JSON.parse(fs.readFileSync(p, 'utf8'));
+      d.resumeBookmark = null;
+      fs.writeFileSync(p, JSON.stringify(d, null, 2));
+    } catch {}
+  " || true
 fi
 
 # 2. Backup config and data

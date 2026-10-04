@@ -106,9 +106,11 @@ function checkCircuitBreaker() {
  *
  * @returns {Promise<{ allowed: boolean, reason?: string, code?: string, videoMeta?: object, mode?: string }>}
  */
-export async function evaluateStartGates() {
+export async function evaluateStartGates(options = {}) {
   const state    = getState();
   const settings = getSettings();
+  const reason   = options.reason || '';
+  const isManualStart = (reason === 'api_manual_start' || reason === 'manual_start');
 
   // 1. Master Kill Switch (DISABLED)
   if (state.disabled) {
@@ -172,7 +174,11 @@ export async function evaluateStartGates() {
 
   const autoRecycleCfg = settings.scheduler?.autoRecycle || {};
   const allowBookmark = autoRecycleCfg.resumeBookmark !== false;
-  const bookmark = (allowBookmark && state.resumeBookmark) ? state.resumeBookmark : null;
+  if (isManualStart && state.resumeBookmark) {
+    logger.info('stream.resume_bookmark_cleared', 'Manual start initiated; clearing stale bookmark for fresh start');
+    await saveState({ resumeBookmark: null });
+  }
+  const bookmark = (!isManualStart && allowBookmark && state.resumeBookmark) ? state.resumeBookmark : null;
 
   let videoMeta;
   let orderedMetas = [];
@@ -473,7 +479,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
   await saveState({ desiredState: 'running' });
 
   // Gate evaluation
-  const gate = await evaluateStartGates();
+  const gate = await evaluateStartGates({ reason });
   if (!gate.allowed) {
     logger.warn('stream.start_blocked', `Stream start blocked: ${gate.reason} (${gate.code})`);
     if (gate.code === 'E_SCHEDULED') {
@@ -735,15 +741,9 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
   const allowBookmark = settings.scheduler?.autoRecycle?.resumeBookmark !== false;
   let resumeBookmark = undefined;
 
-  const isExplicitManualStop = (reason === 'api_manual_stop' || reason === 'manual_stop');
   const shouldSaveBookmark = allowBookmark && (
-    keepDesiredRunning ||
     reason.includes('recycle') ||
-    reason.includes('scheduler') ||
-    reason.includes('restart') ||
-    reason.includes('system') ||
-    reason.includes('shutdown') ||
-    reason.includes('update')
+    reason.includes('scheduler')
   );
 
   if (shouldSaveBookmark) {
@@ -758,8 +758,8 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
     if (resumeBookmark) {
       logger.info('stream.resume_bookmark_saved', `Saved playback bookmark at ${resumeBookmark.offsetSec}s (video: ${resumeBookmark.videoId}, reason: ${reason})`);
     }
-  } else if (isExplicitManualStop) {
-    logger.info('stream.resume_bookmark_cleared', 'Manual stop requested; clearing resume bookmark for fresh start');
+  } else {
+    logger.info('stream.resume_bookmark_cleared', `Stop requested (${reason}); clearing resume bookmark for clean start`);
     resumeBookmark = null;
     _currentSessionStartOffset = 0;
   }
