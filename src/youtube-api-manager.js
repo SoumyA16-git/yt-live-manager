@@ -324,6 +324,7 @@ export async function resolveBoundBroadcast(streamId) {
           lifeCycleStatus: _currentLifeCycleStatus,
           enableAutoStart: Boolean(foundActive.contentDetails?.enableAutoStart),
           enableAutoStop: Boolean(foundActive.contentDetails?.enableAutoStop),
+          enableMonitorStream: Boolean(foundActive.contentDetails?.monitorStream?.enableMonitorStream),
           isComplete: false,
         };
       }
@@ -343,6 +344,7 @@ export async function resolveBoundBroadcast(streamId) {
         lifeCycleStatus: 'complete',
         enableAutoStart: Boolean(completed.contentDetails?.enableAutoStart),
         enableAutoStop: Boolean(completed.contentDetails?.enableAutoStop),
+        enableMonitorStream: Boolean(completed.contentDetails?.monitorStream?.enableMonitorStream),
         isComplete: true,
       };
     }
@@ -393,15 +395,20 @@ export async function transitionBroadcast(broadcastId, targetStatus = 'live') {
 export async function createAndBindBroadcast({
   streamId,
   title = '',
-  enableAutoStart = true,
-  enableAutoStop = false,
+  enableAutoStart = false,
+  enableAutoStop = true,
+  enableMonitorStream = false,
 }) {
   if (!streamId || !isYouTubeApiConfigured()) {
     throw new Error('streamId and configured API required to create broadcast');
   }
 
   const broadcastTitle = title || `24×7 Live Stream — ${new Date().toISOString().slice(0, 10)}`;
-  logger.info('youtube_api.creating_broadcast', `Creating new liveBroadcast: "${broadcastTitle}"`);
+  logger.info('youtube_api.creating_broadcast', `Creating new liveBroadcast: "${broadcastTitle}" (monitorStream=${enableMonitorStream}, autoStart=${enableAutoStart}, autoStop=${enableAutoStop})`, {
+    monitorStream: enableMonitorStream,
+    autoStart: enableAutoStart,
+    autoStop: enableAutoStop,
+  });
 
   // 1. Create broadcast resource
   const created = await youtubeFetch('liveBroadcasts?part=snippet,status,contentDetails', {
@@ -417,6 +424,9 @@ export async function createAndBindBroadcast({
         selfDeclaredMadeForKids: false,
       },
       contentDetails: {
+        monitorStream: {
+          enableMonitorStream,
+        },
         enableAutoStart,
         enableAutoStop,
         recordFromStart: true,
@@ -442,6 +452,8 @@ export async function createAndBindBroadcast({
     title: broadcastTitle,
     lifeCycleStatus: _currentLifeCycleStatus,
     enableAutoStart,
+    enableAutoStop,
+    enableMonitorStream,
   };
 }
 
@@ -513,7 +525,13 @@ export async function manageBroadcastLifecycleOnStart({
   // If no broadcast or already completed, create a new broadcast and bind to reusable stream
   if (!broadcast || broadcast.lifeCycleStatus === 'complete' || broadcast.isComplete) {
     logger.info('youtube_api.creating_fresh_broadcast', 'No active or ready broadcast bound; creating fresh broadcast...');
-    broadcast = await createAndBindBroadcast({ streamId: stream.id, title, enableAutoStart: true });
+    broadcast = await createAndBindBroadcast({
+      streamId: stream.id,
+      title,
+      enableAutoStart: false,
+      enableAutoStop: true,
+      enableMonitorStream: false,
+    });
   }
 
   // 4. If broadcast is already 'live', we're done
@@ -528,7 +546,7 @@ export async function manageBroadcastLifecycleOnStart({
     };
   }
 
-  // 5. Handle Transition
+  // 5. Handle Transition (auto-start wait if broadcast has enableAutoStart === true)
   if (broadcast.enableAutoStart) {
     // Wait up to autoStartMaxWait for YouTube auto-start
     const autoStartMaxWait = Math.min(30, liveTimeoutSec) * 1000;
@@ -555,20 +573,50 @@ export async function manageBroadcastLifecycleOnStart({
     logger.warn('youtube_api.autostart_fallback', `Broadcast ${broadcast.id} did not auto-transition within ${autoStartMaxWait / 1000}s; attempting explicit transition...`);
   }
 
-  // 6. Explicit Transition to LIVE if not auto-started or enableAutoStart is false
-  const canTransition = broadcast.lifeCycleStatus === 'ready'
-    || broadcast.lifeCycleStatus === 'testing'
-    || _currentLifeCycleStatus === 'ready'
-    || _currentLifeCycleStatus === 'testing';
-
-  if (canTransition) {
-    try {
-      const transitioned = await transitionBroadcast(broadcast.id, 'live');
-      if (transitioned.lifeCycleStatus === 'live') {
-        logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
+  // 6. Explicit Transition to LIVE if not already LIVE
+  if (broadcast.lifeCycleStatus !== 'live' && _currentLifeCycleStatus !== 'live') {
+    if (broadcast.lifeCycleStatus === 'testing' || _currentLifeCycleStatus === 'testing') {
+      logger.info('youtube_api.transition_testing_to_live', `Broadcast ${broadcast.id} is in 'testing'; transitioning to 'live'`);
+      try {
+        const transitioned = await transitionBroadcast(broadcast.id, 'live');
+        if (transitioned.lifeCycleStatus === 'live') {
+          logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
+        }
+      } catch (err) {
+        logger.warn('youtube_api.transition_warn', `Transition from testing to live returned error: ${err.message}`);
       }
-    } catch (err) {
-      logger.warn('youtube_api.transition_warn', `Transition to live returned error: ${err.message}; polling for status...`);
+    } else if (broadcast.enableMonitorStream) {
+      // Existing broadcast created in YouTube Studio with monitorStream enabled:
+      // Must follow READY -> TESTING -> LIVE flow
+      logger.info('youtube_api.transition_with_monitor', `Broadcast ${broadcast.id} has monitorStream=true; transitioning through 'testing' to 'live'`);
+      try {
+        await transitionBroadcast(broadcast.id, 'testing');
+        const transitioned = await transitionBroadcast(broadcast.id, 'live');
+        if (transitioned.lifeCycleStatus === 'live') {
+          logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE via testing!`);
+        }
+      } catch (err) {
+        logger.warn('youtube_api.transition_warn', `Testing transition workflow returned error: ${err.message}; checking status...`);
+      }
+    } else {
+      // Unattended production flow: monitorStream is disabled (or false)
+      // Transition directly READY -> LIVE
+      try {
+        const transitioned = await transitionBroadcast(broadcast.id, 'live');
+        if (transitioned.lifeCycleStatus === 'live') {
+          logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
+        }
+      } catch (err) {
+        logger.warn('youtube_api.transition_warn', `Transition to live returned error: ${err.message}; checking testing fallback...`);
+        if (err.message.includes('invalidTransition') || err.message.includes('redundantTransition') || err.message.includes('testing')) {
+          try {
+            await transitionBroadcast(broadcast.id, 'testing');
+            await transitionBroadcast(broadcast.id, 'live');
+          } catch (innerErr) {
+            logger.warn('youtube_api.transition_testing_failed', `Fallback testing transition failed: ${innerErr.message}`);
+          }
+        }
+      }
     }
   }
 
