@@ -10,7 +10,8 @@
     "test": "node --test --test-reporter=spec test/unit/*.test.js",
     "test:integration": "node --test --test-reporter=spec test/integration/*.test.js",
     "hash-password": "node scripts/hash-password.js",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/migrate.js",
+    "status": "node scripts/status.js"
   },
   "dependencies": {
     "busboy": "^1.6.0",
