@@ -10,7 +10,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v17">
+  <link rel="stylesheet" href="/css/style.css?v=20261005_v18">
 </head>
 
 <body>
@@ -505,9 +505,119 @@
             </div>
           </div>
 
-          <!-- Projection Forecast Box -->
           <div id="bw-forecast-sentence" class="forecast-box">
             Calculating bandwidth projection forecast...
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel Y: YouTube Live Metadata (Full Width) -->
+      <div class="card grid-full-width" id="panel-youtube-template">
+        <div class="collapsible-header" data-target="body-youtube-template">
+          <span class="card-title">
+            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #ef4444;">
+              <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
+              <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" />
+            </svg>
+            YouTube Live Metadata
+          </span>
+          <div class="header-right">
+            <span id="yt-meta-status-badge" class="badge-tag compatible">Template Ready</span>
+            <button class="panel-toggle-btn" data-target="body-youtube-template" aria-label="Toggle YouTube Metadata Panel">
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="collapsible-body" id="body-youtube-template">
+          <!-- Template Source & Dynamic Title -->
+          <div class="settings-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="meta-template-video-id">Template Video ID</label>
+              <div class="input-action-group">
+                <input type="text" id="meta-template-video-id" class="form-control" placeholder="Enter reference YouTube Video ID (e.g. dQw4w9WgXcQ)">
+                <button type="button" id="btn-sync-template" class="btn btn-secondary btn-sm input-action-btn" title="Sync metadata from reference video">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
+                  </svg>
+                  <span id="btn-sync-text">Sync From YouTube</span>
+                </button>
+              </div>
+              <div id="meta-sync-hint" class="form-hint">Configured video must belong to your authenticated YouTube channel.</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="meta-title-template">Title Template</label>
+              <input type="text" id="meta-title-template" class="form-control" readonly value="Chinese Street Food Live Streaming Mochi &quot;{DATE}&quot; &quot;{TIME}&quot;">
+              <div class="form-hint">Generated dynamically at broadcast start &amp; auto-recycle (Asia/Kolkata IST).</div>
+            </div>
+          </div>
+
+          <!-- Description & Category / Tags -->
+          <div class="settings-grid-2" style="margin-top: 0.75rem;">
+            <div class="form-group">
+              <label class="form-label" for="meta-description">Description</label>
+              <textarea id="meta-description" class="form-control" rows="5" placeholder="Enter stream description (synced from template or custom)"></textarea>
+            </div>
+
+            <div class="form-group" style="display: flex; flex-direction: column; gap: 0.75rem;">
+              <div>
+                <label class="form-label" for="meta-category">Category</label>
+                <select id="meta-category" class="form-control">
+                  <option value="">Loading YouTube categories...</option>
+                </select>
+                <div id="meta-category-hint" class="form-hint">Category resolved automatically via YouTube Data API.</div>
+              </div>
+
+              <div>
+                <label class="form-label" for="meta-tags">Tags</label>
+                <textarea id="meta-tags" class="form-control" rows="2" placeholder="Comma-separated tags (e.g. Chinese Street Food, Mochi, Street Food)"></textarea>
+                <div class="form-hint">Applied via videos.update to each new broadcast video.</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Thumbnail Preview & Controls -->
+          <div class="form-group" style="margin-top: 0.75rem;">
+            <label class="form-label">Thumbnail</label>
+            <div style="display: flex; gap: 1.25rem; align-items: center; flex-wrap: wrap;">
+              <div id="meta-thumbnail-preview-box" style="width: 200px; height: 112px; background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative;">
+                <img id="meta-thumbnail-img" src="" alt="Thumbnail Preview" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+                <div id="meta-thumbnail-placeholder" style="color: var(--text-muted); font-size: 0.75rem; text-align: center; padding: 0.5rem;">
+                  No Thumbnail Synced
+                </div>
+              </div>
+
+              <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                  <button type="button" id="btn-use-template-thumb" class="btn btn-secondary btn-sm" title="Restore template video thumbnail">
+                    Use Template Thumbnail
+                  </button>
+                  <button type="button" id="btn-upload-thumb" class="btn btn-outline btn-sm" title="Upload custom image file">
+                    Upload Different Thumbnail
+                  </button>
+                  <input type="file" id="meta-thumb-file-input" accept="image/jpeg,image/png" style="display: none;">
+                </div>
+                <div id="meta-thumbnail-info" class="form-hint">No thumbnail source active</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Footer Actions -->
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border-subtle);">
+            <span id="meta-save-feedback" class="form-hint" style="color: var(--text-muted);">
+              Saved dashboard values will be applied to future broadcasts.
+            </span>
+            <button type="button" id="btn-save-metadata" class="btn btn-primary btn-sm">
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
+              Save Metadata
+            </button>
           </div>
         </div>
       </div>
@@ -1370,7 +1480,7 @@
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261004_v17"></script>
+  <script type="module" src="/js/dashboard.js?v=20261005_v18"></script>
 </body>
 
 </html>

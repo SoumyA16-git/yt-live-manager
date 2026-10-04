@@ -106,6 +106,11 @@ const YOUTUBE_SCHEMA = {
   dualStreamEnabled:   { type: 'boolean' },
   title:               { type: 'string', maxLen: 200 },
   label:               { type: 'string', maxLen: 100 },
+  templateVideoId:     { type: 'string', maxLen: 100 },
+  titleTemplate:       { type: 'string', maxLen: 200 },
+  description:         { type: 'string', maxLen: 5000 },
+  categoryId:          { type: 'string', maxLen: 20 },
+  categoryName:        { type: 'string', maxLen: 100 },
 };
 
 const BANDWIDTH_ACCOUNTING_SCHEMA = {
@@ -302,11 +307,55 @@ export function validateSettings(input, { partial = true } = {}) {
         validateField('youtube.dualStreamEnabled', yt.dualStreamEnabled, YOUTUBE_SCHEMA.dualStreamEnabled, errors);
         requiresRestart = true;
       }
-      // title, label
+      // title, label, templateVideoId, titleTemplate, description, categoryId, categoryName
       if (yt.title !== undefined) validateField('youtube.title', yt.title, YOUTUBE_SCHEMA.title, errors);
       if (yt.label !== undefined) validateField('youtube.label', yt.label, YOUTUBE_SCHEMA.label, errors);
+      if (yt.templateVideoId !== undefined) validateField('youtube.templateVideoId', yt.templateVideoId, YOUTUBE_SCHEMA.templateVideoId, errors);
+      if (yt.titleTemplate !== undefined) validateField('youtube.titleTemplate', yt.titleTemplate, YOUTUBE_SCHEMA.titleTemplate, errors);
+      if (yt.description !== undefined) validateField('youtube.description', yt.description, YOUTUBE_SCHEMA.description, errors);
+      if (yt.categoryId !== undefined) validateField('youtube.categoryId', yt.categoryId, YOUTUBE_SCHEMA.categoryId, errors);
+      if (yt.categoryName !== undefined) validateField('youtube.categoryName', yt.categoryName, YOUTUBE_SCHEMA.categoryName, errors);
+
+      // tags: array of strings
+      if (yt.tags !== undefined) {
+        if (!isArray(yt.tags)) {
+          errors.push(fieldErr('youtube.tags', 'must be an array of strings'));
+        } else {
+          for (let i = 0; i < yt.tags.length; i++) {
+            if (typeof yt.tags[i] !== 'string') {
+              errors.push(fieldErr(`youtube.tags[${i}]`, 'must be a string'));
+            }
+          }
+        }
+      }
+
+      // thumbnail: object with sourceVideoId, sourceUrl, selectedResolution, customDataUrl
+      if (yt.thumbnail !== undefined) {
+        if (!isObject(yt.thumbnail)) {
+          errors.push(fieldErr('youtube.thumbnail', 'must be an object'));
+        } else {
+          if (yt.thumbnail.sourceVideoId !== undefined && typeof yt.thumbnail.sourceVideoId !== 'string') {
+            errors.push(fieldErr('youtube.thumbnail.sourceVideoId', 'must be a string'));
+          }
+          if (yt.thumbnail.sourceUrl !== undefined && typeof yt.thumbnail.sourceUrl !== 'string') {
+            errors.push(fieldErr('youtube.thumbnail.sourceUrl', 'must be a string'));
+          }
+          if (yt.thumbnail.selectedResolution !== undefined && typeof yt.thumbnail.selectedResolution !== 'string') {
+            errors.push(fieldErr('youtube.thumbnail.selectedResolution', 'must be a string'));
+          }
+          if (yt.thumbnail.customDataUrl !== undefined && typeof yt.thumbnail.customDataUrl !== 'string') {
+            errors.push(fieldErr('youtube.thumbnail.customDataUrl', 'must be a string'));
+          }
+        }
+      }
+
+      const KNOWN_YT = new Set([
+        'rtmpsUrl', 'streamKey', 'horizontalStreamKey', 'dualStreamEnabled',
+        'title', 'label', 'templateVideoId', 'titleTemplate', 'description',
+        'categoryId', 'categoryName', 'tags', 'thumbnail',
+      ]);
       for (const k of Object.keys(yt)) {
-        if (!['rtmpsUrl','streamKey','horizontalStreamKey','dualStreamEnabled','title','label'].includes(k))
+        if (!KNOWN_YT.has(k))
           errors.push(fieldErr(`youtube.${k}`, 'unknown field'));
       }
     }

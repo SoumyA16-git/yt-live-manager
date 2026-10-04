@@ -2443,6 +2443,57 @@ async function init() {
   // Live 1-second IST clock ticking
   setInterval(tickLocalSchedulerClock, 1000);
 
+  // 4d. YouTube Live Template Metadata Listeners
+  if (btnSyncTemplate) {
+    btnSyncTemplate.addEventListener('click', syncYouTubeTemplate);
+  }
+
+  if (btnSaveMetadata) {
+    btnSaveMetadata.addEventListener('click', saveYouTubeTemplateMetadata);
+  }
+
+  if (btnUseTemplateThumb) {
+    btnUseTemplateThumb.addEventListener('click', () => {
+      _currentThumbnailState = {
+        ..._templateThumbnailBackup,
+        customDataUrl: '',
+      };
+      renderThumbnailPreview();
+      showToast('Reverted to template video thumbnail.', 'info', 'Thumbnail');
+    });
+  }
+
+  if (btnUploadThumb) {
+    btnUploadThumb.addEventListener('click', () => {
+      if (metaThumbFileInput) metaThumbFileInput.click();
+    });
+  }
+
+  if (metaThumbFileInput) {
+    metaThumbFileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (!['image/jpeg', 'image/png'].includes(file.type)) {
+        showToast('Please select a JPEG or PNG image', 'warning', 'Invalid File');
+        return;
+      }
+
+      if (file.size > 2 * 1024 * 1024) {
+        showToast('Thumbnail image must be under 2 MB', 'warning', 'File Too Large');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        _currentThumbnailState.customDataUrl = reader.result;
+        renderThumbnailPreview();
+        showToast('Custom thumbnail loaded. Click Save Metadata to persist.', 'success', 'Thumbnail Loaded');
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
   // 5. Authenticate Session
   const user = await initSession();
   if (!user) return;
@@ -2461,7 +2512,230 @@ async function init() {
 
   // 7. Initial Data Fetch & Start Background Polling
   await refreshAll();
+  await loadYouTubeTemplateMetadata();
   startPolling();
+}
+
+// ─── YouTube Live Template Metadata Controller ────────────────────────────────
+
+const metaTemplateVideoId       = document.getElementById('meta-template-video-id');
+const btnSyncTemplate           = document.getElementById('btn-sync-template');
+const btnSyncText               = document.getElementById('btn-sync-text');
+const metaSyncHint              = document.getElementById('meta-sync-hint');
+const metaTitleTemplate         = document.getElementById('meta-title-template');
+const metaDescription           = document.getElementById('meta-description');
+const metaCategory              = document.getElementById('meta-category');
+const metaTags                  = document.getElementById('meta-tags');
+const metaThumbnailImg          = document.getElementById('meta-thumbnail-img');
+const metaThumbnailPlaceholder  = document.getElementById('meta-thumbnail-placeholder');
+const metaThumbnailInfo         = document.getElementById('meta-thumbnail-info');
+const btnUseTemplateThumb       = document.getElementById('btn-use-template-thumb');
+const btnUploadThumb            = document.getElementById('btn-upload-thumb');
+const metaThumbFileInput        = document.getElementById('meta-thumb-file-input');
+const btnSaveMetadata           = document.getElementById('btn-save-metadata');
+const metaSaveFeedback          = document.getElementById('meta-save-feedback');
+const ytMetaStatusBadge         = document.getElementById('yt-meta-status-badge');
+
+let _currentThumbnailState = {
+  sourceVideoId: '',
+  sourceUrl: '',
+  selectedResolution: '',
+  customDataUrl: '',
+};
+let _templateThumbnailBackup = {
+  sourceVideoId: '',
+  sourceUrl: '',
+  selectedResolution: '',
+};
+
+function renderThumbnailPreview() {
+  if (!metaThumbnailImg || !metaThumbnailPlaceholder) return;
+  const url = _currentThumbnailState.customDataUrl || _currentThumbnailState.sourceUrl;
+  if (url) {
+    metaThumbnailImg.src = url;
+    metaThumbnailImg.style.display = 'block';
+    metaThumbnailPlaceholder.style.display = 'none';
+    const label = _currentThumbnailState.customDataUrl
+      ? 'Custom Uploaded Image'
+      : `Template Image (${_currentThumbnailState.selectedResolution || 'Synced'})`;
+    if (metaThumbnailInfo) metaThumbnailInfo.textContent = label;
+  } else {
+    metaThumbnailImg.src = '';
+    metaThumbnailImg.style.display = 'none';
+    metaThumbnailPlaceholder.style.display = 'block';
+    if (metaThumbnailInfo) metaThumbnailInfo.textContent = 'No thumbnail source active';
+  }
+}
+
+async function loadYouTubeCategories(selectedId = '') {
+  if (!metaCategory) return;
+  try {
+    const data = await apiGet('/api/youtube/categories');
+    const categories = data?.categories || [];
+    if (categories.length > 0) {
+      metaCategory.innerHTML = categories.map(c =>
+        `<option value="${c.id}" ${String(c.id) === String(selectedId) ? 'selected' : ''}>${c.title}</option>`
+      ).join('');
+    } else {
+      metaCategory.innerHTML = `<option value="">No categories available</option>`;
+    }
+  } catch (err) {
+    console.error('Failed to load categories:', err);
+    metaCategory.innerHTML = `<option value="">Failed to load categories</option>`;
+  }
+}
+
+async function loadYouTubeTemplateMetadata() {
+  try {
+    const data = await apiGet('/api/youtube/template');
+    if (!data) return;
+
+    if (metaTemplateVideoId) metaTemplateVideoId.value = data.templateVideoId || '';
+    if (metaTitleTemplate) {
+      metaTitleTemplate.value = 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"';
+    }
+    if (metaDescription) metaDescription.value = data.description || '';
+    if (metaTags) metaTags.value = Array.isArray(data.tags) ? data.tags.join(', ') : '';
+
+    await loadYouTubeCategories(data.categoryId || '22');
+
+    if (data.thumbnail) {
+      _currentThumbnailState = {
+        sourceVideoId: data.thumbnail.sourceVideoId || '',
+        sourceUrl: data.thumbnail.sourceUrl || '',
+        selectedResolution: data.thumbnail.selectedResolution || '',
+        customDataUrl: data.thumbnail.customDataUrl || '',
+      };
+      _templateThumbnailBackup = {
+        sourceVideoId: data.thumbnail.sourceVideoId || '',
+        sourceUrl: data.thumbnail.sourceUrl || '',
+        selectedResolution: data.thumbnail.selectedResolution || '',
+      };
+      renderThumbnailPreview();
+    }
+
+    if (ytMetaStatusBadge) {
+      ytMetaStatusBadge.textContent = data.templateVideoId ? 'Template Loaded' : 'Template Ready';
+      ytMetaStatusBadge.className = 'badge-tag compatible';
+    }
+  } catch (err) {
+    console.error('Failed to load template metadata:', err);
+  }
+}
+
+async function syncYouTubeTemplate() {
+  if (!metaTemplateVideoId) return;
+  const videoId = metaTemplateVideoId.value.trim();
+  if (!videoId) {
+    showToast('Please enter a Template Video ID to sync', 'warning', 'Template Sync');
+    metaTemplateVideoId.focus();
+    return;
+  }
+
+  try {
+    if (btnSyncTemplate) btnSyncTemplate.disabled = true;
+    if (btnSyncText) btnSyncText.textContent = 'Syncing...';
+    if (metaSyncHint) {
+      metaSyncHint.textContent = `Connecting to YouTube API for video "${videoId}"...`;
+      metaSyncHint.style.color = 'var(--text-muted)';
+    }
+
+    const res = await apiPost('/api/youtube/template/sync', { videoId });
+    const meta = res?.metadata;
+
+    if (!meta) {
+      throw new Error('No metadata returned from server');
+    }
+
+    // Populate description, category, tags, thumbnail
+    if (metaDescription) metaDescription.value = meta.description || '';
+    if (metaTags) metaTags.value = Array.isArray(meta.tags) ? meta.tags.join(', ') : '';
+    if (metaCategory && meta.categoryId) {
+      metaCategory.value = String(meta.categoryId);
+    }
+
+    // Dynamic title template is NEVER overwritten by template sync
+    if (metaTitleTemplate) {
+      metaTitleTemplate.value = 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"';
+    }
+
+    if (meta.thumbnail) {
+      _currentThumbnailState = {
+        sourceVideoId: meta.thumbnail.sourceVideoId || videoId,
+        sourceUrl: meta.thumbnail.sourceUrl || '',
+        selectedResolution: meta.thumbnail.selectedResolution || '',
+        customDataUrl: '',
+      };
+      _templateThumbnailBackup = { ..._currentThumbnailState };
+      renderThumbnailPreview();
+    }
+
+    if (metaSyncHint) {
+      metaSyncHint.textContent = `Successfully synced metadata from YouTube (${(meta.tags || []).length} tags, category: ${meta.categoryName || meta.categoryId})`;
+      metaSyncHint.style.color = 'var(--status-live)';
+    }
+    if (ytMetaStatusBadge) {
+      ytMetaStatusBadge.textContent = 'Template Synced';
+      ytMetaStatusBadge.className = 'badge-tag compatible';
+    }
+
+    showToast('Template metadata successfully synced from YouTube! Review and click Save Metadata.', 'success', 'Template Sync');
+  } catch (err) {
+    console.error('Template sync error:', err);
+    const msg = err.message || 'Failed to sync template video';
+    if (metaSyncHint) {
+      metaSyncHint.textContent = `Error: ${msg}`;
+      metaSyncHint.style.color = 'var(--status-error)';
+    }
+    showToast(msg, 'error', 'Template Sync Failed');
+  } finally {
+    if (btnSyncTemplate) btnSyncTemplate.disabled = false;
+    if (btnSyncText) btnSyncText.textContent = 'Sync From YouTube';
+  }
+}
+
+async function saveYouTubeTemplateMetadata() {
+  if (!btnSaveMetadata) return;
+
+  try {
+    btnSaveMetadata.disabled = true;
+    if (metaSaveFeedback) {
+      metaSaveFeedback.textContent = 'Saving metadata configuration...';
+      metaSaveFeedback.style.color = 'var(--text-muted)';
+    }
+
+    const payload = {
+      templateVideoId: metaTemplateVideoId ? metaTemplateVideoId.value.trim() : '',
+      titleTemplate: 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"',
+      description: metaDescription ? metaDescription.value : '',
+      categoryId: metaCategory ? metaCategory.value : '22',
+      categoryName: metaCategory && metaCategory.selectedIndex >= 0 ? metaCategory.options[metaCategory.selectedIndex].text : '',
+      tags: metaTags ? metaTags.value.split(',').map(t => t.trim()).filter(Boolean) : [],
+      thumbnail: _currentThumbnailState,
+    };
+
+    const res = await apiPut('/api/youtube/template', payload);
+    if (res?.success) {
+      if (metaSaveFeedback) {
+        metaSaveFeedback.textContent = 'All changes saved. Values will be applied to future broadcasts.';
+        metaSaveFeedback.style.color = 'var(--status-live)';
+      }
+      if (ytMetaStatusBadge) {
+        ytMetaStatusBadge.textContent = 'Saved & Active';
+        ytMetaStatusBadge.className = 'badge-tag compatible';
+      }
+      showToast('YouTube Live Metadata saved successfully!', 'success', 'Metadata Saved');
+    }
+  } catch (err) {
+    console.error('Save metadata error:', err);
+    if (metaSaveFeedback) {
+      metaSaveFeedback.textContent = `Save failed: ${err.message}`;
+      metaSaveFeedback.style.color = 'var(--status-error)';
+    }
+    showToast(`Failed to save metadata: ${err.message}`, 'error', 'Save Failed');
+  } finally {
+    btnSaveMetadata.disabled = false;
+  }
 }
 
 init();

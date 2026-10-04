@@ -595,7 +595,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             logger.info('stream.youtube_lifecycle_start', 'Starting YouTube broadcast lifecycle management...');
             _lifecyclePromise = manageBroadcastLifecycleOnStart({
               streamKey: secretKey,
-              title: settings.youtube?.title || '',
+              title: '',
             });
 
             try {

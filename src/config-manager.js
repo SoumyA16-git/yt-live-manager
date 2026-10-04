@@ -58,6 +58,18 @@ export const DEFAULTS = Object.freeze({
     dualStreamEnabled: true,
     title: '',
     label: '',
+    templateVideoId: '',
+    titleTemplate: 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"',
+    description: '',
+    categoryId: '',
+    categoryName: '',
+    tags: [],
+    thumbnail: {
+      sourceVideoId: '',
+      sourceUrl: '',
+      selectedResolution: '',
+      customDataUrl: '',
+    },
   },
   youtubeGuidance: { recommendedMbps: [3, 9] },
   bandwidth: {

@@ -14,6 +14,7 @@
 
 import { redact, setSecret } from './lib/redact.js';
 import { logger } from './logger.js';
+import { getSettings } from './config-manager.js';
 
 // ─── Module State ─────────────────────────────────────────────────────────────
 
@@ -31,6 +32,11 @@ let _currentHealthStatus = 'unknown';
 let _currentLifeCycleStatus = 'unknown';
 let _lastCheckedAt = null;
 let _lastApiError = null;
+
+let _categoryCache = null;
+let _lastMetadataError = null;
+let _tagsAppliedCount = 0;
+let _thumbnailApplied = false;
 
 // ─── Configuration & Initialization ──────────────────────────────────────────
 
@@ -163,6 +169,16 @@ async function youtubeFetch(endpoint, options = {}) {
       operation = 'liveBroadcasts.insert';
     } else if (operation.startsWith('liveBroadcasts') && (!options.method || options.method === 'GET')) {
       operation = 'liveBroadcasts.list';
+    } else if (operation.startsWith('videos') && options.method === 'PUT') {
+      operation = 'videos.update';
+    } else if (operation.startsWith('videos') && (!options.method || options.method === 'GET')) {
+      operation = 'videos.list';
+    } else if (cleanEndpoint.includes('thumbnails/set')) {
+      operation = 'thumbnails.set';
+    } else if (operation.startsWith('videoCategories')) {
+      operation = 'videoCategories.list';
+    } else if (operation.startsWith('channels')) {
+      operation = 'channels.list';
     }
 
     const logFields = {
@@ -414,19 +430,22 @@ export function generateBroadcastTitle(date = new Date()) {
 
 /**
  * Create a fresh liveBroadcast and bind it to the specified streamId.
- * Used during auto-recycle when the previous broadcast is closed ('complete').
+ * Used during initial start and auto-recycle when previous broadcast is closed ('complete').
+ * Automatically applies template metadata (description, category, tags, thumbnail).
  *
  * @param {object} opts
  * @param {string} opts.streamId
  * @param {string} [opts.title]
+ * @param {object} [opts.metadata]
  * @param {boolean} [opts.enableAutoStart=false]
  * @param {boolean} [opts.enableAutoStop=true]
  * @param {boolean} [opts.enableMonitorStream=false]
- * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean, enableAutoStop: boolean, enableMonitorStream: boolean }>}
+ * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean, enableAutoStop: boolean, enableMonitorStream: boolean, tagsApplied: boolean, thumbnailApplied: boolean }>}
  */
 export async function createAndBindBroadcast({
   streamId,
   title = '',
+  metadata = null,
   enableAutoStart = false,
   enableAutoStop = true,
   enableMonitorStream = false,
@@ -436,6 +455,23 @@ export async function createAndBindBroadcast({
   }
 
   const broadcastTitle = title || generateBroadcastTitle(new Date());
+
+  // Resolve metadata from argument or saved settings
+  let meta = metadata;
+  if (!meta) {
+    try {
+      const s = getSettings();
+      meta = s?.youtube || {};
+    } catch {
+      meta = {};
+    }
+  }
+
+  const description = meta.description || '';
+  const categoryId = meta.categoryId || '22';
+  const tags = Array.isArray(meta.tags) ? meta.tags : [];
+  const thumbnail = meta.thumbnail || null;
+
   logger.info('youtube_api.creating_broadcast', `Creating new liveBroadcast: "${broadcastTitle}" (monitorStream=${enableMonitorStream}, autoStart=${enableAutoStart}, autoStop=${enableAutoStop})`, {
     monitorStream: enableMonitorStream,
     autoStart: enableAutoStart,
@@ -449,6 +485,7 @@ export async function createAndBindBroadcast({
     body: JSON.stringify({
       snippet: {
         title: broadcastTitle,
+        description,
         scheduledStartTime: new Date().toISOString(),
       },
       status: {
@@ -479,6 +516,39 @@ export async function createAndBindBroadcast({
   _currentLifeCycleStatus = bound?.status?.lifeCycleStatus || 'ready';
   _lastCheckedAt = new Date().toISOString();
 
+  // 3. Apply tags & category via videos.update
+  let tagsApplied = false;
+  if (tags.length > 0 || categoryId) {
+    try {
+      await updateVideoMetadata(broadcastId, {
+        title: broadcastTitle,
+        description,
+        categoryId,
+        tags,
+      });
+      tagsApplied = true;
+      _tagsAppliedCount = tags.length;
+      logger.info('youtube_api.tags_applied', `Applied ${tags.length} tags and category ${categoryId} to broadcast ${broadcastId}`);
+    } catch (err) {
+      _lastMetadataError = `Failed to apply tags to ${broadcastId}: ${err.message}`;
+      logger.warn('youtube_api.tags_apply_failed', `Failed to apply tags to broadcast ${broadcastId}: ${err.message}`);
+    }
+  }
+
+  // 4. Apply thumbnail via thumbnails.set
+  let thumbnailApplied = false;
+  if (thumbnail && (thumbnail.sourceUrl || thumbnail.customDataUrl)) {
+    try {
+      await applyVideoThumbnail(broadcastId, thumbnail);
+      thumbnailApplied = true;
+      _thumbnailApplied = true;
+      logger.info('youtube_api.thumbnail_applied', `Applied thumbnail to broadcast ${broadcastId}`);
+    } catch (err) {
+      _lastMetadataError = `Failed to apply thumbnail to ${broadcastId}: ${err.message}`;
+      logger.warn('youtube_api.thumbnail_apply_failed', `Failed to apply thumbnail to broadcast ${broadcastId}: ${err.message}`);
+    }
+  }
+
   return {
     id: broadcastId,
     title: broadcastTitle,
@@ -486,6 +556,8 @@ export async function createAndBindBroadcast({
     enableAutoStart,
     enableAutoStop,
     enableMonitorStream,
+    tagsApplied,
+    thumbnailApplied,
   };
 }
 
@@ -696,6 +768,11 @@ export function getYouTubeLiveApiState() {
     isBroadcastLive: _currentLifeCycleStatus === 'live',
     lastCheckedAt: _lastCheckedAt,
     lastError: _lastApiError,
+    metadataStatus: {
+      lastMetadataError: _lastMetadataError,
+      tagsAppliedCount: _tagsAppliedCount,
+      thumbnailApplied: _thumbnailApplied,
+    },
   };
 }
 
@@ -712,4 +789,267 @@ export function _resetStateForTest() {
   _currentLifeCycleStatus = 'unknown';
   _lastCheckedAt = null;
   _lastApiError = null;
+  _categoryCache = null;
+  _lastMetadataError = null;
+  _tagsAppliedCount = 0;
+  _thumbnailApplied = false;
+}
+
+// ─── YouTube Template Metadata Management ─────────────────────────────────────
+
+/**
+ * Fetch video categories from YouTube Data API for the specified region.
+ * Filters for assignable categories and caches result.
+ *
+ * @param {string} [regionCode='IN']
+ * @returns {Promise<Array<{ id: string, title: string }>>}
+ */
+export async function fetchVideoCategories(regionCode = 'IN') {
+  if (!isYouTubeApiConfigured()) return [];
+  if (_categoryCache && _categoryCache.length > 0) return _categoryCache;
+
+  try {
+    const data = await youtubeFetch(`videoCategories?part=snippet&regionCode=${encodeURIComponent(regionCode)}`);
+    const items = data.items || [];
+    const assignable = items.filter(it => it.snippet?.assignable);
+    const list = (assignable.length > 0 ? assignable : items).map(it => ({
+      id: String(it.id),
+      title: it.snippet?.title || `Category ${it.id}`,
+    }));
+    _categoryCache = list;
+    return list;
+  } catch (err) {
+    logger.warn('youtube_api.categories_failed', `Failed to fetch video categories for region ${regionCode}: ${err.message}`);
+    if (regionCode !== 'US') {
+      return fetchVideoCategories('US');
+    }
+    return [];
+  }
+}
+
+/**
+ * Resolve category ID to human-readable category name.
+ *
+ * @param {string|number} categoryId
+ * @param {string} [regionCode='IN']
+ * @returns {Promise<string>}
+ */
+export async function resolveCategoryName(categoryId, regionCode = 'IN') {
+  if (!categoryId) return '';
+  const cats = await fetchVideoCategories(regionCode);
+  const found = cats.find(c => String(c.id) === String(categoryId));
+  return found ? found.title : `Category ${categoryId}`;
+}
+
+/**
+ * Fetch metadata from reference/template YouTube video.
+ * Enforces:
+ * - Clean ID validation
+ * - Authenticated channel ownership verification
+ * - Reads description, categoryId, categoryName, tags, and thumbnails
+ * - READ-ONLY: Never updates or modifies the template video
+ * - Title from template is explicitly omitted (dynamic title is preserved)
+ *
+ * @param {string} videoId
+ * @returns {Promise<object>} Synced metadata template
+ */
+export async function fetchTemplateVideoMetadata(videoId) {
+  if (!isYouTubeApiConfigured()) {
+    throw Object.assign(new Error('YouTube API is not configured with OAuth2 credentials'), {
+      code: 'E_YOUTUBE_API_NOT_CONFIGURED',
+    });
+  }
+
+  const cleanId = String(videoId || '').trim();
+  if (!cleanId || !/^[a-zA-Z0-9_-]{6,64}$/.test(cleanId)) {
+    throw Object.assign(new Error(`Invalid template video ID format: "${cleanId}"`), {
+      code: 'E_INVALID_VIDEO_ID',
+    });
+  }
+
+  // 1. Get channel ID of authenticated channel for ownership check
+  let myChannelId = null;
+  try {
+    const chData = await youtubeFetch('channels?part=id&mine=true');
+    myChannelId = chData.items?.[0]?.id || null;
+  } catch (err) {
+    logger.warn('youtube_api.channel_fetch_warn', `Could not fetch channel ID for ownership check: ${err.message}`);
+  }
+
+  // 2. Fetch video resource from YouTube Data API
+  const vData = await youtubeFetch(`videos?part=snippet,status&id=${encodeURIComponent(cleanId)}`);
+  const video = vData.items?.[0];
+  if (!video) {
+    throw Object.assign(new Error(`Template video '${cleanId}' not found or inaccessible on YouTube`), {
+      code: 'E_TEMPLATE_NOT_FOUND',
+    });
+  }
+
+  // 3. Verify channel ownership
+  const videoChannelId = video.snippet?.channelId;
+  if (myChannelId && videoChannelId && myChannelId !== videoChannelId) {
+    throw Object.assign(
+      new Error(`Template video does not belong to the authenticated YouTube channel (Video channel: ${videoChannelId}, Authenticated: ${myChannelId})`),
+      { code: 'E_CHANNEL_MISMATCH' }
+    );
+  }
+
+  // 4. Extract required fields ONLY
+  const description = video.snippet?.description || '';
+  const categoryId = String(video.snippet?.categoryId || '');
+  const categoryName = categoryId ? await resolveCategoryName(categoryId) : '';
+  const tags = Array.isArray(video.snippet?.tags) ? [...video.snippet.tags] : [];
+
+  // Thumbnail selection (best resolution available)
+  const thumbs = video.snippet?.thumbnails || {};
+  let bestUrl = '';
+  let bestRes = '';
+  if (thumbs.maxres?.url) {
+    bestUrl = thumbs.maxres.url;
+    bestRes = 'maxres';
+  } else if (thumbs.standard?.url) {
+    bestUrl = thumbs.standard.url;
+    bestRes = 'standard';
+  } else if (thumbs.high?.url) {
+    bestUrl = thumbs.high.url;
+    bestRes = 'high';
+  } else if (thumbs.medium?.url) {
+    bestUrl = thumbs.medium.url;
+    bestRes = 'medium';
+  } else if (thumbs.default?.url) {
+    bestUrl = thumbs.default.url;
+    bestRes = 'default';
+  }
+
+  return {
+    templateVideoId: cleanId,
+    titleTemplate: 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"',
+    description,
+    categoryId,
+    categoryName,
+    tags,
+    thumbnail: {
+      sourceVideoId: cleanId,
+      sourceUrl: bestUrl,
+      selectedResolution: bestRes,
+      customDataUrl: '',
+    },
+  };
+}
+
+/**
+ * Apply tags, category, and metadata to newly created broadcast video.
+ * CRITICAL SAFETY GUARD: Throws error if called on template video ID.
+ *
+ * @param {string} videoId
+ * @param {object} opts
+ * @param {string} opts.title
+ * @param {string} [opts.description='']
+ * @param {string} [opts.categoryId='22']
+ * @param {string[]} [opts.tags=[]]
+ * @returns {Promise<object>}
+ */
+export async function updateVideoMetadata(videoId, { title, description = '', categoryId = '22', tags = [] }) {
+  if (!videoId || !isYouTubeApiConfigured()) {
+    throw new Error('Video ID and configured API required to update video metadata');
+  }
+
+  // Safety guard: Source/template video must NEVER be modified
+  let templateId = '';
+  try {
+    const s = getSettings();
+    templateId = s?.youtube?.templateVideoId || '';
+  } catch {
+    templateId = '';
+  }
+
+  if (templateId && videoId === templateId) {
+    const msg = `CRITICAL SAFETY VIOLATION: Refusing to modify source template video ${videoId}!`;
+    logger.error('youtube_api.template_mutation_blocked', msg);
+    throw new Error(msg);
+  }
+
+  logger.info('youtube_api.updating_video_metadata', `Updating metadata on video ${videoId} (category: ${categoryId}, tags: ${tags.length})`);
+  const data = await youtubeFetch('videos?part=snippet', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: videoId,
+      snippet: {
+        title,
+        description: description || '',
+        categoryId: String(categoryId || '22'),
+        tags: Array.isArray(tags) ? tags : [],
+      },
+    }),
+  });
+
+  return data;
+}
+
+/**
+ * Apply thumbnail to newly created broadcast video using thumbnails.set.
+ * CRITICAL SAFETY GUARD: Throws error if called on template video ID.
+ *
+ * @param {string} videoId
+ * @param {object} thumbnailConfig
+ * @returns {Promise<object|null>}
+ */
+export async function applyVideoThumbnail(videoId, thumbnailConfig) {
+  if (!videoId || !isYouTubeApiConfigured() || !thumbnailConfig) {
+    return null;
+  }
+
+  // Safety guard: Source/template video must NEVER be modified
+  let templateId = '';
+  try {
+    const s = getSettings();
+    templateId = s?.youtube?.templateVideoId || '';
+  } catch {
+    templateId = '';
+  }
+
+  if (templateId && videoId === templateId) {
+    const msg = `CRITICAL SAFETY VIOLATION: Refusing to modify thumbnail of source template video ${videoId}!`;
+    logger.error('youtube_api.template_mutation_blocked', msg);
+    throw new Error(msg);
+  }
+
+  let buffer = null;
+  let mimeType = 'image/jpeg';
+
+  if (thumbnailConfig.customDataUrl && thumbnailConfig.customDataUrl.startsWith('data:')) {
+    const match = thumbnailConfig.customDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) {
+      throw new Error('Invalid custom thumbnail data URL format');
+    }
+    mimeType = match[1] || 'image/jpeg';
+    buffer = Buffer.from(match[2], 'base64');
+  } else if (thumbnailConfig.sourceUrl && thumbnailConfig.sourceUrl.startsWith('http')) {
+    logger.info('youtube_api.downloading_thumbnail', `Fetching thumbnail image from ${thumbnailConfig.sourceUrl}`);
+    const imgRes = await fetch(thumbnailConfig.sourceUrl);
+    if (!imgRes.ok) {
+      throw new Error(`Failed to download template thumbnail from ${thumbnailConfig.sourceUrl} (${imgRes.status})`);
+    }
+    const arrayBuf = await imgRes.arrayBuffer();
+    buffer = Buffer.from(arrayBuf);
+    mimeType = imgRes.headers.get('content-type') || 'image/jpeg';
+  } else {
+    logger.info('youtube_api.no_thumbnail_source', `No thumbnail source available to apply to video ${videoId}`);
+    return null;
+  }
+
+  logger.info('youtube_api.uploading_thumbnail', `Uploading thumbnail to YouTube for video ${videoId} (${buffer.length} bytes, ${mimeType})`);
+  const uploadUrl = `https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`;
+
+  const result = await youtubeFetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': mimeType,
+    },
+    body: buffer,
+  });
+
+  logger.info('youtube_api.thumbnail_set', `Thumbnail successfully set for video ${videoId}`);
+  return result;
 }

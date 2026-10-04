@@ -174,4 +174,24 @@ describe('All Dashboard Action Routes Audit', () => {
     const body = await res.json();
     assert.ok(Array.isArray(body.videos));
   });
+
+  test('GET /api/youtube/template returns metadata configuration', async () => {
+    const res = await fetch(`${baseUrl}/api/youtube/template`, {
+      headers: { Cookie: sessionCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(body.titleTemplate !== undefined);
+    assert.ok(body.description !== undefined);
+  });
+
+  test('GET /api/youtube/categories returns category array', async () => {
+    const res = await fetch(`${baseUrl}/api/youtube/categories`, {
+      headers: { Cookie: sessionCookie },
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.success, true);
+    assert.ok(Array.isArray(body.categories));
+  });
 });
