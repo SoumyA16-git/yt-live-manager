@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v13">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v14">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -817,6 +817,144 @@
             </div>
           </div>
 
+          <!-- Hardware Visualizations (Pie Chart & Bar Chart) -->
+          <div class="hw-charts-deck">
+            <!-- Left: Storage Allocation Donut/Pie Chart -->
+            <div class="hw-chart-box">
+              <div class="hw-chart-header">
+                <span class="hw-chart-title">Disk Storage Allocation</span>
+                <span id="hw-storage-total-badge" class="meta-tag">0 GB</span>
+              </div>
+              <div class="hw-pie-wrap">
+                <svg class="hw-pie-svg" viewBox="0 0 130 130">
+                  <defs>
+                    <linearGradient id="hw-grad-videos" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#38bdf8"/>
+                      <stop offset="100%" stop-color="#0284c7"/>
+                    </linearGradient>
+                    <linearGradient id="hw-grad-system" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#a855f7"/>
+                      <stop offset="100%" stop-color="#7c3aed"/>
+                    </linearGradient>
+                    <linearGradient id="hw-grad-other" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#f59e0b"/>
+                      <stop offset="100%" stop-color="#d97706"/>
+                    </linearGradient>
+                  </defs>
+                  <!-- Track / Base Ring -->
+                  <circle cx="65" cy="65" r="46" fill="none" stroke="#222227" stroke-width="14" />
+                  
+                  <g transform="rotate(-90 65 65)">
+                    <!-- Segment 1: Video Library (Cyan) -->
+                    <circle id="hw-pie-videos" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-videos)" stroke-width="14"
+                            stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
+                    
+                    <!-- Segment 2: System & OS (Purple) -->
+                    <circle id="hw-pie-system" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-system)" stroke-width="14"
+                            stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
+
+                    <!-- Segment 3: Logs & Backups (Amber) -->
+                    <circle id="hw-pie-other" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-other)" stroke-width="14"
+                            stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
+                  </g>
+
+                  <!-- Donut Center Text -->
+                  <g class="hw-pie-center">
+                    <text id="hw-pie-center-val" x="65" y="62" text-anchor="middle" class="hw-pie-num">0%</text>
+                    <text x="65" y="76" text-anchor="middle" class="hw-pie-lbl">USED</text>
+                  </g>
+                </svg>
+
+                <div class="hw-pie-legend">
+                  <div class="hw-legend-item">
+                    <span class="hw-dot" style="background: #38bdf8;"></span>
+                    <span class="hw-leg-name">Videos:</span>
+                    <span id="hw-leg-videos" class="hw-leg-val">0 GB</span>
+                  </div>
+                  <div class="hw-legend-item">
+                    <span class="hw-dot" style="background: #a855f7;"></span>
+                    <span class="hw-leg-name">OS & System:</span>
+                    <span id="hw-leg-system" class="hw-leg-val">0 GB</span>
+                  </div>
+                  <div class="hw-legend-item">
+                    <span class="hw-dot" style="background: #f59e0b;"></span>
+                    <span class="hw-leg-name">Logs & Temp:</span>
+                    <span id="hw-leg-other" class="hw-leg-val">0 MB</span>
+                  </div>
+                  <div class="hw-legend-item">
+                    <span class="hw-dot" style="background: #27272a;"></span>
+                    <span class="hw-leg-name">Free Disk:</span>
+                    <span id="hw-leg-free" class="hw-leg-val">0 GB</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Resource Utilization Bar Chart -->
+            <div class="hw-chart-box">
+              <div class="hw-chart-header">
+                <span class="hw-chart-title">Resource Utilization</span>
+                <span id="hw-load-status-badge" class="badge-tag compatible">Optimal</span>
+              </div>
+
+              <!-- Comparative Multi-Bar Chart -->
+              <div class="hw-bars-container">
+                <!-- Bar 1: CPU -->
+                <div class="hw-bar-row">
+                  <div class="hw-bar-labels">
+                    <span class="hw-bar-name">CPU Load</span>
+                    <span id="hw-bar-val-cpu" class="hw-bar-val">0.0%</span>
+                  </div>
+                  <div class="hw-bar-track">
+                    <div id="hw-bar-fill-cpu" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #3b82f6, #06b6d4);"></div>
+                    <div class="hw-bar-threshold" style="left: 4%;" title="Target threshold &lt; 4%"></div>
+                  </div>
+                </div>
+
+                <!-- Bar 2: App RAM (Node.js) -->
+                <div class="hw-bar-row">
+                  <div class="hw-bar-labels">
+                    <span class="hw-bar-name">Node.js Process RAM</span>
+                    <span id="hw-bar-val-appram" class="hw-bar-val">0 MB</span>
+                  </div>
+                  <div class="hw-bar-track">
+                    <div id="hw-bar-fill-appram" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
+                  </div>
+                </div>
+
+                <!-- Bar 3: System RAM (OS Total) -->
+                <div class="hw-bar-row">
+                  <div class="hw-bar-labels">
+                    <span class="hw-bar-name">Total OS RAM</span>
+                    <span id="hw-bar-val-sysram" class="hw-bar-val">0%</span>
+                  </div>
+                  <div class="hw-bar-track">
+                    <div id="hw-bar-fill-sysram" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #6366f1, #8b5cf6);"></div>
+                    <div class="hw-bar-threshold" style="left: 80%;" title="High RAM threshold 80%"></div>
+                  </div>
+                </div>
+
+                <!-- Bar 4: Disk Storage -->
+                <div class="hw-bar-row">
+                  <div class="hw-bar-labels">
+                    <span class="hw-bar-name">Disk Storage</span>
+                    <span id="hw-bar-val-disk" class="hw-bar-val">0%</span>
+                  </div>
+                  <div class="hw-bar-track">
+                    <div id="hw-bar-fill-disk" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #06b6d4, #10b981);"></div>
+                    <div class="hw-bar-threshold" style="left: 85%;" title="Warn threshold 85%"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Live Rolling CPU History Spark-bars -->
+              <div class="hw-mini-wave-wrap">
+                <span class="hw-mini-wave-title">Live CPU Pulse (Recent samples)</span>
+                <div id="hw-cpu-history-bars" class="hw-mini-bars"></div>
+              </div>
+            </div>
+          </div>
+
           <div style="font-size: 0.6875rem; color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
             <span>Logs: <span id="dir-logs" style="color: var(--text-secondary);">0 MB</span></span>
             <span>Backups: <span id="dir-backups" style="color: var(--text-secondary);">0 MB</span></span>
@@ -973,6 +1111,6 @@
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261004_v13"></script>
+  <script type="module" src="/js/dashboard.js?v=20261004_v14"></script>
 </body>
 </html>

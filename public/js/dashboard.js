@@ -987,6 +987,128 @@ function renderSystem(data) {
       ? `● YouTube Reachable (${data.reachability.latencyMs}ms)`
       : '● YouTube Unreachable';
   }
+
+  // Update Pie Chart & Multi-Bar Chart
+  updateHardwareVisualizations(data);
+}
+
+// ─── Hardware Visualizations (Pie Chart & Bar Chart) ──────────────────────────
+
+let _hwCpuHistory = [0.5, 0.6, 0.4, 0.8, 0.5, 0.7, 0.6, 0.5, 0.6, 0.7, 0.5, 0.6];
+
+function updateHardwareVisualizations(data) {
+  // 1. Donut / Pie Chart: Disk Storage Allocation
+  const hwPieVideos        = document.getElementById('hw-pie-videos');
+  const hwPieSystem        = document.getElementById('hw-pie-system');
+  const hwPieOther         = document.getElementById('hw-pie-other');
+  const hwPieCenterVal     = document.getElementById('hw-pie-center-val');
+  const hwStorageTotalBadge= document.getElementById('hw-storage-total-badge');
+  const hwLegVideos        = document.getElementById('hw-leg-videos');
+  const hwLegSystem        = document.getElementById('hw-leg-system');
+  const hwLegOther         = document.getElementById('hw-leg-other');
+  const hwLegFree          = document.getElementById('hw-leg-free');
+
+  if (data.disk && hwPieVideos && hwPieSystem && hwPieOther) {
+    const total = Number(data.disk.totalBytes) || 0;
+    const used  = Number(data.disk.usedBytes) || 0;
+    const free  = Number(data.disk.freeBytes) || 0;
+    const pct   = Number(data.disk.usedPercent) || 0;
+
+    const vids  = Number(data.dirSizes?.videosBytes) || 0;
+    const other = (Number(data.dirSizes?.logsBytes) || 0) + (Number(data.dirSizes?.backupsBytes) || 0);
+    const sys   = Math.max(0, used - vids - other);
+
+    if (hwStorageTotalBadge) hwStorageTotalBadge.textContent = formatBytes(total);
+    if (hwPieCenterVal) hwPieCenterVal.textContent = `${pct.toFixed(1)}%`;
+
+    if (hwLegVideos) hwLegVideos.textContent = formatBytes(vids);
+    if (hwLegSystem) hwLegSystem.textContent = formatBytes(sys);
+    if (hwLegOther)  hwLegOther.textContent  = formatBytes(other);
+    if (hwLegFree)   hwLegFree.textContent   = formatBytes(free);
+
+    // Donut Circumference C = 2 * pi * 46 = 289px
+    const C = 289;
+    if (total > 0) {
+      let lVid = (vids / total) * C;
+      let lSys = (sys / total) * C;
+      let lOth = (other / total) * C;
+
+      if (vids > 0 && lVid < 2) lVid = 2;
+      if (sys > 0 && lSys < 2) lSys = 2;
+      if (other > 0 && lOth < 1) lOth = 1;
+
+      hwPieVideos.setAttribute('stroke-dasharray', `${lVid.toFixed(1)} ${(C - lVid).toFixed(1)}`);
+      hwPieVideos.setAttribute('stroke-dashoffset', '0');
+
+      hwPieSystem.setAttribute('stroke-dasharray', `${lSys.toFixed(1)} ${(C - lSys).toFixed(1)}`);
+      hwPieSystem.setAttribute('stroke-dashoffset', `-${lVid.toFixed(1)}`);
+
+      hwPieOther.setAttribute('stroke-dasharray', `${lOth.toFixed(1)} ${(C - lOth).toFixed(1)}`);
+      hwPieOther.setAttribute('stroke-dashoffset', `-${(lVid + lSys).toFixed(1)}`);
+    }
+  }
+
+  // 2. Resource Load Multi-Bar Chart
+  const cpuPct = Number(data.cpuPercent) || 0;
+  const appMb  = Number(data.appRam?.rssMB) || 0;
+  const sysPct = Number(data.ram?.usedPercent) || 0;
+  const diskPct = Number(data.disk?.usedPercent) || 0;
+
+  const totalRamMb = (data.ram?.totalBytes ? data.ram.totalBytes / 1048576 : 1024);
+  const appPct = Math.min(100, (appMb / totalRamMb) * 100);
+
+  const hwBarValCpu     = document.getElementById('hw-bar-val-cpu');
+  const hwBarFillCpu    = document.getElementById('hw-bar-fill-cpu');
+  const hwBarValAppram  = document.getElementById('hw-bar-val-appram');
+  const hwBarFillAppram = document.getElementById('hw-bar-fill-appram');
+  const hwBarValSysram  = document.getElementById('hw-bar-val-sysram');
+  const hwBarFillSysram = document.getElementById('hw-bar-fill-sysram');
+  const hwBarValDisk    = document.getElementById('hw-bar-val-disk');
+  const hwBarFillDisk   = document.getElementById('hw-bar-fill-disk');
+  const hwLoadBadge     = document.getElementById('hw-load-status-badge');
+
+  if (hwBarValCpu)  hwBarValCpu.textContent  = `${cpuPct.toFixed(1)}%`;
+  if (hwBarFillCpu) hwBarFillCpu.style.width = `${Math.min(100, Math.max(0.6, cpuPct))}%`;
+
+  if (hwBarValAppram)  hwBarValAppram.textContent  = `${appMb} MB (${appPct.toFixed(1)}%)`;
+  if (hwBarFillAppram) hwBarFillAppram.style.width = `${Math.min(100, Math.max(1, appPct))}%`;
+
+  if (hwBarValSysram)  hwBarValSysram.textContent  = `${sysPct.toFixed(1)}%`;
+  if (hwBarFillSysram) hwBarFillSysram.style.width = `${Math.min(100, Math.max(1, sysPct))}%`;
+
+  if (hwBarValDisk)  hwBarValDisk.textContent  = `${diskPct.toFixed(1)}%`;
+  if (hwBarFillDisk) hwBarFillDisk.style.width = `${Math.min(100, Math.max(1, diskPct))}%`;
+
+  if (hwLoadBadge) {
+    if (cpuPct > 25 || sysPct > 85 || diskPct > 90) {
+      hwLoadBadge.textContent = 'High Load';
+      hwLoadBadge.className = 'badge-tag incompatible';
+    } else if (cpuPct > 10 || sysPct > 70 || diskPct > 80) {
+      hwLoadBadge.textContent = 'Moderate';
+      hwLoadBadge.className = 'badge-tag warning';
+    } else {
+      hwLoadBadge.textContent = 'Optimal';
+      hwLoadBadge.className = 'badge-tag compatible';
+    }
+  }
+
+  // 3. Mini CPU Activity Spark-bars
+  const hwCpuBars = document.getElementById('hw-cpu-history-bars');
+  if (hwCpuBars) {
+    _hwCpuHistory.push(cpuPct);
+    if (_hwCpuHistory.length > 12) _hwCpuHistory.shift();
+
+    const maxHist = Math.max(2.0, ..._hwCpuHistory) * 1.25;
+    let barsHtml = '';
+    _hwCpuHistory.forEach((v, idx) => {
+      const h = Math.max(3, Math.round((v / maxHist) * 22));
+      const isHigh = v > 15;
+      const isLatest = idx === _hwCpuHistory.length - 1;
+      const opacity = isLatest ? '1' : (0.45 + (idx / 12) * 0.55).toFixed(2);
+      barsHtml += `<div class="hw-mini-bar ${isHigh ? 'high' : ''}" style="height: ${h}px; opacity: ${opacity};" title="${v.toFixed(1)}% CPU"></div>`;
+    });
+    hwCpuBars.innerHTML = barsHtml;
+  }
 }
 
 async function fetchVideos() {
