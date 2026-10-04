@@ -253,6 +253,13 @@ const iconEyeHideHoriz = document.getElementById('icon-eye-hide-horiz');
 const btnRevealHorizText = document.getElementById('btn-reveal-horiz-text');
 const cfgDualStreamEnabled = document.getElementById('cfg-dual-stream-enabled');
 
+// Dual Outputs Channel Health DOM Elements
+const deckDualOutputsRow = document.getElementById('deck-dual-outputs-row');
+const dotOutVertical = document.getElementById('dot-out-vertical');
+const textOutVertical = document.getElementById('text-out-vertical');
+const dotOutHorizontal = document.getElementById('dot-out-horizontal');
+const textOutHorizontal = document.getElementById('text-out-horizontal');
+
 // Scheduler & Auto-Recycle DOM Elements
 const panelScheduler = document.getElementById('panel-scheduler');
 const schedIstClock = document.getElementById('sched-ist-clock');
@@ -381,8 +388,49 @@ function renderStatus(data) {
     }
   }
 
+  // Dual Outputs Channel Health rendering
+  if (deckDualOutputsRow) {
+    const isDualActive = isDual || Boolean(data.outputs?.horizontal?.enabled);
+    if (isDualActive) {
+      deckDualOutputsRow.style.display = 'flex';
+      const vert = data.outputs?.vertical;
+      const horiz = data.outputs?.horizontal;
+
+      // Vertical output status
+      const vertStatus = vert?.status || (data.status === 'RUNNING' ? 'CONNECTED' : (data.status === 'STARTING' ? 'INIT' : 'STOPPED'));
+      textOutVertical.textContent = vertStatus;
+      if (vertStatus === 'CONNECTED') {
+        dotOutVertical.className = 'status-dot-sm live';
+      } else if (vertStatus === 'INIT') {
+        dotOutVertical.className = 'status-dot-sm starting';
+      } else if (vertStatus === 'FAILED') {
+        dotOutVertical.className = 'status-dot-sm error';
+      } else {
+        dotOutVertical.className = 'status-dot-sm';
+      }
+
+      // Horizontal output status
+      const horizStatus = horiz?.status || (data.status === 'RUNNING' ? 'CONNECTED' : (data.status === 'STARTING' ? 'INIT' : 'STOPPED'));
+      textOutHorizontal.textContent = horizStatus;
+      if (horizStatus === 'CONNECTED') {
+        dotOutHorizontal.className = 'status-dot-sm live';
+      } else if (horizStatus === 'INIT') {
+        dotOutHorizontal.className = 'status-dot-sm starting';
+      } else if (horizStatus === 'FAILED') {
+        dotOutHorizontal.className = 'status-dot-sm error';
+      } else {
+        dotOutHorizontal.className = 'status-dot-sm';
+      }
+    } else {
+      deckDualOutputsRow.style.display = 'none';
+    }
+  }
+
   if (data.status === 'RUNNING') {
-    if (yt && yt.configured) {
+    if (isDual && data.outputs?.horizontal?.status === 'FAILED') {
+      statusText.textContent = 'DUAL STREAM FAILED (HORIZONTAL DISCONNECTED)';
+      statusDot.className = 'status-dot error';
+    } else if (yt && yt.configured) {
       if (yt.isBroadcastLive) {
         statusText.textContent = isDual ? 'DUAL LIVE (YOUTUBE BROADCAST LIVE)' : 'YOUTUBE LIVE (BROADCAST LIVE)';
         statusDot.className = 'status-dot live';
@@ -1638,16 +1686,30 @@ function renderLogs(lines) {
 
 function updateDeckStreamKeyBadge(settings) {
   if (!deckStreamKeyBadge) return;
-  if (settings?.youtube?.streamKeySet) {
-    deckStreamKeyBadge.textContent = `YouTube: Configured (...${settings.youtube.streamKeyHint})`;
-    deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
-    deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = `YouTube Stream Key is configured (...${settings.youtube.streamKeyHint}). Click to change.`;
-  } else {
+  const isDual = settings?.youtube?.dualStreamEnabled !== false;
+  const hasKey = Boolean(settings?.youtube?.streamKeySet);
+  const hasHorizKey = Boolean(settings?.youtube?.horizontalStreamKeySet);
+
+  if (!hasKey) {
     deckStreamKeyBadge.textContent = 'YouTube: Key Missing';
     deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
     deckStreamKeyBadge.style.color = 'var(--text-main)';
     deckStreamKeyBadge.title = 'YouTube Stream Key is not configured! Click to open Settings.';
+  } else if (isDual && !hasHorizKey) {
+    deckStreamKeyBadge.textContent = `Dual Live: Horiz Key Missing (...${settings.youtube.streamKeyHint})`;
+    deckStreamKeyBadge.style.borderColor = 'rgba(234, 179, 8, 0.6)';
+    deckStreamKeyBadge.style.color = '#eab308';
+    deckStreamKeyBadge.title = 'Dual Live is enabled, but Horizontal Stream Key is missing. Click to open Settings.';
+  } else if (isDual && hasHorizKey) {
+    deckStreamKeyBadge.textContent = `Dual Live: Shorts + 16:9 (...${settings.youtube.streamKeyHint})`;
+    deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
+    deckStreamKeyBadge.style.color = 'var(--text-main)';
+    deckStreamKeyBadge.title = `Dual Live configured: Shorts (...${settings.youtube.streamKeyHint}) & Normal (...${settings.youtube.horizontalStreamKeyHint}). Click to change.`;
+  } else {
+    deckStreamKeyBadge.textContent = `YouTube: Configured (...${settings.youtube.streamKeyHint})`;
+    deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
+    deckStreamKeyBadge.style.color = 'var(--text-main)';
+    deckStreamKeyBadge.title = `YouTube Stream Key is configured (...${settings.youtube.streamKeyHint}). Click to change.`;
   }
 }
 

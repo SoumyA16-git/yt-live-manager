@@ -305,6 +305,10 @@ export function validateSettings(input, { partial = true } = {}) {
         if (!r.valid) errors.push(...r.errors.map(e => `youtube.horizontalStreamKey: ${e}`));
         requiresRestart = true;
       }
+      // Duplicate stream key check
+      if (yt.streamKey && yt.horizontalStreamKey && yt.streamKey.trim() === yt.horizontalStreamKey.trim()) {
+        errors.push(fieldErr('youtube.horizontalStreamKey', 'Vertical and Horizontal Stream Keys must be different'));
+      }
       // dualStreamEnabled
       if (yt.dualStreamEnabled !== undefined) {
         validateField('youtube.dualStreamEnabled', yt.dualStreamEnabled, YOUTUBE_SCHEMA.dualStreamEnabled, errors);

@@ -31,7 +31,7 @@ export function createStreamRouter() {
       reasons.push(`RTMPS vertical output failed: ${outputs.vertical.lastError || 'Connection error'}`);
     }
     if (outputs.horizontal.enabled && outputs.horizontal.status === 'FAILED') {
-      healthStatus = 'DEGRADED';
+      healthStatus = 'UNHEALTHY';
       reasons.push(`RTMPS horizontal output failed: ${outputs.horizontal.lastError || 'Connection error'}`);
     }
 

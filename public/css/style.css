@@ -2726,5 +2726,62 @@ select.form-control option {
   background: linear-gradient(180deg, #f43f5e, #be123c);
 }
 
+/* Dual Outputs Channel Health */
+.dual-outputs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border-subtle, #334155);
+  flex-wrap: wrap;
+}
+
+.dual-output-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: var(--radius-sm, 6px);
+  background: var(--bg-surface-elevated, #1e293b);
+  border: 1px solid var(--border-muted, #334155);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-main, #f8fafc);
+}
+
+.status-dot-sm {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.status-dot-sm.live {
+  background: #22c55e;
+  box-shadow: 0 0 6px #22c55e;
+}
+
+.status-dot-sm.starting {
+  background: #eab308;
+  box-shadow: 0 0 6px #eab308;
+}
+
+.status-dot-sm.error {
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+}
+
+.dual-output-name {
+  color: var(--text-muted, #94a3b8);
+}
+
+.dual-output-state {
+  font-weight: 600;
+}
+
+
 
 

@@ -526,6 +526,17 @@ export async function spawnFfmpeg({
 
   const hasHorizontal = Boolean(secondaryArgs && Array.isArray(secondaryArgs) && secondaryArgs.length > 0);
 
+  // Validate RTMPS destinations for dual streaming
+  if (hasHorizontal) {
+    const primTarget = args[args.length - 1];
+    const secTarget = secondaryArgs[secondaryArgs.length - 1];
+    if (primTarget && secTarget && primTarget.trim() === secTarget.trim()) {
+      throw Object.assign(new Error('Vertical and Horizontal Stream Keys must be different'), {
+        code: 'E_DUAL_STREAM_KEYS_IDENTICAL',
+      });
+    }
+  }
+
   _outputDestinations = {
     vertical: { status: 'INIT', lastError: null, connectedAt: null },
     horizontal: { enabled: hasHorizontal, status: hasHorizontal ? 'INIT' : 'DISABLED', lastError: null, connectedAt: null },
@@ -608,6 +619,22 @@ export async function spawnFfmpeg({
       logger.error('ffmpeg.secondary_spawn_failed', `Failed to spawn secondary horizontal FFmpeg: ${err.message}`);
       _outputDestinations.horizontal.status = 'FAILED';
       _outputDestinations.horizontal.lastError = err.message;
+
+      // ATOMIC SPAWN ABORT: Terminate primary child, release lock, and reject
+      try { primaryChild.kill('SIGKILL'); } catch { /* ignore */ }
+      _primaryChild = null;
+      _primaryPid = null;
+      _secondaryChild = null;
+      _secondaryPid = null;
+      await releaseLock();
+      if (_resolveExitCompletion) {
+        _resolveExitCompletion();
+        _resolveExitCompletion = null;
+      }
+      _exitCompletionPromise = null;
+      throw Object.assign(new Error(`Failed to spawn secondary horizontal FFmpeg: ${err.message}`), {
+        code: 'E_SECONDARY_SPAWN_FAILED',
+      });
     }
   }
 
@@ -619,11 +646,31 @@ export async function spawnFfmpeg({
 
   let becameHealthy = false;
 
+  function checkDualHealth(progressData) {
+    if (becameHealthy) return;
+
+    const vertOk = _outputDestinations.vertical.status === 'CONNECTED';
+    const horizRequired = Boolean(hasHorizontal);
+    const horizOk = _outputDestinations.horizontal.status === 'CONNECTED';
+
+    if (vertOk && (!horizRequired || horizOk)) {
+      becameHealthy = true;
+      if (_startupTimer) {
+        clearTimeout(_startupTimer);
+        _startupTimer = null;
+      }
+      logger.info('stream.dual_healthy_confirmed', `Both stream outputs confirmed healthy and transmitting (vertical=${vertOk}, horizontal=${horizRequired ? horizOk : 'N/A'})`);
+      if (typeof onHealthy === 'function') {
+        onHealthy(progressData || _latestProgress || {});
+      }
+    }
+  }
+
   // 1. Startup Watchdog: must emit valid progress within startupTimeoutSeconds
   _startupTimer = setTimeout(() => {
     if (!becameHealthy) {
       logger.error('ffmpeg.startup_timeout', `FFmpeg failed to produce healthy output within ${startupTimeoutMs / 1000}s`);
-      stopFfmpeg({ force: true, reason: 'startup_timeout' });
+      stopFfmpeg({ force: true, reason: 'startup_timeout', expected: false });
     }
   }, startupTimeoutMs);
 
@@ -714,14 +761,13 @@ export async function spawnFfmpeg({
       _latestProgress = progressData;
 
       // Healthy trigger: primary vertical output transmitting
-      if (!becameHealthy && totalSize > 0 && speed >= minSpeed && _outputDestinations.vertical.status !== 'FAILED') {
-        becameHealthy = true;
-        _outputDestinations.vertical.status = 'CONNECTED';
-        _outputDestinations.vertical.connectedAt = new Date().toISOString();
-        logger.info('ffmpeg.rtmps_vertical', 'RTMPS primary vertical output: CONNECTED (outbound socket active, data transmitting)');
-
-        if (_startupTimer) { clearTimeout(_startupTimer); _startupTimer = null; }
-        if (typeof onHealthy === 'function') onHealthy(progressData);
+      if (totalSize > 0 && speed >= minSpeed && _outputDestinations.vertical.status !== 'FAILED') {
+        if (_outputDestinations.vertical.status !== 'CONNECTED') {
+          _outputDestinations.vertical.status = 'CONNECTED';
+          _outputDestinations.vertical.connectedAt = new Date().toISOString();
+          logger.info('ffmpeg.rtmps_vertical', 'RTMPS primary vertical output: CONNECTED (outbound socket active, data transmitting)');
+        }
+        checkDualHealth(progressData);
       }
 
       // Check stall watchdog delta
@@ -736,7 +782,7 @@ export async function spawnFfmpeg({
           if (!_slowStartTime) _slowStartTime = Date.now();
           else if (Date.now() - _slowStartTime >= slowMs) {
             logger.warn('ffmpeg.speed_overload', `FFmpeg encoding speed (${speed}x) below threshold (${minSpeed}x) for ${slowMs / 1000}s`);
-            stopFfmpeg({ force: true, reason: 'encoder_slow' });
+            stopFfmpeg({ force: true, reason: 'encoder_slow', expected: false });
           }
         } else {
           _slowStartTime = null;
@@ -755,7 +801,7 @@ export async function spawnFfmpeg({
   _stallWatchdog = setInterval(() => {
     if (becameHealthy && Date.now() - _lastProgressTime >= stallMs) {
       logger.error('ffmpeg.stall_detected', `FFmpeg output stalled for ${stallMs / 1000}s`);
-      stopFfmpeg({ force: true, reason: 'stall_watchdog' });
+      stopFfmpeg({ force: true, reason: 'stall_watchdog', expected: false });
     }
   }, 5000);
 
@@ -775,6 +821,11 @@ export async function spawnFfmpeg({
       _outputDestinations.vertical.status = 'FAILED';
       _outputDestinations.vertical.lastError = redacted;
       logger.error('ffmpeg.rtmps_vertical_failed', `RTMPS vertical output: FAILED (${redacted})`);
+
+      if (!becameHealthy && !_expectedExit) {
+        logger.error('ffmpeg.primary_startup_failed', `Primary vertical FFmpeg failed during startup: ${redacted}`);
+        stopFfmpeg({ force: true, reason: 'primary_startup_failed', expected: false });
+      }
     } else {
       logger.debug('ffmpeg.stderr_primary', redacted);
     }
@@ -801,10 +852,13 @@ export async function spawnFfmpeg({
       if (trimmed.startsWith('progress=')) {
         const secTotalSize = parseInt(secBlock.total_size, 10) || 0;
         const secSpeed = parseFloat((secBlock.speed || '').replace('x', '').trim()) || 0;
-        if (secTotalSize > 0 && secSpeed >= minSpeed && _outputDestinations.horizontal.status !== 'CONNECTED' && _outputDestinations.horizontal.status !== 'FAILED') {
-          _outputDestinations.horizontal.status = 'CONNECTED';
-          _outputDestinations.horizontal.connectedAt = new Date().toISOString();
-          logger.info('ffmpeg.rtmps_horizontal', 'RTMPS secondary horizontal output: CONNECTED (outbound socket active, data transmitting)');
+        if (secTotalSize > 0 && secSpeed >= minSpeed && _outputDestinations.horizontal.status !== 'FAILED') {
+          if (_outputDestinations.horizontal.status !== 'CONNECTED') {
+            _outputDestinations.horizontal.status = 'CONNECTED';
+            _outputDestinations.horizontal.connectedAt = new Date().toISOString();
+            logger.info('ffmpeg.rtmps_horizontal', 'RTMPS secondary horizontal output: CONNECTED (outbound socket active, data transmitting)');
+          }
+          checkDualHealth(_latestProgress || progressData);
         }
         secBlock = {};
       }
@@ -824,6 +878,11 @@ export async function spawnFfmpeg({
         _outputDestinations.horizontal.status = 'FAILED';
         _outputDestinations.horizontal.lastError = redacted;
         logger.error('ffmpeg.rtmps_horizontal_failed', `RTMPS horizontal output: FAILED (${redacted})`);
+
+        if (!becameHealthy && !_expectedExit) {
+          logger.error('ffmpeg.secondary_startup_failed', `Secondary horizontal FFmpeg failed during startup: ${redacted}`);
+          stopFfmpeg({ force: true, reason: 'secondary_startup_failed', expected: false });
+        }
       } else {
         logger.debug('ffmpeg.stderr_secondary', redacted);
       }
@@ -835,11 +894,14 @@ export async function spawnFfmpeg({
 
     secChild.on('exit', (code, signal) => {
       logger.info('ffmpeg.secondary_exit', `Secondary FFmpeg PID ${_secondaryPid} exited with code ${code}, signal ${signal}`);
+      const wasExpected = _expectedExit;
       _secondaryChild = null;
       _secondaryPid = null;
-      if (!_expectedExit && code !== 0) {
+      if (!wasExpected) {
         _outputDestinations.horizontal.status = 'FAILED';
-        _outputDestinations.horizontal.lastError = `Process exited with code ${code}`;
+        _outputDestinations.horizontal.lastError = `Secondary process exited with code ${code}, signal ${signal}`;
+        logger.error('ffmpeg.secondary_unexpected_exit', `Secondary FFmpeg exited unexpectedly (code ${code}, signal ${signal}). Stopping primary to prevent half-dual streaming.`);
+        stopFfmpeg({ force: true, reason: 'secondary_exit', expected: false });
       }
     });
   }
@@ -878,7 +940,7 @@ export async function spawnFfmpeg({
             code,
             signal,
             expected: wasExpected,
-            lastError: lastErrLine,
+            lastError: _outputDestinations.horizontal.status === 'FAILED' ? (_outputDestinations.horizontal.lastError || lastErrLine) : lastErrLine,
           });
         } catch (exitErr) {
           logger.error('ffmpeg.on_exit_error', `Error in onExit callback: ${exitErr.message}`);
@@ -970,7 +1032,13 @@ export async function feedMediaSegment({
   });
 
   // Secondary feeder (horizontal) if dual streaming publisher is active
-  if (_secondaryChild && _secondaryChild.stdin && !_secondaryChild.stdin.destroyed && secondaryVideo) {
+  if (_secondaryChild && _secondaryChild.stdin && !_secondaryChild.stdin.destroyed) {
+    if (!secondaryVideo) {
+      logger.error('playlist.dual_pair_missing_at_feeder', 'Secondary publisher is active but no secondary video was provided to feeder');
+      const pairErr = Object.assign(new Error('Missing secondary horizontal video for dual live feeder'), { code: 'E_DUAL_PAIR_MISSING' });
+      if (typeof onError === 'function') onError(pairErr);
+      return;
+    }
     const secArgs = buildFeederArgs(settings, secondaryVideo, mode);
     logger.info('playlist.feeder_start_secondary', `Starting feeder for secondary horizontal video ${secondaryVideo.id} (${secondaryVideo.filename || secondaryVideo.originalName || ''})`);
 
@@ -1066,7 +1134,7 @@ export function getCurrentSegment() {
  * @param {string}  [opts.reason='manual_stop']
  * @param {number}  [opts.graceSeconds=8]
  */
-export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceSeconds = 8 } = {}) {
+export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceSeconds = 8, expected = undefined } = {}) {
   await stopFeeders();
 
   if (!_primaryChild && !_secondaryChild) {
@@ -1079,7 +1147,8 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
   const primary = _primaryChild;
   const secondary = _secondaryChild;
   const exitPromise = _exitCompletionPromise;
-  _expectedExit = true;
+  const isNormalStop = (reason === 'manual_stop' || reason === 'api_stop' || reason === 'scheduler_stop' || reason === 'auto_recycle' || reason === 'bandwidth_safety_limit' || reason === 'admin_disabled' || reason.startsWith('maintenance_'));
+  _expectedExit = (expected !== undefined) ? Boolean(expected) : isNormalStop;
   clearWatchdogs();
 
   // Close publisher stdin pipes gracefully

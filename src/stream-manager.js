@@ -340,44 +340,62 @@ export async function evaluateStartGates(options = {}) {
   // 9. Dual Stream Resolution (Shorts Vertical + Normal Horizontal)
   let horizontalMeta = null;
   let dualTarget = null;
-  const horizontalKey = getHorizontalStreamKey();
+  const horizontalKey = (getHorizontalStreamKey() || settings.youtube?.horizontalStreamKey || '').trim();
   const dualEnabled = isDualStreamEnabled();
+  const isDual = dualEnabled && Boolean(horizontalKey);
 
-  if (dualEnabled && horizontalKey && horizontalKey.trim()) {
+  if (isDual) {
+    if (streamKey.trim() === horizontalKey) {
+      return {
+        allowed: false,
+        code: 'E_DUAL_STREAM_KEYS_IDENTICAL',
+        reason: 'Vertical and Horizontal Stream Keys must be different.',
+      };
+    }
+
     const allVideos = await listVideos();
     const rtmpsUrl = settings.youtube?.rtmpsUrl || 'rtmps://a.rtmps.youtube.com:443/live2';
 
     if (playlistMetas.length === 1) {
       const pairedH = findPairedComplementaryVideo(playlistMetas[0], allVideos);
-      if (pairedH) {
-        const hExt = path.extname(pairedH.filename || `${pairedH.id}.mp4`);
-        const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
-        try {
-          await fs.access(resolvedHPath);
-          horizontalMeta = {
-            ...pairedH,
-            filePath: resolvedHPath,
-            isConcat: false,
-            seekOffset: 0,
-          };
-          dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
-          logger.info('stream.dual_stream_paired', `Dual streaming enabled: Paired primary ${playlistMetas[0].id} with complementary ${pairedH.id}`);
-        } catch {
-          logger.warn('stream.dual_stream_file_missing', `Paired complementary video file missing: ${resolvedHPath}; streaming primary only`);
-        }
-      } else {
-        logger.info('stream.dual_stream_no_pair', 'Secondary stream key configured, but no matching complementary video found. Streaming primary only.');
+      if (!pairedH) {
+        return {
+          allowed: false,
+          code: 'E_DUAL_PAIR_MISSING',
+          reason: 'Dual Live is enabled, but selected video has no matching horizontal (16:9) pair.',
+        };
       }
+      const hExt = path.extname(pairedH.filename || `${pairedH.id}.mp4`);
+      const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
+      try {
+        await fs.access(resolvedHPath);
+      } catch {
+        return {
+          allowed: false,
+          code: 'E_DUAL_PAIR_MISSING',
+          reason: `Paired complementary video file missing on disk: ${resolvedHPath}`,
+        };
+      }
+      horizontalMeta = {
+        ...pairedH,
+        filePath: resolvedHPath,
+        isConcat: false,
+        seekOffset: 0,
+      };
+      dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
+      logger.info('stream.dual_stream_paired', `Dual streaming enabled: Paired primary ${playlistMetas[0].id} with complementary ${pairedH.id}`);
     } else {
       // Multi-video playlist: find paired complementary video for each
       const horizontalMap = new Map();
-      let allPaired = true;
 
       for (const vMeta of playlistMetas) {
         const pairedH = findPairedComplementaryVideo(vMeta, allVideos);
         if (!pairedH) {
-          allPaired = false;
-          break;
+          return {
+            allowed: false,
+            code: 'E_DUAL_PAIR_MISSING',
+            reason: `Dual Live is enabled, but playlist video ${vMeta.id} has no matching horizontal (16:9) pair.`,
+          };
         }
         const hExt = path.extname(pairedH.filename || `${pairedH.id}.mp4`);
         const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
@@ -385,35 +403,34 @@ export async function evaluateStartGates(options = {}) {
           await fs.access(resolvedHPath);
           horizontalMap.set(vMeta.id, { ...pairedH, filePath: resolvedHPath });
         } catch {
-          allPaired = false;
-          break;
+          return {
+            allowed: false,
+            code: 'E_DUAL_PAIR_MISSING',
+            reason: `Paired complementary video file missing on disk for ${vMeta.id}: ${resolvedHPath}`,
+          };
         }
       }
 
-      if (allPaired && horizontalMap.size === playlistMetas.length) {
-        // Build loop_horizontal.ffconcat in same order as orderedMetas
-        const concatLines = ['ffconcat version 1.0'];
-        for (const meta of orderedMetas) {
-          const hMeta = horizontalMap.get(meta.id);
-          const normH = hMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
-          concatLines.push(`file '${normH}'`);
-        }
-
-        await fs.mkdir(path.dirname(PATHS.loopConcatHorizontal), { recursive: true });
-        await fs.writeFile(PATHS.loopConcatHorizontal, concatLines.join('\n') + '\n', 'utf8');
-
-        const firstH = horizontalMap.get(orderedMetas[0].id) || {};
-        horizontalMeta = {
-          ...firstH,
-          filePath: PATHS.loopConcatHorizontal,
-          isConcat: true,
-          playlistCount: orderedMetas.length,
-        };
-        dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
-        logger.info('stream.dual_stream_playlist_paired', `Dual streaming enabled for playlist: paired ${orderedMetas.length} horizontal videos`);
-      } else {
-        logger.warn('stream.dual_stream_playlist_partial', 'Not all playlist videos have matching horizontal videos. Streaming vertical only.');
+      // Build loop_horizontal.ffconcat in same order as orderedMetas
+      const concatLines = ['ffconcat version 1.0'];
+      for (const meta of orderedMetas) {
+        const hMeta = horizontalMap.get(meta.id);
+        const normH = hMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
+        concatLines.push(`file '${normH}'`);
       }
+
+      await fs.mkdir(path.dirname(PATHS.loopConcatHorizontal), { recursive: true });
+      await fs.writeFile(PATHS.loopConcatHorizontal, concatLines.join('\n') + '\n', 'utf8');
+
+      const firstH = horizontalMap.get(orderedMetas[0].id) || {};
+      horizontalMeta = {
+        ...firstH,
+        filePath: PATHS.loopConcatHorizontal,
+        isConcat: true,
+        playlistCount: orderedMetas.length,
+      };
+      dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
+      logger.info('stream.dual_stream_playlist_paired', `Dual streaming enabled for playlist: paired ${orderedMetas.length} horizontal videos`);
     }
   }
 
@@ -423,6 +440,7 @@ export async function evaluateStartGates(options = {}) {
     mode: selectedMode,
     horizontalMeta,
     dualTarget,
+    isDualStream: Boolean(dualTarget && horizontalMeta),
   };
 }
 
@@ -1201,6 +1219,7 @@ export async function clearConfigGateError() {
     'E_NEEDS_TRANSCODE', 'E_KEY_MISSING', 'E_NO_VIDEO',
     'E_TRANSCODE_FORBIDDEN', 'E_CONFIG_INVALID',
     'E_VIDEO_NOT_FOUND', 'E_VIDEO_FILE_MISSING',
+    'E_DUAL_HORIZONTAL_KEY_MISSING', 'E_DUAL_STREAM_KEYS_IDENTICAL', 'E_DUAL_PAIR_MISSING',
   ];
   if (state.status === 'ERROR' && state.lastError && configErrors.includes(state.lastError.code)) {
     await saveState({ lastError: null });

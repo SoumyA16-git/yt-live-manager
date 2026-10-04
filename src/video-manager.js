@@ -99,7 +99,7 @@ export function findPairedHorizontalVideo(verticalVideo, allVideos = []) {
     if (v.pairedVideoId && v.pairedVideoId !== verticalVideo.id) return false;
     const w = v.probe?.width || 0;
     const h = v.probe?.height || 0;
-    return w > h;
+    return (w > h) || v.probe?.orientation === 'horizontal' || v.orientation === 'horizontal';
   });
 
   if (horizontalVideos.length === 0) return null;
