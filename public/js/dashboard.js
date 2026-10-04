@@ -11,21 +11,21 @@ import { calculateBitrateMetrics, formatBytes } from './calc.js';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-let _pollStatusTimer      = null;
-let _pollSlowTimer        = null;
-let _currentSettings      = null;
-let _currentStatus        = 'STOPPED';
+let _pollStatusTimer = null;
+let _pollSlowTimer = null;
+let _currentSettings = null;
+let _currentStatus = 'STOPPED';
 let _currentActiveVideoId = null;
-let _currentPlaylist      = [];
+let _currentPlaylist = [];
 let _currentPlaybackOrder = 'sequential';
-let _cachedVideos         = [];
+let _cachedVideos = [];
 
 // ─── DOM References ───────────────────────────────────────────────────────────
 
-const toastContainer   = document.getElementById('toast-container');
+const toastContainer = document.getElementById('toast-container');
 const disconnectBanner = document.getElementById('disconnect-banner');
-const userDisplay      = document.getElementById('user-display');
-const btnLogout        = document.getElementById('btn-logout');
+const userDisplay = document.getElementById('user-display');
+const btnLogout = document.getElementById('btn-logout');
 
 // ─── Toast Notifications (Zero Emojis, Pure SVG Vector Icons) ────────────────
 
@@ -86,186 +86,186 @@ export function showToast(message, type = 'info', title = '') {
 }
 
 // Health Verdict
-const verdictBadge     = document.getElementById('verdict-badge');
-const verdictReasons   = document.getElementById('verdict-reasons');
-const quickStatus      = document.getElementById('quick-status');
-const quickUptime      = document.getElementById('quick-uptime');
-const quickUsage       = document.getElementById('quick-usage');
+const verdictBadge = document.getElementById('verdict-badge');
+const verdictReasons = document.getElementById('verdict-reasons');
+const quickStatus = document.getElementById('quick-status');
+const quickUptime = document.getElementById('quick-uptime');
+const quickUsage = document.getElementById('quick-usage');
 
 // Stream Status
-const statusDot        = document.getElementById('status-dot');
-const statusText       = document.getElementById('status-text');
-const metricMode       = document.getElementById('metric-mode');
-const metricPid        = document.getElementById('metric-pid');
-const metricFps        = document.getElementById('metric-fps');
-const metricSpeed      = document.getElementById('metric-speed');
-const metricBitrate    = document.getElementById('metric-bitrate');
-const metricRestarts   = document.getElementById('metric-restarts');
-const lastErrorBox     = document.getElementById('last-error-box');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const metricMode = document.getElementById('metric-mode');
+const metricPid = document.getElementById('metric-pid');
+const metricFps = document.getElementById('metric-fps');
+const metricSpeed = document.getElementById('metric-speed');
+const metricBitrate = document.getElementById('metric-bitrate');
+const metricRestarts = document.getElementById('metric-restarts');
+const lastErrorBox = document.getElementById('last-error-box');
 const reachabilityBadge = document.getElementById('reachability-badge');
 
 // Bandwidth Speed Meter (Live Egress Gauge) Elements
 const telemetrySpeedBadge = document.getElementById('telemetry-speed-badge');
-const speedStatusPill     = document.getElementById('speed-status-pill');
-const speedStatusText     = document.getElementById('speed-status-text');
-const speedGaugeFill      = document.getElementById('speed-gauge-fill');
-const gaugePointerGroup   = document.getElementById('gauge-pointer-group');
-const gaugePointerNeedle  = document.getElementById('gauge-pointer-needle');
-const speedReadoutNum     = document.getElementById('speed-readout-num');
-const speedValKbps        = document.getElementById('speed-val-kbps');
-const speedValHourly      = document.getElementById('speed-val-hourly');
-const speedValTarget      = document.getElementById('speed-val-target');
-const speedValHealth      = document.getElementById('speed-val-health');
-const speedWaveFps        = document.getElementById('speed-wave-fps');
-const speedWaveArea       = document.getElementById('speed-wave-area');
-const speedWaveLine       = document.getElementById('speed-wave-line');
+const speedStatusPill = document.getElementById('speed-status-pill');
+const speedStatusText = document.getElementById('speed-status-text');
+const speedGaugeFill = document.getElementById('speed-gauge-fill');
+const gaugePointerGroup = document.getElementById('gauge-pointer-group');
+const gaugePointerNeedle = document.getElementById('gauge-pointer-needle');
+const speedReadoutNum = document.getElementById('speed-readout-num');
+const speedValKbps = document.getElementById('speed-val-kbps');
+const speedValHourly = document.getElementById('speed-val-hourly');
+const speedValTarget = document.getElementById('speed-val-target');
+const speedValHealth = document.getElementById('speed-val-health');
+const speedWaveFps = document.getElementById('speed-wave-fps');
+const speedWaveArea = document.getElementById('speed-wave-area');
+const speedWaveLine = document.getElementById('speed-wave-line');
 
 // Controls
-const btnStart         = document.getElementById('btn-start');
-const btnStop          = document.getElementById('btn-stop');
-const btnRestart       = document.getElementById('btn-restart');
-const chkDisabled      = document.getElementById('chk-disabled');
+const btnStart = document.getElementById('btn-start');
+const btnStop = document.getElementById('btn-stop');
+const btnRestart = document.getElementById('btn-restart');
+const chkDisabled = document.getElementById('chk-disabled');
 
 // Bandwidth
-const bwAlertBanner    = document.getElementById('bw-alert-banner');
-const bwSafetyText     = document.getElementById('bw-safety-text');
-const bwSafetyFill     = document.getElementById('bw-safety-fill');
-const bwAllowanceText  = document.getElementById('bw-allowance-text');
-const bwAllowanceFill  = document.getElementById('bw-allowance-fill');
-const bwForecast       = document.getElementById('bw-forecast-sentence');
-const periodBadge      = document.getElementById('period-badge');
+const bwAlertBanner = document.getElementById('bw-alert-banner');
+const bwSafetyText = document.getElementById('bw-safety-text');
+const bwSafetyFill = document.getElementById('bw-safety-fill');
+const bwAllowanceText = document.getElementById('bw-allowance-text');
+const bwAllowanceFill = document.getElementById('bw-allowance-fill');
+const bwForecast = document.getElementById('bw-forecast-sentence');
+const periodBadge = document.getElementById('period-badge');
 
 // Bandwidth Infographic Elements
-const bwHeadlineUsed    = document.getElementById('bw-headline-used');
-const bwHeadlineLimit   = document.getElementById('bw-headline-limit');
-const bwStatusPill      = document.getElementById('bw-status-pill');
-const bwKpiPace         = document.getElementById('bw-kpi-pace');
-const bwKpiProjected    = document.getElementById('bw-kpi-projected');
-const bwKpiHeadroom     = document.getElementById('bw-kpi-headroom');
-const bwKpiHeadroomSub  = document.getElementById('bw-kpi-headroom-sub');
+const bwHeadlineUsed = document.getElementById('bw-headline-used');
+const bwHeadlineLimit = document.getElementById('bw-headline-limit');
+const bwStatusPill = document.getElementById('bw-status-pill');
+const bwKpiPace = document.getElementById('bw-kpi-pace');
+const bwKpiProjected = document.getElementById('bw-kpi-projected');
+const bwKpiHeadroom = document.getElementById('bw-kpi-headroom');
+const bwKpiHeadroomSub = document.getElementById('bw-kpi-headroom-sub');
 
 // Bar Chart & Pie Chart SVG Elements
-const bwBarWavePath     = document.getElementById('bw-bar-wave-path');
-const bwBarsGroup       = document.getElementById('bw-bars-group');
-const bwPieSliceUsed    = document.getElementById('bw-pie-slice-used');
-const bwPieSliceSafe    = document.getElementById('bw-pie-slice-safe');
-const bwPieSliceBuffer  = document.getElementById('bw-pie-slice-buffer');
-const bwPieCenterVal    = document.getElementById('bw-pie-center-val');
-const bwPieUsedVal      = document.getElementById('bw-pie-used-val');
-const bwPieSafeVal      = document.getElementById('bw-pie-safe-val');
-const bwPieBufferVal    = document.getElementById('bw-pie-buffer-val');
-const bwPieSafeBadge    = document.getElementById('bw-pie-safe-badge');
+const bwBarWavePath = document.getElementById('bw-bar-wave-path');
+const bwBarsGroup = document.getElementById('bw-bars-group');
+const bwPieSliceUsed = document.getElementById('bw-pie-slice-used');
+const bwPieSliceSafe = document.getElementById('bw-pie-slice-safe');
+const bwPieSliceBuffer = document.getElementById('bw-pie-slice-buffer');
+const bwPieCenterVal = document.getElementById('bw-pie-center-val');
+const bwPieUsedVal = document.getElementById('bw-pie-used-val');
+const bwPieSafeVal = document.getElementById('bw-pie-safe-val');
+const bwPieBufferVal = document.getElementById('bw-pie-buffer-val');
+const bwPieSafeBadge = document.getElementById('bw-pie-safe-badge');
 
 // Video Library
-const activeVideoName  = document.getElementById('active-video-name');
-const uploadZone       = document.getElementById('upload-zone');
-const fileInput        = document.getElementById('file-input');
-const uploadBox        = document.getElementById('upload-progress-box');
+const activeVideoName = document.getElementById('active-video-name');
+const uploadZone = document.getElementById('upload-zone');
+const fileInput = document.getElementById('file-input');
+const uploadBox = document.getElementById('upload-progress-box');
 const uploadStatusText = document.getElementById('upload-status-text');
-const uploadPct        = document.getElementById('upload-pct');
-const uploadFill       = document.getElementById('upload-fill');
-const uploadBytesText  = document.getElementById('upload-bytes-text');
-const uploadSpeedText  = document.getElementById('upload-speed-text');
-const videosList            = document.getElementById('videos-list');
-const videoCountBadge       = document.getElementById('video-count-badge');
-const playlistToolbar       = document.getElementById('playlist-toolbar');
-const btnSelectAllVideos    = document.getElementById('btn-select-all-videos');
-const btnDeselectAllVideos  = document.getElementById('btn-deselect-all-videos');
+const uploadPct = document.getElementById('upload-pct');
+const uploadFill = document.getElementById('upload-fill');
+const uploadBytesText = document.getElementById('upload-bytes-text');
+const uploadSpeedText = document.getElementById('upload-speed-text');
+const videosList = document.getElementById('videos-list');
+const videoCountBadge = document.getElementById('video-count-badge');
+const playlistToolbar = document.getElementById('playlist-toolbar');
+const btnSelectAllVideos = document.getElementById('btn-select-all-videos');
+const btnDeselectAllVideos = document.getElementById('btn-deselect-all-videos');
 const playlistSelectedCount = document.getElementById('playlist-selected-count');
-const selPlaybackOrder      = document.getElementById('sel-playback-order');
+const selPlaybackOrder = document.getElementById('sel-playback-order');
 
 // YouTube Import UI
-const ytImportPanel    = document.getElementById('yt-import-panel');
-const ytUrlInput       = document.getElementById('yt-url-input');
-const btnYtDownload    = document.getElementById('btn-yt-download');
-const ytDlProgressBox  = document.getElementById('yt-dl-progress-box');
-const ytDlStageText    = document.getElementById('yt-dl-stage-text');
-const ytDlPct          = document.getElementById('yt-dl-pct');
-const ytDlFill         = document.getElementById('yt-dl-fill');
-const ytDlTitle        = document.getElementById('yt-dl-title');
-const ytDlDetails      = document.getElementById('yt-dl-details');
-const btnCancelYtDl    = document.getElementById('btn-cancel-yt-dl');
+const ytImportPanel = document.getElementById('yt-import-panel');
+const ytUrlInput = document.getElementById('yt-url-input');
+const btnYtDownload = document.getElementById('btn-yt-download');
+const ytDlProgressBox = document.getElementById('yt-dl-progress-box');
+const ytDlStageText = document.getElementById('yt-dl-stage-text');
+const ytDlPct = document.getElementById('yt-dl-pct');
+const ytDlFill = document.getElementById('yt-dl-fill');
+const ytDlTitle = document.getElementById('yt-dl-title');
+const ytDlDetails = document.getElementById('yt-dl-details');
+const btnCancelYtDl = document.getElementById('btn-cancel-yt-dl');
 
 // System
-const metricCpu        = document.getElementById('metric-cpu');
-const metricRam        = document.getElementById('metric-ram');
-const metricRamSub     = document.getElementById('metric-ram-sub');
-const metricDisk       = document.getElementById('metric-disk');
-const metricDiskSub    = document.getElementById('metric-disk-sub');
-const metricDiskPct    = document.getElementById('metric-disk-pct');
-const metricDiskBar    = document.getElementById('metric-disk-bar');
-const cardDiskStorage  = document.getElementById('card-disk-storage');
-const metricUptime     = document.getElementById('metric-uptime');
-const dirVideos        = document.getElementById('dir-videos');
-const dirLogs          = document.getElementById('dir-logs');
-const dirBackups       = document.getElementById('dir-backups');
+const metricCpu = document.getElementById('metric-cpu');
+const metricRam = document.getElementById('metric-ram');
+const metricRamSub = document.getElementById('metric-ram-sub');
+const metricDisk = document.getElementById('metric-disk');
+const metricDiskSub = document.getElementById('metric-disk-sub');
+const metricDiskPct = document.getElementById('metric-disk-pct');
+const metricDiskBar = document.getElementById('metric-disk-bar');
+const cardDiskStorage = document.getElementById('card-disk-storage');
+const metricUptime = document.getElementById('metric-uptime');
+const dirVideos = document.getElementById('dir-videos');
+const dirLogs = document.getElementById('dir-logs');
+const dirBackups = document.getElementById('dir-backups');
 
 // Logs
-const logViewer        = document.getElementById('log-viewer');
-const btnRefreshLogs   = document.getElementById('btn-refresh-logs');
+const logViewer = document.getElementById('log-viewer');
+const btnRefreshLogs = document.getElementById('btn-refresh-logs');
 
 // Settings Modal
-const modalSettings    = document.getElementById('modal-settings');
-const btnOpenSettings  = document.getElementById('btn-open-settings');
+const modalSettings = document.getElementById('modal-settings');
+const btnOpenSettings = document.getElementById('btn-open-settings');
 const btnCloseSettings = document.getElementById('btn-close-settings');
 const btnCancelSettings = document.getElementById('btn-cancel-settings');
-const settingsForm     = document.getElementById('settings-form');
-const cfgRtmpsUrl      = document.getElementById('cfg-rtmps-url');
-const cfgStreamKey     = document.getElementById('cfg-stream-key');
-const btnRevealKey     = document.getElementById('btn-reveal-key');
-const keyHintText      = document.getElementById('key-hint-text');
-const cfgModePref      = document.getElementById('cfg-mode-pref');
+const settingsForm = document.getElementById('settings-form');
+const cfgRtmpsUrl = document.getElementById('cfg-rtmps-url');
+const cfgStreamKey = document.getElementById('cfg-stream-key');
+const btnRevealKey = document.getElementById('btn-reveal-key');
+const keyHintText = document.getElementById('key-hint-text');
+const cfgModePref = document.getElementById('cfg-mode-pref');
 const cfgAllowTranscode = document.getElementById('cfg-allow-transcode');
-const cfgBitrate       = document.getElementById('cfg-bitrate');
-const cfgSafetyLimit   = document.getElementById('cfg-safety-limit');
-const cfgOverhead      = document.getElementById('cfg-overhead');
-const previewGbDay     = document.getElementById('preview-gb-day');
-const previewTbMonth   = document.getElementById('preview-tb-month');
+const cfgBitrate = document.getElementById('cfg-bitrate');
+const cfgSafetyLimit = document.getElementById('cfg-safety-limit');
+const cfgOverhead = document.getElementById('cfg-overhead');
+const previewGbDay = document.getElementById('preview-gb-day');
+const previewTbMonth = document.getElementById('preview-tb-month');
 
 // Stream Key UI & Maintenance DOM Elements
-const deckStreamKeyBadge     = document.getElementById('deck-stream-key-badge');
-const deckDualStreamBadge    = document.getElementById('deck-dual-stream-badge');
-const bannerMaintenance      = document.getElementById('banner-maintenance');
-const btnDisableMaintenance  = document.getElementById('btn-disable-maintenance');
-const keyBadge               = document.getElementById('key-badge');
-const iconEyeShow            = document.getElementById('icon-eye-show');
-const iconEyeHide            = document.getElementById('icon-eye-hide');
-const btnRevealText          = document.getElementById('btn-reveal-text');
+const deckStreamKeyBadge = document.getElementById('deck-stream-key-badge');
+const deckDualStreamBadge = document.getElementById('deck-dual-stream-badge');
+const bannerMaintenance = document.getElementById('banner-maintenance');
+const btnDisableMaintenance = document.getElementById('btn-disable-maintenance');
+const keyBadge = document.getElementById('key-badge');
+const iconEyeShow = document.getElementById('icon-eye-show');
+const iconEyeHide = document.getElementById('icon-eye-hide');
+const btnRevealText = document.getElementById('btn-reveal-text');
 
 // Horizontal Stream Key DOM Elements
 const cfgHorizontalStreamKey = document.getElementById('cfg-horizontal-stream-key');
-const btnRevealHorizKey      = document.getElementById('btn-reveal-horizontal-key');
-const horizontalKeyBadge     = document.getElementById('horizontal-key-badge');
-const horizontalKeyHintText  = document.getElementById('horizontal-key-hint-text');
-const iconEyeShowHoriz       = document.getElementById('icon-eye-show-horiz');
-const iconEyeHideHoriz       = document.getElementById('icon-eye-hide-horiz');
-const btnRevealHorizText     = document.getElementById('btn-reveal-horiz-text');
-const cfgDualStreamEnabled   = document.getElementById('cfg-dual-stream-enabled');
+const btnRevealHorizKey = document.getElementById('btn-reveal-horizontal-key');
+const horizontalKeyBadge = document.getElementById('horizontal-key-badge');
+const horizontalKeyHintText = document.getElementById('horizontal-key-hint-text');
+const iconEyeShowHoriz = document.getElementById('icon-eye-show-horiz');
+const iconEyeHideHoriz = document.getElementById('icon-eye-hide-horiz');
+const btnRevealHorizText = document.getElementById('btn-reveal-horiz-text');
+const cfgDualStreamEnabled = document.getElementById('cfg-dual-stream-enabled');
 
 // Scheduler & Auto-Recycle DOM Elements
-const panelScheduler           = document.getElementById('panel-scheduler');
-const schedIstClock            = document.getElementById('sched-ist-clock');
-const schedModeBadge           = document.getElementById('sched-mode-badge');
-const schedStatusBanner        = document.getElementById('sched-status-banner');
-const schedStatusText          = document.getElementById('sched-status-text');
-const btnModeContinuous        = document.getElementById('btn-mode-continuous');
-const btnModeScheduled         = document.getElementById('btn-mode-scheduled');
-const schedWindowsCard         = document.getElementById('sched-windows-card');
-const schedSlot1Enabled        = document.getElementById('sched-slot1-enabled');
-const schedSlot1Badge          = document.getElementById('sched-slot1-badge');
-const schedSlot1Start          = document.getElementById('sched-slot1-start');
-const schedSlot1Stop           = document.getElementById('sched-slot1-stop');
-const schedSlot2Enabled        = document.getElementById('sched-slot2-enabled');
-const schedSlot2Badge          = document.getElementById('sched-slot2-badge');
-const schedSlot2Start          = document.getElementById('sched-slot2-start');
-const schedSlot2Stop           = document.getElementById('sched-slot2-stop');
-const schedRecycleCard         = document.getElementById('sched-recycle-card');
-const schedRecycleStatusBadge  = document.getElementById('sched-recycle-status-badge');
-const schedRecycleEnabled      = document.getElementById('sched-recycle-enabled');
-const schedRecycleHours        = document.getElementById('sched-recycle-hours');
-const schedPauseMins           = document.getElementById('sched-pause-mins');
-const schedBookmarkEnabled     = document.getElementById('sched-bookmark-enabled');
-const btnSaveSchedule          = document.getElementById('btn-save-schedule');
+const panelScheduler = document.getElementById('panel-scheduler');
+const schedIstClock = document.getElementById('sched-ist-clock');
+const schedModeBadge = document.getElementById('sched-mode-badge');
+const schedStatusBanner = document.getElementById('sched-status-banner');
+const schedStatusText = document.getElementById('sched-status-text');
+const btnModeContinuous = document.getElementById('btn-mode-continuous');
+const btnModeScheduled = document.getElementById('btn-mode-scheduled');
+const schedWindowsCard = document.getElementById('sched-windows-card');
+const schedSlot1Enabled = document.getElementById('sched-slot1-enabled');
+const schedSlot1Badge = document.getElementById('sched-slot1-badge');
+const schedSlot1Start = document.getElementById('sched-slot1-start');
+const schedSlot1Stop = document.getElementById('sched-slot1-stop');
+const schedSlot2Enabled = document.getElementById('sched-slot2-enabled');
+const schedSlot2Badge = document.getElementById('sched-slot2-badge');
+const schedSlot2Start = document.getElementById('sched-slot2-start');
+const schedSlot2Stop = document.getElementById('sched-slot2-stop');
+const schedRecycleCard = document.getElementById('sched-recycle-card');
+const schedRecycleStatusBadge = document.getElementById('sched-recycle-status-badge');
+const schedRecycleEnabled = document.getElementById('sched-recycle-enabled');
+const schedRecycleHours = document.getElementById('sched-recycle-hours');
+const schedPauseMins = document.getElementById('sched-pause-mins');
+const schedBookmarkEnabled = document.getElementById('sched-bookmark-enabled');
+const btnSaveSchedule = document.getElementById('btn-save-schedule');
 
 // ─── Network Event Listeners ──────────────────────────────────────────────────
 
@@ -305,13 +305,13 @@ function renderStatus(data) {
   }
 
   statusDot.className = 'status-dot';
-  if (data.status === 'RUNNING')       statusDot.classList.add('live');
+  if (data.status === 'RUNNING') statusDot.classList.add('live');
   else if (data.status === 'STARTING') statusDot.classList.add('starting');
   else if (data.status === 'ERROR' || data.status === 'BANDWIDTH_LIMIT_REACHED') statusDot.classList.add('error');
 
   // Control buttons state
-  btnStart.disabled   = data.status === 'RUNNING' || data.status === 'STARTING' || data.disabled;
-  btnStop.disabled    = data.status === 'STOPPED' || data.status === 'SCHEDULED';
+  btnStart.disabled = data.status === 'RUNNING' || data.status === 'STARTING' || data.disabled;
+  btnStop.disabled = data.status === 'STOPPED' || data.status === 'SCHEDULED';
   btnRestart.disabled = data.status === 'STOPPED';
   if (chkDisabled) chkDisabled.checked = Boolean(data.disabled);
 
@@ -325,18 +325,18 @@ function renderStatus(data) {
   }
 
   // Metrics
-  metricMode.textContent     = data.streamMode || 'auto';
-  metricPid.textContent      = data.ffmpegPid || '—';
+  metricMode.textContent = data.streamMode || 'auto';
+  metricPid.textContent = data.ffmpegPid || '—';
   metricRestarts.textContent = `${data.restartCountSession || 0} / ${data.restartCountTotal || 0}`;
 
   const p = data.progress;
   if (p) {
-    metricFps.textContent     = p.fps || 0;
-    metricSpeed.textContent   = p.speedStr || `${p.speed || 0}x`;
+    metricFps.textContent = p.fps || 0;
+    metricSpeed.textContent = p.speedStr || `${p.speed || 0}x`;
     metricBitrate.textContent = p.bitrate || '0 kb/s';
   } else {
-    metricFps.textContent     = 0;
-    metricSpeed.textContent   = '0.00x';
+    metricFps.textContent = 0;
+    metricSpeed.textContent = '0.00x';
     metricBitrate.textContent = '0 kb/s';
   }
 
@@ -636,7 +636,7 @@ function updateBandwidthInfographic(data, usedBytes, pctSafety) {
 
     const fUsed = Math.min(1, Math.max(0, usedBytes / totalPool));
     const fSafe = Math.min(1, Math.max(0, safeRemainingBytes / totalPool));
-    const fBuf  = Math.min(1, Math.max(0, bufferBytes / totalPool));
+    const fBuf = Math.min(1, Math.max(0, bufferBytes / totalPool));
 
     let lenUsed = fUsed * C;
     if (usedBytes > 0 && lenUsed < 3) lenUsed = 3; // Ensure visibility for small values
@@ -787,12 +787,12 @@ function renderScheduler(data) {
   const windows = Array.isArray(data.windows) ? data.windows : [];
   if (windows.length > 0 && windows[0]) {
     if (schedSlot1Start) schedSlot1Start.value = windows[0].start || '10:00';
-    if (schedSlot1Stop)  schedSlot1Stop.value  = windows[0].stop  || '14:00';
+    if (schedSlot1Stop) schedSlot1Stop.value = windows[0].stop || '14:00';
     if (schedSlot1Enabled) schedSlot1Enabled.checked = true;
   }
   if (windows.length > 1 && windows[1]) {
     if (schedSlot2Start) schedSlot2Start.value = windows[1].start || '18:00';
-    if (schedSlot2Stop)  schedSlot2Stop.value  = windows[1].stop  || '22:00';
+    if (schedSlot2Stop) schedSlot2Stop.value = windows[1].stop || '22:00';
     if (schedSlot2Enabled) schedSlot2Enabled.checked = true;
   } else if (windows.length === 1) {
     if (schedSlot2Enabled) schedSlot2Enabled.checked = false;
@@ -803,8 +803,8 @@ function renderScheduler(data) {
   // 4. Auto-Recycle Settings (VOD Archive Protection)
   const ar = data.autoRecycle || {};
   if (schedRecycleEnabled) schedRecycleEnabled.checked = !!ar.enabled;
-  if (schedRecycleHours)   schedRecycleHours.value = ar.maxSessionHours || 8;
-  if (schedPauseMins)      schedPauseMins.value    = ar.pauseMinutes || 60;
+  if (schedRecycleHours) schedRecycleHours.value = ar.maxSessionHours || 8;
+  if (schedPauseMins) schedPauseMins.value = ar.pauseMinutes || 60;
   if (schedBookmarkEnabled) schedBookmarkEnabled.checked = ar.resumeBookmark !== false;
   if (schedRecycleStatusBadge) {
     schedRecycleStatusBadge.textContent = ar.enabled ? 'Protected' : 'Off';
@@ -924,7 +924,7 @@ async function fetchSystem() {
 }
 
 function renderSystem(data) {
-  metricCpu.textContent  = `${data.cpuPercent || 0}%`;
+  metricCpu.textContent = `${data.cpuPercent || 0}%`;
 
   const appMb = data.appRam?.rssMB || 0;
   const sysPct = data.ram?.usedPercent || 0;
@@ -935,13 +935,13 @@ function renderSystem(data) {
 
   if (data.disk) {
     const totalBytes = Number(data.disk.totalBytes) || 0;
-    const usedBytes  = Number(data.disk.usedBytes) || 0;
-    const freeBytes  = Number(data.disk.freeBytes) || 0;
-    const pct        = Number(data.disk.usedPercent) || 0;
+    const usedBytes = Number(data.disk.usedBytes) || 0;
+    const freeBytes = Number(data.disk.freeBytes) || 0;
+    const pct = Number(data.disk.usedPercent) || 0;
 
     const totalStr = formatBytes(totalBytes);
-    const usedStr  = formatBytes(usedBytes);
-    const freeStr  = formatBytes(freeBytes);
+    const usedStr = formatBytes(usedBytes);
+    const freeStr = formatBytes(freeBytes);
 
     if (totalBytes > 0) {
       metricDisk.textContent = `${usedStr} / ${totalStr}`;
@@ -973,11 +973,11 @@ function renderSystem(data) {
   const days = Math.floor(up / 86400);
   const hours = Math.floor((up % 86400) / 3600);
   metricUptime.textContent = `${days}d ${hours}h`;
-  quickUptime.textContent  = `${days}d ${hours}h`;
+  quickUptime.textContent = `${days}d ${hours}h`;
 
   if (data.dirSizes) {
-    dirVideos.textContent  = formatBytes(data.dirSizes.videosBytes);
-    dirLogs.textContent    = formatBytes(data.dirSizes.logsBytes);
+    dirVideos.textContent = formatBytes(data.dirSizes.videosBytes);
+    dirLogs.textContent = formatBytes(data.dirSizes.logsBytes);
     dirBackups.textContent = formatBytes(data.dirSizes.backupsBytes);
   }
 
@@ -998,33 +998,33 @@ let _hwCpuHistory = [0.5, 0.6, 0.4, 0.8, 0.5, 0.7, 0.6, 0.5, 0.6, 0.7, 0.5, 0.6]
 
 function updateHardwareVisualizations(data) {
   // 1. Donut / Pie Chart: Disk Storage Allocation
-  const hwPieVideos        = document.getElementById('hw-pie-videos');
-  const hwPieSystem        = document.getElementById('hw-pie-system');
-  const hwPieOther         = document.getElementById('hw-pie-other');
-  const hwPieCenterVal     = document.getElementById('hw-pie-center-val');
-  const hwStorageTotalBadge= document.getElementById('hw-storage-total-badge');
-  const hwLegVideos        = document.getElementById('hw-leg-videos');
-  const hwLegSystem        = document.getElementById('hw-leg-system');
-  const hwLegOther         = document.getElementById('hw-leg-other');
-  const hwLegFree          = document.getElementById('hw-leg-free');
+  const hwPieVideos = document.getElementById('hw-pie-videos');
+  const hwPieSystem = document.getElementById('hw-pie-system');
+  const hwPieOther = document.getElementById('hw-pie-other');
+  const hwPieCenterVal = document.getElementById('hw-pie-center-val');
+  const hwStorageTotalBadge = document.getElementById('hw-storage-total-badge');
+  const hwLegVideos = document.getElementById('hw-leg-videos');
+  const hwLegSystem = document.getElementById('hw-leg-system');
+  const hwLegOther = document.getElementById('hw-leg-other');
+  const hwLegFree = document.getElementById('hw-leg-free');
 
   if (data.disk && hwPieVideos && hwPieSystem && hwPieOther) {
     const total = Number(data.disk.totalBytes) || 0;
-    const used  = Number(data.disk.usedBytes) || 0;
-    const free  = Number(data.disk.freeBytes) || 0;
-    const pct   = Number(data.disk.usedPercent) || 0;
+    const used = Number(data.disk.usedBytes) || 0;
+    const free = Number(data.disk.freeBytes) || 0;
+    const pct = Number(data.disk.usedPercent) || 0;
 
-    const vids  = Number(data.dirSizes?.videosBytes) || 0;
+    const vids = Number(data.dirSizes?.videosBytes) || 0;
     const other = (Number(data.dirSizes?.logsBytes) || 0) + (Number(data.dirSizes?.backupsBytes) || 0);
-    const sys   = Math.max(0, used - vids - other);
+    const sys = Math.max(0, used - vids - other);
 
     if (hwStorageTotalBadge) hwStorageTotalBadge.textContent = formatBytes(total);
     if (hwPieCenterVal) hwPieCenterVal.textContent = `${pct.toFixed(1)}%`;
 
     if (hwLegVideos) hwLegVideos.textContent = formatBytes(vids);
     if (hwLegSystem) hwLegSystem.textContent = formatBytes(sys);
-    if (hwLegOther)  hwLegOther.textContent  = formatBytes(other);
-    if (hwLegFree)   hwLegFree.textContent   = formatBytes(free);
+    if (hwLegOther) hwLegOther.textContent = formatBytes(other);
+    if (hwLegFree) hwLegFree.textContent = formatBytes(free);
 
     // Donut Circumference C = 2 * pi * 46 = 289px
     const C = 289;
@@ -1050,33 +1050,33 @@ function updateHardwareVisualizations(data) {
 
   // 2. Resource Load Multi-Bar Chart
   const cpuPct = Number(data.cpuPercent) || 0;
-  const appMb  = Number(data.appRam?.rssMB) || 0;
+  const appMb = Number(data.appRam?.rssMB) || 0;
   const sysPct = Number(data.ram?.usedPercent) || 0;
   const diskPct = Number(data.disk?.usedPercent) || 0;
 
   const totalRamMb = (data.ram?.totalBytes ? data.ram.totalBytes / 1048576 : 1024);
   const appPct = Math.min(100, (appMb / totalRamMb) * 100);
 
-  const hwBarValCpu     = document.getElementById('hw-bar-val-cpu');
-  const hwBarFillCpu    = document.getElementById('hw-bar-fill-cpu');
-  const hwBarValAppram  = document.getElementById('hw-bar-val-appram');
+  const hwBarValCpu = document.getElementById('hw-bar-val-cpu');
+  const hwBarFillCpu = document.getElementById('hw-bar-fill-cpu');
+  const hwBarValAppram = document.getElementById('hw-bar-val-appram');
   const hwBarFillAppram = document.getElementById('hw-bar-fill-appram');
-  const hwBarValSysram  = document.getElementById('hw-bar-val-sysram');
+  const hwBarValSysram = document.getElementById('hw-bar-val-sysram');
   const hwBarFillSysram = document.getElementById('hw-bar-fill-sysram');
-  const hwBarValDisk    = document.getElementById('hw-bar-val-disk');
-  const hwBarFillDisk   = document.getElementById('hw-bar-fill-disk');
-  const hwLoadBadge     = document.getElementById('hw-load-status-badge');
+  const hwBarValDisk = document.getElementById('hw-bar-val-disk');
+  const hwBarFillDisk = document.getElementById('hw-bar-fill-disk');
+  const hwLoadBadge = document.getElementById('hw-load-status-badge');
 
-  if (hwBarValCpu)  hwBarValCpu.textContent  = `${cpuPct.toFixed(1)}%`;
+  if (hwBarValCpu) hwBarValCpu.textContent = `${cpuPct.toFixed(1)}%`;
   if (hwBarFillCpu) hwBarFillCpu.style.width = `${Math.min(100, Math.max(0.6, cpuPct))}%`;
 
-  if (hwBarValAppram)  hwBarValAppram.textContent  = `${appMb} MB (${appPct.toFixed(1)}%)`;
+  if (hwBarValAppram) hwBarValAppram.textContent = `${appMb} MB (${appPct.toFixed(1)}%)`;
   if (hwBarFillAppram) hwBarFillAppram.style.width = `${Math.min(100, Math.max(1, appPct))}%`;
 
-  if (hwBarValSysram)  hwBarValSysram.textContent  = `${sysPct.toFixed(1)}%`;
+  if (hwBarValSysram) hwBarValSysram.textContent = `${sysPct.toFixed(1)}%`;
   if (hwBarFillSysram) hwBarFillSysram.style.width = `${Math.min(100, Math.max(1, sysPct))}%`;
 
-  if (hwBarValDisk)  hwBarValDisk.textContent  = `${diskPct.toFixed(1)}%`;
+  if (hwBarValDisk) hwBarValDisk.textContent = `${diskPct.toFixed(1)}%`;
   if (hwBarFillDisk) hwBarFillDisk.style.width = `${Math.min(100, Math.max(1, diskPct))}%`;
 
   if (hwLoadBadge) {
@@ -1284,23 +1284,23 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
           <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
         </div>
         ${v.paired
-          ? `<div class="video-pair-info" title="Paired companion: ${v.paired.label || v.paired.originalName}">
+        ? `<div class="video-pair-info" title="Paired companion: ${v.paired.label || v.paired.originalName}">
                <span class="pair-label">Pair:</span>
                <span class="pair-val">${v.paired.label || v.paired.originalName}</span>
              </div>`
-          : ''
-        }
+        : ''
+      }
       </div>
       <div class="video-actions">
         ${isSelected
-          ? `<span class="badge-tag badge-active">${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}</span>`
-          : isPairedFeedActive
-            ? `<span class="badge-tag badge-paired">DUAL FEED (16:9)</span>`
-            : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
+        ? `<span class="badge-tag badge-active">${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}</span>`
+        : isPairedFeedActive
+          ? `<span class="badge-tag badge-paired">DUAL FEED (16:9)</span>`
+          : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                  Play Solo
                </button>`
-        }
+      }
         <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
@@ -1475,7 +1475,7 @@ async function openSettings() {
     if (cfgAllowTranscode) {
       cfgAllowTranscode.checked = settings.stream?.allowTranscode !== false;
     }
-    cfgBitrate.value  = settings.stream?.videoBitrateMbps || 4;
+    cfgBitrate.value = settings.stream?.videoBitrateMbps || 4;
     cfgSafetyLimit.value = settings.bandwidth?.safetyLimitTB || 9;
     cfgOverhead.value = settings.bandwidth?.overheadPercent || 10;
 
@@ -1488,7 +1488,7 @@ async function openSettings() {
 
 function updateLiveBitratePreview() {
   const videoMbps = parseFloat(cfgBitrate.value) || 4;
-  const overhead  = parseFloat(cfgOverhead.value) || 10;
+  const overhead = parseFloat(cfgOverhead.value) || 10;
 
   const m = calculateBitrateMetrics({
     videoBitrateMbps: videoMbps,
@@ -1504,23 +1504,23 @@ function updateLiveBitratePreview() {
 
 function switchIngestTab(tab) {
   const uploadZone = document.getElementById('upload-zone');
-  const ytPanel    = document.getElementById('yt-import-panel');
-  const tabUpload  = document.getElementById('tab-upload');
-  const tabYt      = document.getElementById('tab-youtube');
+  const ytPanel = document.getElementById('yt-import-panel');
+  const tabUpload = document.getElementById('tab-upload');
+  const tabYt = document.getElementById('tab-youtube');
 
   if (tab === 'youtube') {
     uploadZone.style.display = 'none';
-    ytPanel.style.display    = 'flex';
+    ytPanel.style.display = 'flex';
     tabUpload?.classList.remove('active');
     tabYt?.classList.add('active');
     // Check cookies status and show warning if missing
     apiGet('/api/videos/cookies-status').then((s) => {
       const banner = document.getElementById('yt-cookies-banner');
       if (banner) banner.style.display = s?.exists ? 'none' : 'block';
-    }).catch(() => {});
+    }).catch(() => { });
   } else {
     uploadZone.style.display = '';
-    ytPanel.style.display    = 'none';
+    ytPanel.style.display = 'none';
     tabUpload?.classList.add('active');
     tabYt?.classList.remove('active');
   }
@@ -1585,8 +1585,8 @@ function handleFileUpload(file) {
   uploadFill.style.width = '0%';
   uploadPct.textContent = '0%';
   if (uploadStatusText) uploadStatusText.textContent = `Uploading ${file.name}...`;
-  if (uploadBytesText)  uploadBytesText.textContent  = `0 MB / ${formatBytes(file.size)}`;
-  if (uploadSpeedText)  uploadSpeedText.textContent  = 'Calculating speed...';
+  if (uploadBytesText) uploadBytesText.textContent = `0 MB / ${formatBytes(file.size)}`;
+  if (uploadSpeedText) uploadSpeedText.textContent = 'Calculating speed...';
 
   const startTime = Date.now();
   let lastLoaded = 0;
@@ -1635,7 +1635,7 @@ function handleFileUpload(file) {
         uploadPct.textContent = '100%';
         uploadFill.style.width = '100%';
         if (uploadStatusText) uploadStatusText.textContent = 'Processing & validating video on server...';
-        if (uploadSpeedText)  uploadSpeedText.textContent  = 'Probing codecs & preparing live stream rotation...';
+        if (uploadSpeedText) uploadSpeedText.textContent = 'Probing codecs & preparing live stream rotation...';
       }
     }
   };
@@ -1644,7 +1644,7 @@ function handleFileUpload(file) {
     fileInput.value = '';
     if (xhr.status === 201) {
       if (uploadStatusText) uploadStatusText.textContent = 'Upload complete! Video activated.';
-      if (uploadSpeedText)  uploadSpeedText.textContent  = 'Live stream updated seamlessly.';
+      if (uploadSpeedText) uploadSpeedText.textContent = 'Live stream updated seamlessly.';
       showToast(`Successfully uploaded ${file.name}.`, 'success', 'Upload Complete');
       setTimeout(() => {
         uploadBox.style.display = 'none';
@@ -1698,29 +1698,29 @@ function _clearYtPoll() {
 // SVG icon paths for each stage
 const _ytStageIcons = {
   fetching_info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
-  downloading:   '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M5 20h14"/>',
-  converting:    '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/>',
-  completed:     '<polyline points="20 6 9 17 4 12"/>',
-  error:         '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
-  cancelled:     '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  downloading: '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M5 20h14"/>',
+  converting: '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/>',
+  completed: '<polyline points="20 6 9 17 4 12"/>',
+  error: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  cancelled: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
 };
 
 const _ytStageColors = {
   fetching_info: 'var(--accent-cyan)',
-  downloading:   'var(--accent-primary)',
-  converting:    'var(--accent-amber)',
-  completed:     'var(--accent-emerald)',
-  error:         'var(--accent-rose)',
-  cancelled:     'var(--text-muted)',
+  downloading: 'var(--accent-primary)',
+  converting: 'var(--accent-amber)',
+  completed: 'var(--accent-emerald)',
+  error: 'var(--accent-rose)',
+  cancelled: 'var(--text-muted)',
 };
 
 const _ytStageLabels = {
   fetching_info: 'Fetching video info...',
-  downloading:   'Downloading from YouTube...',
-  converting:    'Converting to 1080x1920 30fps...',
-  completed:     'Download & conversion complete',
-  error:         'Failed',
-  cancelled:     'Cancelled',
+  downloading: 'Downloading from YouTube...',
+  converting: 'Converting to 1080x1920 30fps...',
+  completed: 'Download & conversion complete',
+  error: 'Failed',
+  cancelled: 'Cancelled',
 };
 
 function _updateYtProgress(status) {
@@ -1733,13 +1733,13 @@ function _updateYtProgress(status) {
 
   const stageIcon = document.getElementById('yt-stage-icon');
   const stageLabel = document.getElementById('yt-stage-label');
-  if (stageIcon)  stageIcon.innerHTML = iconPath;
+  if (stageIcon) stageIcon.innerHTML = iconPath;
   if (stageLabel) stageLabel.textContent = label;
   if (ytDlStageText) ytDlStageText.style.color = color;
-  if (ytDlTitle)     ytDlTitle.textContent = status.videoTitle || '';
+  if (ytDlTitle) ytDlTitle.textContent = status.videoTitle || '';
 
   const pct = Math.round(status.percent || 0);
-  if (ytDlPct)  ytDlPct.textContent  = `${pct}%`;
+  if (ytDlPct) ytDlPct.textContent = `${pct}%`;
   if (ytDlFill) ytDlFill.style.width = `${pct}%`;
 
   let details = '';
@@ -1789,7 +1789,7 @@ async function _pollYtDownloadStatus() {
 
       } else if (status.stage === 'cancelled') {
         if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
-        if (btnYtDownload)   btnYtDownload.disabled = false;
+        if (btnYtDownload) btnYtDownload.disabled = false;
       }
     }
   } catch (err) {
@@ -1802,12 +1802,12 @@ function setupYouTubeDownload() {
 
   // Wire tab buttons via event listeners
   const tabUploadBtn = document.getElementById('tab-upload');
-  const tabYtBtn     = document.getElementById('tab-youtube');
+  const tabYtBtn = document.getElementById('tab-youtube');
   if (tabUploadBtn) tabUploadBtn.addEventListener('click', () => switchIngestTab('upload'));
-  if (tabYtBtn)     tabYtBtn.addEventListener('click',     () => switchIngestTab('youtube'));
+  if (tabYtBtn) tabYtBtn.addEventListener('click', () => switchIngestTab('youtube'));
 
   // Wire cookies file upload button
-  const cookiesFileInput   = document.getElementById('cookies-file-input');
+  const cookiesFileInput = document.getElementById('cookies-file-input');
   const cookiesUploadStatus = document.getElementById('cookies-upload-status');
   if (cookiesFileInput) {
     cookiesFileInput.addEventListener('change', async () => {
@@ -1855,7 +1855,7 @@ function setupYouTubeDownload() {
     // Reset progress UI
     if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
     _updateYtProgress({ stage: 'fetching_info', percent: 0, videoTitle: '', speed: '', eta: '' });
-    if (ytDlDetails)  ytDlDetails.textContent = 'Connecting...';
+    if (ytDlDetails) ytDlDetails.textContent = 'Connecting...';
     btnYtDownload.disabled = true;
 
     try {
@@ -1886,7 +1886,7 @@ function setupYouTubeDownload() {
         await apiPost('/api/videos/download-cancel');
       } catch { /* ignore */ }
       if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
-      if (btnYtDownload)   btnYtDownload.disabled = false;
+      if (btnYtDownload) btnYtDownload.disabled = false;
     });
   }
 
@@ -1899,7 +1899,7 @@ function setupYouTubeDownload() {
       _clearYtPoll();
       _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
     }
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 // ─── Refresh Orchestrator ─────────────────────────────────────────────────────
@@ -1920,7 +1920,7 @@ function startPolling() {
   stopPolling();
   // PRD §15.2: status every 3s, bandwidth, scheduler & system every 10s
   _pollStatusTimer = setInterval(fetchStatus, 3000);
-  _pollSlowTimer   = setInterval(() => {
+  _pollSlowTimer = setInterval(() => {
     fetchBandwidth();
     fetchScheduler();
     fetchSystem();
@@ -1929,7 +1929,7 @@ function startPolling() {
 
 function stopPolling() {
   if (_pollStatusTimer) { clearInterval(_pollStatusTimer); _pollStatusTimer = null; }
-  if (_pollSlowTimer)   { clearInterval(_pollSlowTimer);   _pollSlowTimer = null; }
+  if (_pollSlowTimer) { clearInterval(_pollSlowTimer); _pollSlowTimer = null; }
 }
 
 // ─── Main Bootstrap ───────────────────────────────────────────────────────────
