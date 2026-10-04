@@ -151,28 +151,38 @@ export async function resolveLiveStreamByStreamKey(streamKey) {
   if (!streamKey || !isYouTubeApiConfigured()) return null;
 
   try {
-    const data = await youtubeFetch('liveStreams?part=id,snippet,status,cdn&mine=true&maxResults=50');
-    const items = data.items || [];
-
     const cleanKey = streamKey.trim();
-    const matched = items.find(s => s.cdn?.ingestionInfo?.streamName === cleanKey);
+    let pageToken = '';
+    let pageCount = 0;
+    const maxPages = 10; // safety ceiling (up to 500 streams)
 
-    if (matched) {
-      _currentStreamId = matched.id;
-      _currentStreamStatus = matched.status?.streamStatus || 'unknown';
-      _currentHealthStatus = matched.status?.healthStatus?.status || 'unknown';
-      _lastCheckedAt = new Date().toISOString();
+    do {
+      pageCount++;
+      const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+      const data = await youtubeFetch(`liveStreams?part=id,snippet,status,cdn&mine=true&maxResults=50${pageParam}`);
+      const items = data.items || [];
 
-      logger.info('youtube_api.stream_resolved', `Resolved YouTube liveStream ID ${matched.id} (status: ${_currentStreamStatus})`);
-      return {
-        id: matched.id,
-        streamStatus: _currentStreamStatus,
-        healthStatus: _currentHealthStatus,
-        title: matched.snippet?.title || '',
-      };
-    }
+      const matched = items.find(s => s.cdn?.ingestionInfo?.streamName === cleanKey);
 
-    logger.warn('youtube_api.stream_not_found', 'No liveStream resource matched the configured stream key');
+      if (matched) {
+        _currentStreamId = matched.id;
+        _currentStreamStatus = matched.status?.streamStatus || 'unknown';
+        _currentHealthStatus = matched.status?.healthStatus?.status || 'unknown';
+        _lastCheckedAt = new Date().toISOString();
+
+        logger.info('youtube_api.stream_resolved', `Resolved YouTube liveStream ID ${matched.id} (status: ${_currentStreamStatus})`);
+        return {
+          id: matched.id,
+          streamStatus: _currentStreamStatus,
+          healthStatus: _currentHealthStatus,
+          title: matched.snippet?.title || '',
+        };
+      }
+
+      pageToken = data.nextPageToken || '';
+    } while (pageToken && pageCount < maxPages);
+
+    logger.warn('youtube_api.stream_not_found', `No liveStream resource matched the configured stream key across ${pageCount} pages`);
     return null;
   } catch (err) {
     _lastApiError = err.message;
@@ -208,38 +218,72 @@ export async function getLiveStreamStatus(streamId) {
 
 /**
  * Resolve liveBroadcast bound to the given streamId.
- * Selects active/live, testing, or ready broadcasts in priority order.
+ * Paginates and prioritizes active/live > testing > ready broadcasts.
+ * Correctly identifies when all bound broadcasts are completed.
  *
  * @param {string} streamId
- * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean, enableAutoStop: boolean }|null>}
+ * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean, enableAutoStop: boolean, isComplete?: boolean }|null>}
  */
 export async function resolveBoundBroadcast(streamId) {
   if (!streamId || !isYouTubeApiConfigured()) return null;
 
   try {
-    const data = await youtubeFetch('liveBroadcasts?part=id,snippet,status,contentDetails&broadcastType=all&mine=true&maxResults=50');
-    const items = data.items || [];
+    let pageToken = '';
+    let pageCount = 0;
+    const maxPages = 5;
+    const allBound = [];
 
-    // Filter to broadcasts bound to this streamId
-    const bound = items.filter(b => b.contentDetails?.boundStreamId === streamId);
+    do {
+      pageCount++;
+      const pageParam = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
+      const data = await youtubeFetch(`liveBroadcasts?part=id,snippet,status,contentDetails&broadcastType=all&mine=true&maxResults=50${pageParam}`);
+      const items = data.items || [];
 
-    // Order of preference: live > testing > ready
-    const active = bound.find(b => b.status?.lifeCycleStatus === 'live')
-      || bound.find(b => b.status?.lifeCycleStatus === 'testing')
-      || bound.find(b => b.status?.lifeCycleStatus === 'ready');
+      // Filter broadcasts bound to this streamId
+      const bound = items.filter(b => b.contentDetails?.boundStreamId === streamId);
+      for (const item of bound) {
+        if (!allBound.some(b => b.id === item.id)) {
+          allBound.push(item);
+        }
+      }
 
-    if (active) {
-      _currentBroadcastId = active.id;
-      _currentLifeCycleStatus = active.status?.lifeCycleStatus || 'unknown';
+      // Check if an active, testing, or ready broadcast was found in this page
+      const foundActive = allBound.find(b => b.status?.lifeCycleStatus === 'live')
+        || allBound.find(b => b.status?.lifeCycleStatus === 'testing')
+        || allBound.find(b => b.status?.lifeCycleStatus === 'ready');
+
+      if (foundActive) {
+        _currentBroadcastId = foundActive.id;
+        _currentLifeCycleStatus = foundActive.status?.lifeCycleStatus || 'unknown';
+        _lastCheckedAt = new Date().toISOString();
+
+        logger.info('youtube_api.broadcast_resolved', `Resolved bound YouTube broadcast ID ${foundActive.id} (status: ${_currentLifeCycleStatus}, autoStart: ${Boolean(foundActive.contentDetails?.enableAutoStart)})`);
+        return {
+          id: foundActive.id,
+          title: foundActive.snippet?.title || '',
+          lifeCycleStatus: _currentLifeCycleStatus,
+          enableAutoStart: Boolean(foundActive.contentDetails?.enableAutoStart),
+          enableAutoStop: Boolean(foundActive.contentDetails?.enableAutoStop),
+          isComplete: false,
+        };
+      }
+
+      pageToken = data.nextPageToken || '';
+    } while (pageToken && pageCount < maxPages);
+
+    // If no active/testing/ready broadcast was found, check if a completed broadcast is bound
+    const completed = allBound.find(b => b.status?.lifeCycleStatus === 'complete');
+    if (completed) {
+      _currentBroadcastId = completed.id;
+      _currentLifeCycleStatus = 'complete';
       _lastCheckedAt = new Date().toISOString();
-
-      logger.info('youtube_api.broadcast_resolved', `Resolved bound YouTube broadcast ID ${active.id} (status: ${_currentLifeCycleStatus}, autoStart: ${Boolean(active.contentDetails?.enableAutoStart)})`);
       return {
-        id: active.id,
-        title: active.snippet?.title || '',
-        lifeCycleStatus: _currentLifeCycleStatus,
-        enableAutoStart: Boolean(active.contentDetails?.enableAutoStart),
-        enableAutoStop: Boolean(active.contentDetails?.enableAutoStop),
+        id: completed.id,
+        title: completed.snippet?.title || '',
+        lifeCycleStatus: 'complete',
+        enableAutoStart: Boolean(completed.contentDetails?.enableAutoStart),
+        enableAutoStop: Boolean(completed.contentDetails?.enableAutoStop),
+        isComplete: true,
       };
     }
 
@@ -400,8 +444,14 @@ export async function manageBroadcastLifecycleOnStart({
   // 3. Resolve bound broadcast
   let broadcast = await resolveBoundBroadcast(stream.id);
 
+  // If API error occurred while querying broadcast, do NOT create a new broadcast blindly!
+  if (!broadcast && _lastApiError) {
+    logger.warn('youtube_api.broadcast_lookup_error', `API error during broadcast resolution: ${_lastApiError}`);
+    return { success: false, streamStatus, reason: `API_ERROR: ${_lastApiError}` };
+  }
+
   // If no broadcast or already completed, create a new broadcast and bind to reusable stream
-  if (!broadcast || broadcast.lifeCycleStatus === 'complete') {
+  if (!broadcast || broadcast.lifeCycleStatus === 'complete' || broadcast.isComplete) {
     logger.info('youtube_api.creating_fresh_broadcast', 'No active or ready broadcast bound; creating fresh broadcast...');
     broadcast = await createAndBindBroadcast({ streamId: stream.id, title, enableAutoStart: true });
   }
@@ -420,10 +470,11 @@ export async function manageBroadcastLifecycleOnStart({
 
   // 5. Handle Transition
   if (broadcast.enableAutoStart) {
-    // Wait up to 10s for YouTube auto-start
-    logger.info('youtube_api.waiting_autostart', `Broadcast ${broadcast.id} has enableAutoStart=true; waiting for auto-transition...`);
+    // Wait up to autoStartMaxWait for YouTube auto-start
+    const autoStartMaxWait = Math.min(30, liveTimeoutSec) * 1000;
+    logger.info('youtube_api.waiting_autostart', `Broadcast ${broadcast.id} has enableAutoStart=true; awaiting auto-transition (up to ${autoStartMaxWait / 1000}s)...`);
     const autoStartBegin = Date.now();
-    while (Date.now() - autoStartBegin < 10000) {
+    while (Date.now() - autoStartBegin < autoStartMaxWait) {
       await new Promise(r => setTimeout(r, 2000));
       const bCheck = await resolveBoundBroadcast(stream.id);
       if (bCheck && bCheck.lifeCycleStatus === 'live') {
@@ -437,16 +488,19 @@ export async function manageBroadcastLifecycleOnStart({
         };
       }
     }
+    logger.warn('youtube_api.autostart_fallback', `Broadcast ${broadcast.id} did not auto-transition within ${autoStartMaxWait / 1000}s; attempting explicit transition...`);
   }
 
   // 6. Explicit Transition to LIVE if not auto-started or enableAutoStart is false
-  try {
-    const transitioned = await transitionBroadcast(broadcast.id, 'live');
-    if (transitioned.lifeCycleStatus === 'live') {
-      logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
+  if (broadcast.lifeCycleStatus === 'ready' || broadcast.lifeCycleStatus === 'testing') {
+    try {
+      const transitioned = await transitionBroadcast(broadcast.id, 'live');
+      if (transitioned.lifeCycleStatus === 'live') {
+        logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
+      }
+    } catch (err) {
+      logger.warn('youtube_api.transition_warn', `Transition to live returned error: ${err.message}; polling for status...`);
     }
-  } catch (err) {
-    logger.warn('youtube_api.transition_warn', `Transition to live returned error: ${err.message}; polling for status...`);
   }
 
   // 7. Final poll for 'live' status
@@ -472,6 +526,7 @@ export async function manageBroadcastLifecycleOnStart({
     broadcastId: broadcast.id,
     streamStatus,
     lifeCycleStatus,
+    reason: isLive ? null : `Broadcast failed to reach LIVE status (current: ${lifeCycleStatus})`,
   };
 }
 

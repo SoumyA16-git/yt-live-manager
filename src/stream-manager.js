@@ -42,6 +42,11 @@ const _spawnTimestamps = []; // for circuit breaker (> 30 in 10 min)
 let _lastCycleOrder    = []; // active cycle order of { id, duration }
 let _currentSessionStartOffset = 0; // seek offset applied at session start
 let _startInProgress   = false; // re-entrancy mutex for startStream
+let _lifecyclePromise  = null; // tracks active YouTube broadcast lifecycle operation
+
+export function getCurrentLifecyclePromise() {
+  return _lifecyclePromise;
+}
 
 // ─── Helper: Backoff Calculation (PRD §9.2) ──────────────────────────────────
 
@@ -551,6 +556,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           _streamStartTime = Date.now();
           await transitionState('RUNNING', 'FFmpeg healthy output detected');
           logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid}`);
+
+          const apiConfigured = isYouTubeApiConfigured();
           await saveState({
             streamMode: gate.mode,
             activeVideoId: gate.videoMeta.id,
@@ -561,7 +568,12 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
             resumeBookmark: null,
             lastError: null,
+            youtubeIngest: apiConfigured ? 'WAITING' : 'UNMANAGED',
+            youtubeBroadcast: apiConfigured ? 'PREPARING' : 'UNMANAGED',
+            youtubeStreamActive: false,
+            youtubeBroadcastLive: false,
           });
+
           await appendHistory({
             event: 'start',
             mode: gate.mode,
@@ -579,26 +591,74 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           }, stableSec * 1000);
 
           // If YouTube Data API is configured, manage YouTube broadcast lifecycle autonomously
-          if (isYouTubeApiConfigured()) {
-            manageBroadcastLifecycleOnStart({
+          if (apiConfigured) {
+            logger.info('stream.youtube_lifecycle_start', 'Starting YouTube broadcast lifecycle management...');
+            _lifecyclePromise = manageBroadcastLifecycleOnStart({
               streamKey: secretKey,
               title: settings.youtube?.title || '',
-            }).then(async (result) => {
-              if (result && result.success) {
+            });
+
+            try {
+              const youtubeResult = await _lifecyclePromise;
+              if (youtubeResult && youtubeResult.unmanaged) {
+                logger.info('stream.youtube_unmanaged', 'YouTube API unmanaged mode; skipping lifecycle');
+                await saveState({
+                  youtubeIngest: 'UNMANAGED',
+                  youtubeBroadcast: 'UNMANAGED',
+                  youtubeStreamActive: false,
+                  youtubeBroadcastLive: false,
+                });
+              } else if (youtubeResult && youtubeResult.success && youtubeResult.lifeCycleStatus === 'live') {
+                logger.info('stream.youtube_live_confirmed', `YouTube broadcast lifecycle confirmed: LIVE (broadcast ID: ${youtubeResult.broadcastId})`);
                 await saveState({
                   youtubeStreamActive: true,
-                  youtubeBroadcastLive: result.lifeCycleStatus === 'live',
-                  liveStreamId: result.liveStreamId,
-                  broadcastId: result.broadcastId,
+                  youtubeBroadcastLive: true,
+                  youtubeIngest: 'ACTIVE',
+                  youtubeBroadcast: 'LIVE',
+                  liveStreamId: youtubeResult.liveStreamId,
+                  broadcastId: youtubeResult.broadcastId,
+                });
+              } else {
+                logger.warn('stream.youtube_lifecycle_incomplete', `YouTube lifecycle could not confirm LIVE: ${youtubeResult?.reason || 'Status incomplete'}`);
+                await saveState({
+                  youtubeStreamActive: youtubeResult?.streamStatus === 'active',
+                  youtubeBroadcastLive: false,
+                  youtubeIngest: youtubeResult?.streamStatus === 'active' ? 'ACTIVE' : 'WAITING',
+                  youtubeBroadcast: 'ERROR',
+                  lastError: {
+                    code: 'E_YOUTUBE_LIFECYCLE',
+                    message: youtubeResult?.reason || 'YouTube broadcast failed to transition to LIVE',
+                    at: new Date().toISOString(),
+                  },
                 });
               }
-            }).catch(err => {
-              logger.warn('stream.youtube_lifecycle_error', `YouTube broadcast lifecycle error: ${err.message}`);
+            } catch (err) {
+              logger.error('stream.youtube_lifecycle_error', `YouTube broadcast lifecycle error: ${err.message}`);
+              await saveState({
+                youtubeBroadcastLive: false,
+                youtubeBroadcast: 'ERROR',
+                lastError: {
+                  code: 'E_YOUTUBE_LIFECYCLE',
+                  message: `YouTube broadcast lifecycle error: ${err.message}`,
+                  at: new Date().toISOString(),
+                },
+              });
+            } finally {
+              _lifecyclePromise = null;
+            }
+          } else {
+            logger.info('stream.youtube_unmanaged', 'YouTube API OAuth2 credentials not configured; running in unmanaged RTMPS mode');
+            await saveState({
+              youtubeIngest: 'UNMANAGED',
+              youtubeBroadcast: 'UNMANAGED',
+              youtubeStreamActive: false,
+              youtubeBroadcastLive: false,
             });
           }
         },
         onExit: async ({ code, signal, expected, lastError }) => {
           if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
+          if (_lifecyclePromise) { _lifecyclePromise = null; }
           await flushUsage({ force: true });
 
           const durationSec = _streamStartTime ? Math.round((Date.now() - _streamStartTime) / 1000) : 0;
@@ -610,6 +670,10 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             isDualStream: false,
             pairedHorizontalVideoId: null,
             lastExit: { code, signal, at: new Date().toISOString() },
+            youtubeStreamActive: false,
+            youtubeBroadcastLive: false,
+            youtubeIngest: 'INACTIVE',
+            youtubeBroadcast: 'INACTIVE',
           });
 
           await appendHistory({

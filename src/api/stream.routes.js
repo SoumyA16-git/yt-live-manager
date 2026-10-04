@@ -89,6 +89,10 @@ export function createStreamRouter() {
         status: healthStatus,
         reasons,
       },
+      youtubeIngest:       state.youtubeIngest || (getYouTubeLiveApiState().configured ? (getYouTubeLiveApiState().streamStatus === 'active' ? 'ACTIVE' : 'WAITING') : 'UNMANAGED'),
+      youtubeBroadcast:    state.youtubeBroadcast || (getYouTubeLiveApiState().configured ? (getYouTubeLiveApiState().lifeCycleStatus === 'live' ? 'LIVE' : 'PREPARING') : 'UNMANAGED'),
+      youtubeStreamActive: Boolean(state.youtubeStreamActive),
+      youtubeBroadcastLive: Boolean(state.youtubeBroadcastLive),
       youtubeLive:         getYouTubeLiveApiState(),
       recentStderr:        getRecentStderr().slice(-10),
     });

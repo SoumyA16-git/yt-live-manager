@@ -260,4 +260,148 @@ describe('youtube-api-manager', () => {
     assert.strictEqual(lifecycle.lifeCycleStatus, 'live');
     assert.strictEqual(transitionCalled, true);
   });
+
+  it('paginates liveStreams to find stream key on second page', async () => {
+    initYouTubeApi({
+      YOUTUBE_CLIENT_ID: 'test-client-id',
+      YOUTUBE_CLIENT_SECRET: 'test-client-secret',
+      YOUTUBE_REFRESH_TOKEN: 'test-refresh-token',
+    });
+
+    global.fetch = async (url) => {
+      if (url === 'https://oauth2.googleapis.com/token') {
+        return { ok: true, json: async () => ({ access_token: 'mock-token', expires_in: 3600 }) };
+      }
+      if (url.includes('liveStreams') && !url.includes('pageToken')) {
+        return {
+          ok: true,
+          json: async () => ({
+            nextPageToken: 'page_2_token',
+            items: [
+              {
+                id: 'stream_page1',
+                snippet: { title: 'First Page Stream' },
+                cdn: { ingestionInfo: { streamName: 'other-key' } },
+                status: { streamStatus: 'inactive' },
+              },
+            ],
+          }),
+        };
+      }
+      if (url.includes('pageToken=page_2_token')) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                id: 'stream_page2',
+                snippet: { title: 'Second Page Stream' },
+                cdn: { ingestionInfo: { streamName: 'shot' } },
+                status: { streamStatus: 'active' },
+              },
+            ],
+          }),
+        };
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    };
+
+    const resolved = await resolveLiveStreamByStreamKey('shot');
+    assert.ok(resolved);
+    assert.strictEqual(resolved.id, 'stream_page2');
+    assert.strictEqual(resolved.streamStatus, 'active');
+  });
+
+  it('creates and binds a fresh broadcast when previous broadcast is complete (auto-recycle)', async () => {
+    initYouTubeApi({
+      YOUTUBE_CLIENT_ID: 'test-client-id',
+      YOUTUBE_CLIENT_SECRET: 'test-client-secret',
+      YOUTUBE_REFRESH_TOKEN: 'test-refresh-token',
+    });
+
+    let createCalled = false;
+    let bindCalled = false;
+
+    global.fetch = async (url, opts) => {
+      if (url === 'https://oauth2.googleapis.com/token') {
+        return { ok: true, json: async () => ({ access_token: 'mock-token', expires_in: 3600 }) };
+      }
+      if (url.includes('liveStreams?part=id,snippet,status,cdn')) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                id: 'stream_reused',
+                cdn: { ingestionInfo: { streamName: 'shot' } },
+                status: { streamStatus: 'active' },
+              },
+            ],
+          }),
+        };
+      }
+      if (url.includes('liveStreams?part=id,status&id=stream_reused')) {
+        return {
+          ok: true,
+          json: async () => ({
+            items: [{ id: 'stream_reused', status: { streamStatus: 'active' } }],
+          }),
+        };
+      }
+      if (url.includes('liveBroadcasts?part=id,snippet,status,contentDetails') && !opts?.method) {
+        // Return completed broadcast bound to this stream
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              {
+                id: 'bcast_old_completed',
+                contentDetails: { boundStreamId: 'stream_reused', enableAutoStart: true },
+                status: { lifeCycleStatus: 'complete' },
+              },
+            ],
+          }),
+        };
+      }
+      if (url.includes('liveBroadcasts?part=snippet,status,contentDetails') && opts?.method === 'POST') {
+        createCalled = true;
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'bcast_fresh_new',
+            status: { lifeCycleStatus: 'ready' },
+          }),
+        };
+      }
+      if (url.includes('liveBroadcasts/bind') && opts?.method === 'POST') {
+        bindCalled = true;
+        return {
+          ok: true,
+          json: async () => ({ id: 'bcast_fresh_new' }),
+        };
+      }
+      if (url.includes('liveBroadcasts/transition')) {
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'bcast_fresh_new',
+            status: { lifeCycleStatus: 'live' },
+          }),
+        };
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    };
+
+    const lifecycle = await manageBroadcastLifecycleOnStart({
+      streamKey: 'shot',
+      streamTimeoutSec: 5,
+      liveTimeoutSec: 5,
+    });
+
+    assert.strictEqual(createCalled, true);
+    assert.strictEqual(bindCalled, true);
+    assert.strictEqual(lifecycle.success, true);
+    assert.strictEqual(lifecycle.broadcastId, 'bcast_fresh_new');
+    assert.strictEqual(lifecycle.lifeCycleStatus, 'live');
+  });
 });

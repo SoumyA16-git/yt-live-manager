@@ -113,6 +113,7 @@ const metricBitrate = document.getElementById('metric-bitrate');
 const metricRestarts = document.getElementById('metric-restarts');
 const lastErrorBox = document.getElementById('last-error-box');
 const reachabilityBadge = document.getElementById('reachability-badge');
+const deckYoutubeApiBadge = document.getElementById('deck-youtube-api-badge');
 
 // Bandwidth Speed Meter (Live Egress Gauge) Elements
 const telemetrySpeedBadge = document.getElementById('telemetry-speed-badge');
@@ -321,19 +322,43 @@ function renderStatus(data) {
 
   // Update status badge & dot
   const yt = data.youtubeLive;
+
+  if (deckYoutubeApiBadge) {
+    if (!yt || !yt.configured) {
+      deckYoutubeApiBadge.className = 'reachability-pill warning';
+      deckYoutubeApiBadge.textContent = 'YouTube API: NOT CONFIGURED';
+      deckYoutubeApiBadge.title = 'OAuth2 credentials (YOUTUBE_CLIENT_ID, SECRET, REFRESH_TOKEN) not set. Broadcast lifecycle cannot be verified or transitioned automatically.';
+    } else {
+      if (yt.isBroadcastLive) {
+        deckYoutubeApiBadge.className = 'reachability-pill healthy';
+        deckYoutubeApiBadge.textContent = `Broadcast: LIVE (${yt.broadcastId || ''})`;
+        deckYoutubeApiBadge.title = `YouTube broadcast ${yt.broadcastId || ''} is confirmed LIVE via Data API.`;
+      } else if (yt.streamStatus === 'active') {
+        deckYoutubeApiBadge.className = 'reachability-pill starting';
+        deckYoutubeApiBadge.textContent = `Ingest: ACTIVE • ${yt.lifeCycleStatus ? yt.lifeCycleStatus.toUpperCase() : 'PREPARING'}`;
+        deckYoutubeApiBadge.title = `YouTube stream ${yt.liveStreamId || ''} is ACTIVE. Broadcast status: ${yt.lifeCycleStatus || 'unknown'}.`;
+      } else {
+        deckYoutubeApiBadge.className = 'reachability-pill';
+        deckYoutubeApiBadge.textContent = 'YouTube API: Ready';
+        deckYoutubeApiBadge.title = 'OAuth2 credentials configured and ready for automated broadcast management.';
+      }
+    }
+  }
+
   if (data.status === 'RUNNING') {
     if (yt && yt.configured) {
       if (yt.isBroadcastLive) {
-        statusText.textContent = isDual ? 'DUAL LIVE (BROADCAST LIVE)' : 'YOUTUBE LIVE';
+        statusText.textContent = isDual ? 'DUAL LIVE (YOUTUBE BROADCAST LIVE)' : 'YOUTUBE LIVE (BROADCAST LIVE)';
         statusDot.className = 'status-dot live';
       } else {
         const streamState = yt.streamStatus === 'active' ? 'INGEST ACTIVE' : 'INGEST WAITING';
         const bcastState = yt.lifeCycleStatus ? yt.lifeCycleStatus.toUpperCase() : 'PREPARING';
-        statusText.textContent = `ENCODER RUNNING (${streamState} • BROADCAST: ${bcastState})`;
+        statusText.textContent = `FFMPEG HEALTHY (${streamState} • BROADCAST: ${bcastState})`;
         statusDot.className = 'status-dot starting';
       }
     } else {
-      statusText.textContent = isDual ? 'DUAL LIVE (RTMPS ACTIVE)' : 'RUNNING (RTMPS ACTIVE)';
+      // Unmanaged mode: do NOT claim YouTube LIVE when only FFmpeg/RTMPS is healthy
+      statusText.textContent = isDual ? 'DUAL RUNNING (RTMPS ACTIVE • API UNCONFIGURED)' : 'FFMPEG RUNNING (RTMPS ACTIVE • API UNCONFIGURED)';
       statusDot.className = 'status-dot live';
     }
   } else {
