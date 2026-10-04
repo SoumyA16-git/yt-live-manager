@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v16">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v17">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -983,127 +983,179 @@
     </div>
   </main>
 
-  <!-- Settings Modal (shadcn Dialog) -->
+  <!-- Settings Modal (shadcn Zinc Dialog) -->
   <div id="modal-settings" class="modal-backdrop">
     <div class="modal-card">
       <div class="modal-header">
-        <h2 style="font-size: 0.875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 0.5rem; color: var(--text-main);">
-          <svg class="icon icon-md" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          Stream & Engine Configuration
-        </h2>
-        <button id="btn-close-settings" class="btn btn-outline btn-sm" aria-label="Close dialog" style="height: 28px; width: 28px; padding: 0;">
+        <div class="modal-title-group">
+          <h2 class="modal-title">
+            <svg class="icon icon-md" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Stream & Ingest Configuration
+          </h2>
+          <span class="modal-subtitle">Configure YouTube RTMPS endpoints, dual feeds, and FFmpeg engine</span>
+        </div>
+        <button id="btn-close-settings" class="modal-close-btn" aria-label="Close dialog" title="Close settings">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
 
-      <form id="settings-form" style="display: flex; flex-direction: column; gap: 0.625rem;">
-        <!-- YouTube Destination -->
-        <div class="form-group">
-          <label class="form-label" for="cfg-rtmps-url">RTMPS Ingest URL</label>
-          <input type="text" id="cfg-rtmps-url" class="form-control" required placeholder="rtmps://a.rtmps.youtube.com/live2">
-        </div>
+      <form id="settings-form" class="settings-form">
 
-        <!-- Primary YouTube Stream Key (Shorts Feed) -->
-        <div class="form-group">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label class="form-label" for="cfg-stream-key" style="margin-bottom: 0;">
-              YouTube Stream Key (Shorts Feed 9:16)
-            </label>
-            <span id="key-badge" class="badge-tag">Checking...</span>
+        <!-- Section 1: YouTube Ingest & Dual Feeds -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"/><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"/></svg>
+            <span>YouTube Destination & Feeds</span>
           </div>
-          <div style="display: flex; gap: 0.375rem;">
-            <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Shorts stream key" style="flex: 1;" autocomplete="new-password">
-            <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="min-width: 64px;">
-              <svg id="icon-eye-show" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <svg id="icon-eye-hide" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-              <span id="btn-reveal-text">Show</span>
-            </button>
-          </div>
-          <div id="key-hint-text" class="meta-tag">Checking key configuration...</div>
-        </div>
 
-        <!-- Secondary YouTube Stream Key (Normal 16:9 Feed) -->
-        <div class="form-group">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <label class="form-label" for="cfg-horizontal-stream-key" style="margin-bottom: 0;">
-              Horizontal Stream Key (Normal Feed 16:9)
-            </label>
-            <span id="horizontal-key-badge" class="badge-tag">Optional</span>
-          </div>
-          <div style="display: flex; gap: 0.375rem;">
-            <input type="password" id="cfg-horizontal-stream-key" class="form-control" placeholder="Enter normal feed stream key (optional)" style="flex: 1;" autocomplete="new-password">
-            <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm" title="Show or hide stream key" style="min-width: 64px;">
-              <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-              <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-              <span id="btn-reveal-horiz-text">Show</span>
-            </button>
-          </div>
-          <div id="horizontal-key-hint-text" class="meta-tag">Optional: Stream simultaneously to YouTube Shorts (9:16) and Normal Live (16:9).</div>
-        </div>
-
-        <!-- Dual Streaming Enable Switch -->
-        <div class="form-group" style="display: flex; align-items: center; gap: 0.4rem;">
-          <input type="checkbox" id="cfg-dual-stream-enabled" checked style="accent-color: #fafafa; width: 16px; height: 16px; cursor: pointer;">
-          <label for="cfg-dual-stream-enabled" class="form-label" style="margin-bottom: 0; cursor: pointer;">
-            Enable Dual Streaming (Shorts 9:16 + Normal 16:9)
-          </label>
-        </div>
-
-        <!-- Encoding & Bitrate -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+          <!-- RTMPS Ingest URL -->
           <div class="form-group">
-            <label class="form-label" for="cfg-mode-pref">Stream Mode</label>
-            <select id="cfg-mode-pref" class="form-control">
-              <option value="auto">auto (Zero CPU if compatible, Transcode if needed)</option>
-              <option value="copy">copy (Strict Zero CPU)</option>
-              <option value="transcode">transcode (Full 1080p transcode)</option>
-            </select>
+            <label class="form-label" for="cfg-rtmps-url">
+              <span>RTMPS Ingest URL</span>
+              <span class="form-badge-static">Primary Ingest</span>
+            </label>
+            <input type="text" id="cfg-rtmps-url" class="form-control" required placeholder="rtmps://a.rtmps.youtube.com/live2" autocomplete="off">
           </div>
+
+          <!-- Dual Streaming Toggle Row -->
+          <div class="settings-toggle-row">
+            <div class="settings-toggle-info">
+              <span class="settings-toggle-title">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #38bdf8;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                Dual Feed Live (Shorts 9:16 + Normal 16:9)
+              </span>
+              <span class="settings-toggle-desc">Simultaneously broadcast to mobile YouTube Shorts and landscape desktop live feeds</span>
+            </div>
+            <label class="toggle-switch" for="cfg-dual-stream-enabled" title="Toggle dual streaming">
+              <input type="checkbox" id="cfg-dual-stream-enabled" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <!-- Primary Stream Key (Shorts Feed 9:16) -->
           <div class="form-group">
-            <label class="form-label" for="cfg-bitrate">Bitrate (Mbps)</label>
-            <input type="number" id="cfg-bitrate" class="form-control" min="1" max="50" step="0.5" value="4">
+            <label class="form-label" for="cfg-stream-key">
+              <span>YouTube Stream Key <strong style="color: #38bdf8;">(Shorts Feed 9:16)</strong></span>
+              <span id="key-badge" class="badge-tag">Checking...</span>
+            </label>
+            <div class="input-action-group">
+              <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Shorts stream key" autocomplete="new-password">
+              <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm input-action-btn" title="Show or hide stream key">
+                <svg id="icon-eye-show" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg id="icon-eye-hide" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                <span id="btn-reveal-text">Show</span>
+              </button>
+            </div>
+            <div id="key-hint-text" class="form-hint">Checking key configuration...</div>
+          </div>
+
+          <!-- Secondary Stream Key (Normal 16:9 Feed) -->
+          <div class="form-group">
+            <label class="form-label" for="cfg-horizontal-stream-key">
+              <span>Horizontal Stream Key <strong style="color: #a1a1aa;">(Normal Feed 16:9)</strong></span>
+              <span id="horizontal-key-badge" class="badge-tag">Optional</span>
+            </label>
+            <div class="input-action-group">
+              <input type="password" id="cfg-horizontal-stream-key" class="form-control" placeholder="Enter normal feed stream key (optional)" autocomplete="new-password">
+              <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm input-action-btn" title="Show or hide stream key">
+                <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                <span id="btn-reveal-horiz-text">Show</span>
+              </button>
+            </div>
+            <div id="horizontal-key-hint-text" class="form-hint">Optional: Stream simultaneously to YouTube Shorts (9:16) and Normal Live (16:9).</div>
           </div>
         </div>
 
-        <div class="form-group" style="display: flex; align-items: center; gap: 0.4rem;">
-          <input type="checkbox" id="cfg-allow-transcode" checked style="accent-color: #fafafa; width: 16px; height: 16px; cursor: pointer;">
-          <label for="cfg-allow-transcode" class="form-label" style="margin-bottom: 0; cursor: pointer;">
-            Allow Transcoding for Incompatible Formats
-          </label>
+        <!-- Section 2: Encoding Engine & Quality -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span>FFmpeg Encoding Engine & Bitrate</span>
+          </div>
+
+          <!-- Stream Mode & Bitrate Grid -->
+          <div class="settings-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="cfg-mode-pref">Stream Mode</label>
+              <select id="cfg-mode-pref" class="form-control">
+                <option value="auto">auto (Zero CPU if compatible, Transcode if needed)</option>
+                <option value="copy">copy (Strict Zero CPU passthrough)</option>
+                <option value="transcode">transcode (Full software transcode)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="cfg-bitrate">Target Bitrate (Mbps)</label>
+              <input type="number" id="cfg-bitrate" class="form-control" min="1" max="50" step="0.5" value="4">
+            </div>
+          </div>
+
+          <!-- Transcoding Toggle Row -->
+          <div class="settings-toggle-row">
+            <div class="settings-toggle-info">
+              <span class="settings-toggle-title">
+                <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #fbbf24;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                Allow Incompatible Codec Transcoding
+              </span>
+              <span class="settings-toggle-desc">Automatically re-encode videos with incompatible codecs (e.g. VP9/AV1) so stream never fails</span>
+            </div>
+            <label class="toggle-switch" for="cfg-allow-transcode" title="Toggle transcode fallback">
+              <input type="checkbox" id="cfg-allow-transcode" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <!-- Live Projection Box -->
+          <div class="settings-projection-card">
+            <div class="projection-meta">
+              <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #38bdf8;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              <span>Projected Egress (+10% overhead):</span>
+            </div>
+            <div class="projection-badges">
+              <span class="projection-pill" id="preview-gb-day">49.04 GB/day</span>
+              <span class="projection-pill" id="preview-tb-month">1.471 TB/30d</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Live Projection Box -->
-        <div style="background: var(--bg-canvas); border: 1px solid var(--border-muted); padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); font-size: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
-          <span style="color: var(--text-muted);">Projected Egress (+10% overhead):</span>
-          <span style="color: var(--text-main); font-weight: 500;">
-            <span id="preview-gb-day">49.04 GB/day</span> · <span id="preview-tb-month">1.471 TB/30d</span>
+        <!-- Section 3: Ingest Safety & Bandwidth Limits -->
+        <div class="settings-section">
+          <div class="settings-section-header">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>Bandwidth Quota & Safety</span>
+          </div>
+
+          <div class="settings-grid-2">
+            <div class="form-group">
+              <label class="form-label" for="cfg-safety-limit">Safety Limit (TB)</label>
+              <input type="number" id="cfg-safety-limit" class="form-control" min="0.001" max="10" step="0.1" value="9">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="cfg-overhead">Network Overhead (%)</label>
+              <input type="number" id="cfg-overhead" class="form-control" min="0" max="50" step="1" value="10">
+            </div>
+          </div>
+        </div>
+
+        <!-- Form Actions Footer -->
+        <div class="modal-footer">
+          <span class="modal-footer-note">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            Bitrate changes will prompt for a clean restart.
           </span>
-        </div>
-
-        <!-- Safety Limit & Overhead -->
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
-          <div class="form-group">
-            <label class="form-label" for="cfg-safety-limit">Safety Limit (TB)</label>
-            <input type="number" id="cfg-safety-limit" class="form-control" min="0.001" max="10" step="0.1" value="9">
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="cfg-overhead">Network Overhead (%)</label>
-            <input type="number" id="cfg-overhead" class="form-control" min="0" max="50" step="1" value="10">
+          <div class="modal-footer-actions">
+            <button type="button" id="btn-cancel-settings" class="btn btn-outline btn-sm">Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm">Save Configuration</button>
           </div>
         </div>
 
-        <!-- Form Actions -->
-        <div style="display: flex; justify-content: flex-end; gap: 0.375rem; margin-top: 0.25rem;">
-          <button type="button" id="btn-cancel-settings" class="btn btn-outline btn-sm">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm">Save Configuration</button>
-        </div>
       </form>
     </div>
   </div>
 
-  <!-- Toast Notification Container (shadcn style) -->
+<!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261004_v16"></script>
+  <script type="module" src="/js/dashboard.js?v=20261004_v17"></script>
 </body>
 </html>

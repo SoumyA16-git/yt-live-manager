@@ -1939,6 +1939,14 @@ async function init() {
   btnOpenSettings.addEventListener('click', openSettings);
   btnCloseSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
   btnCancelSettings.addEventListener('click', () => modalSettings.classList.remove('open'));
+  modalSettings.addEventListener('click', (e) => {
+    if (e.target === modalSettings) modalSettings.classList.remove('open');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && modalSettings.classList.contains('open')) {
+      modalSettings.classList.remove('open');
+    }
+  });
 
   // 2. Collapsible Panels support
   document.querySelectorAll('.panel-toggle-btn').forEach(btn => {
