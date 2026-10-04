@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v14">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v15">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -130,7 +130,7 @@
             Stream Telemetry
           </span>
           <div class="header-right">
-            <span id="telemetry-speed-badge" class="meta-tag" style="font-family: var(--font-mono); color: #38bdf8;">0.00 Mbps</span>
+            <span id="telemetry-speed-badge" class="meta-tag" style="color: #38bdf8; font-weight: 600;">0.00 Mbps</span>
             <button class="panel-toggle-btn" data-target="body-telemetry" aria-label="Toggle Telemetry Panel">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
             </button>
@@ -228,13 +228,6 @@
                         stroke-dashoffset="288"
                         filter="url(#speed-glow)" />
 
-                  <!-- Scale Markings (-110° to +110°) -->
-                  <text x="24" y="144" class="gauge-scale-label">0M</text>
-                  <text x="35" y="62" class="gauge-scale-label">2.5M</text>
-                  <text x="110" y="18" class="gauge-scale-label">5.0M</text>
-                  <text x="185" y="62" class="gauge-scale-label">7.5M</text>
-                  <text x="196" y="144" class="gauge-scale-label">10M+</text>
-
                   <!-- MUI GaugePointer (<GaugePointer />) with target needle & center pivot -->
                   <g id="gauge-pointer-group" class="gauge-pointer-group" filter="url(#pointer-glow)">
                     <path id="gauge-pointer-needle"
@@ -247,7 +240,7 @@
                     <circle cx="110" cy="105" r="2" fill="#ffffff" />
                   </g>
 
-                  <!-- Center Live Digital Speed Readout -->
+                  <!-- Center Live Digital Speed Readout (Clean UI Typography) -->
                   <g class="gauge-center-text">
                     <text id="speed-readout-num" x="110" y="142" text-anchor="middle" class="gauge-number">0.00</text>
                     <text x="110" y="159" text-anchor="middle" class="gauge-unit">Mbps Live Egress</text>
@@ -1111,6 +1104,6 @@
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261004_v14"></script>
+  <script type="module" src="/js/dashboard.js?v=20261004_v15"></script>
 </body>
 </html>

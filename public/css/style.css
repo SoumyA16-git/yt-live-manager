@@ -796,20 +796,21 @@ input:checked + .slider:before {
 }
 
 .gauge-number {
-  font-family: var(--font-mono);
-  font-size: 1.85rem;
+  font-family: var(--font-sans);
+  font-size: 2.15rem;
   font-weight: 700;
   fill: #fafafa;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
+  font-feature-settings: 'tnum';
 }
 
 .gauge-unit {
   font-family: var(--font-sans);
-  font-size: 0.6875rem;
+  font-size: 0.625rem;
   font-weight: 600;
   fill: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
 }
 
 .speed-metrics-column {
@@ -850,9 +851,10 @@ input:checked + .slider:before {
 
 .speed-kpi-val {
   font-size: 0.95rem;
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-main);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  letter-spacing: -0.02em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
