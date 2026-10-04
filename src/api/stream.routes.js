@@ -11,6 +11,7 @@ import {
 } from '../stream-manager.js';
 import { getState } from '../state-manager.js';
 import { getLatestProgress, getRecentStderr, getOutputsStatus } from '../ffmpeg-manager.js';
+import { getYouTubeLiveApiState } from '../youtube-api-manager.js';
 
 export function createStreamRouter() {
   const router = Router();
@@ -88,6 +89,7 @@ export function createStreamRouter() {
         status: healthStatus,
         reasons,
       },
+      youtubeLive:         getYouTubeLiveApiState(),
       recentStderr:        getRecentStderr().slice(-10),
     });
   });

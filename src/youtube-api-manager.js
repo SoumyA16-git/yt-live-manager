@@ -1,0 +1,507 @@
+/**
+ * youtube-api-manager.js — YouTube Data API v3 liveBroadcasts & liveStreams lifecycle manager.
+ *
+ * Controls and verifies YouTube broadcast lifecycle without browser or manual interaction:
+ * - OAuth2 token refresh via client credentials (env vars: YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN).
+ * - Resolves liveStream by matching RTMPS streamKey against stream.cdn.ingestionInfo.streamName.
+ * - Resolves bound liveBroadcast resource for the liveStream.
+ * - Handles enableAutoStart:
+ *     If true: monitors YouTube automated transition to 'live'.
+ *     If false: explicitly invokes liveBroadcasts.transition(broadcastStatus='live').
+ * - Handles auto-recycle / completed broadcasts by creating and binding a fresh broadcast when needed.
+ * - Telemetry: tracks streamStatus (active/ready) and lifeCycleStatus (live/ready/testing/complete).
+ */
+
+import { setSecret } from './lib/redact.js';
+import { logger } from './logger.js';
+
+// ─── Module State ─────────────────────────────────────────────────────────────
+
+let _clientId = process.env.YOUTUBE_CLIENT_ID || '';
+let _clientSecret = process.env.YOUTUBE_CLIENT_SECRET || '';
+let _refreshToken = process.env.YOUTUBE_REFRESH_TOKEN || '';
+
+let _cachedAccessToken = null;
+let _tokenExpiresAt = 0;
+
+let _currentStreamId = null;
+let _currentBroadcastId = null;
+let _currentStreamStatus = 'unknown';
+let _currentHealthStatus = 'unknown';
+let _currentLifeCycleStatus = 'unknown';
+let _lastCheckedAt = null;
+let _lastApiError = null;
+
+// ─── Configuration & Initialization ──────────────────────────────────────────
+
+/**
+ * Initialize or update YouTube API credentials.
+ * Credentials are automatically registered with redact() to prevent leaking in logs.
+ *
+ * @param {object} [envConfig={}]
+ */
+export function initYouTubeApi(envConfig = {}) {
+  _clientId = envConfig.YOUTUBE_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || _clientId;
+  _clientSecret = envConfig.YOUTUBE_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET || _clientSecret;
+  _refreshToken = envConfig.YOUTUBE_REFRESH_TOKEN || process.env.YOUTUBE_REFRESH_TOKEN || _refreshToken;
+
+  if (_clientId) setSecret(_clientId);
+  if (_clientSecret) setSecret(_clientSecret);
+  if (_refreshToken) setSecret(_refreshToken);
+
+  const configured = Boolean(_clientId && _clientSecret && _refreshToken);
+  if (configured) {
+    logger.info('youtube_api.initialized', 'YouTube Data API v3 integration configured with OAuth2 credentials');
+  }
+  return configured;
+}
+
+export function isYouTubeApiConfigured() {
+  return Boolean(_clientId && _clientSecret && _refreshToken);
+}
+
+// ─── OAuth2 Token Management ──────────────────────────────────────────────────
+
+/**
+ * Obtain a valid Google OAuth2 access token, refreshing if necessary.
+ *
+ * @returns {Promise<string>}
+ */
+export async function getAccessToken() {
+  if (!isYouTubeApiConfigured()) {
+    throw Object.assign(new Error('YouTube API is not configured with OAuth2 credentials'), {
+      code: 'E_YOUTUBE_API_NOT_CONFIGURED',
+    });
+  }
+
+  // Use cached token if valid for at least 2 more minutes
+  if (_cachedAccessToken && Date.now() < _tokenExpiresAt - 120000) {
+    return _cachedAccessToken;
+  }
+
+  const tokenUrl = 'https://oauth2.googleapis.com/token';
+  const params = new URLSearchParams({
+    client_id: _clientId,
+    client_secret: _clientSecret,
+    refresh_token: _refreshToken,
+    grant_type: 'refresh_token',
+  });
+
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: params.toString(),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    _lastApiError = `Token refresh failed (${res.status}): ${errText}`;
+    logger.error('youtube_api.token_error', `Failed to refresh OAuth2 access token: ${res.status}`);
+    throw Object.assign(new Error(`OAuth token refresh failed (${res.status})`), { code: 'E_OAUTH_TOKEN_FAILED' });
+  }
+
+  const data = await res.json();
+  _cachedAccessToken = data.access_token;
+  _tokenExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+  setSecret(_cachedAccessToken);
+
+  logger.debug('youtube_api.token_refreshed', 'OAuth2 access token successfully refreshed');
+  return _cachedAccessToken;
+}
+
+/**
+ * Execute an authenticated YouTube Data API v3 request.
+ *
+ * @param {string} endpoint API endpoint relative to base or full URL
+ * @param {object} [options={}] fetch options
+ */
+async function youtubeFetch(endpoint, options = {}) {
+  const token = await getAccessToken();
+  const url = endpoint.startsWith('http') ? endpoint : `https://www.googleapis.com/youtube/v3/${endpoint}`;
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    Accept: 'application/json',
+    ...(options.headers || {}),
+  };
+
+  const res = await fetch(url, { ...options, headers });
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    _lastApiError = `API error ${res.status} on ${endpoint}: ${errBody}`;
+    logger.error('youtube_api.request_failed', `YouTube API call failed [${res.status}]: ${endpoint}`);
+    const err = new Error(`YouTube API request failed [${res.status}]`);
+    err.status = res.status;
+    err.details = errBody;
+    throw err;
+  }
+
+  return res.json();
+}
+
+// ─── Stream & Broadcast Resolution ────────────────────────────────────────────
+
+/**
+ * Resolve liveStream resource associated with the given stream key.
+ *
+ * @param {string} streamKey
+ * @returns {Promise<{ id: string, streamStatus: string, healthStatus: string, title: string }|null>}
+ */
+export async function resolveLiveStreamByStreamKey(streamKey) {
+  if (!streamKey || !isYouTubeApiConfigured()) return null;
+
+  try {
+    const data = await youtubeFetch('liveStreams?part=id,snippet,status,cdn&mine=true&maxResults=50');
+    const items = data.items || [];
+
+    const cleanKey = streamKey.trim();
+    const matched = items.find(s => s.cdn?.ingestionInfo?.streamName === cleanKey);
+
+    if (matched) {
+      _currentStreamId = matched.id;
+      _currentStreamStatus = matched.status?.streamStatus || 'unknown';
+      _currentHealthStatus = matched.status?.healthStatus?.status || 'unknown';
+      _lastCheckedAt = new Date().toISOString();
+
+      logger.info('youtube_api.stream_resolved', `Resolved YouTube liveStream ID ${matched.id} (status: ${_currentStreamStatus})`);
+      return {
+        id: matched.id,
+        streamStatus: _currentStreamStatus,
+        healthStatus: _currentHealthStatus,
+        title: matched.snippet?.title || '',
+      };
+    }
+
+    logger.warn('youtube_api.stream_not_found', 'No liveStream resource matched the configured stream key');
+    return null;
+  } catch (err) {
+    _lastApiError = err.message;
+    return null;
+  }
+}
+
+/**
+ * Get current status of a liveStream resource.
+ *
+ * @param {string} streamId
+ * @returns {Promise<{ streamStatus: string, healthStatus: string }>}
+ */
+export async function getLiveStreamStatus(streamId) {
+  if (!streamId || !isYouTubeApiConfigured()) {
+    return { streamStatus: 'unknown', healthStatus: 'unknown' };
+  }
+
+  try {
+    const data = await youtubeFetch(`liveStreams?part=id,status&id=${encodeURIComponent(streamId)}`);
+    const item = (data.items || [])[0];
+    if (item) {
+      _currentStreamStatus = item.status?.streamStatus || 'unknown';
+      _currentHealthStatus = item.status?.healthStatus?.status || 'unknown';
+      _lastCheckedAt = new Date().toISOString();
+      return { streamStatus: _currentStreamStatus, healthStatus: _currentHealthStatus };
+    }
+  } catch (err) {
+    _lastApiError = err.message;
+  }
+  return { streamStatus: _currentStreamStatus, healthStatus: _currentHealthStatus };
+}
+
+/**
+ * Resolve liveBroadcast bound to the given streamId.
+ * Selects active/live, testing, or ready broadcasts in priority order.
+ *
+ * @param {string} streamId
+ * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean, enableAutoStop: boolean }|null>}
+ */
+export async function resolveBoundBroadcast(streamId) {
+  if (!streamId || !isYouTubeApiConfigured()) return null;
+
+  try {
+    const data = await youtubeFetch('liveBroadcasts?part=id,snippet,status,contentDetails&broadcastType=all&mine=true&maxResults=50');
+    const items = data.items || [];
+
+    // Filter to broadcasts bound to this streamId
+    const bound = items.filter(b => b.contentDetails?.boundStreamId === streamId);
+
+    // Order of preference: live > testing > ready
+    const active = bound.find(b => b.status?.lifeCycleStatus === 'live')
+      || bound.find(b => b.status?.lifeCycleStatus === 'testing')
+      || bound.find(b => b.status?.lifeCycleStatus === 'ready');
+
+    if (active) {
+      _currentBroadcastId = active.id;
+      _currentLifeCycleStatus = active.status?.lifeCycleStatus || 'unknown';
+      _lastCheckedAt = new Date().toISOString();
+
+      logger.info('youtube_api.broadcast_resolved', `Resolved bound YouTube broadcast ID ${active.id} (status: ${_currentLifeCycleStatus}, autoStart: ${Boolean(active.contentDetails?.enableAutoStart)})`);
+      return {
+        id: active.id,
+        title: active.snippet?.title || '',
+        lifeCycleStatus: _currentLifeCycleStatus,
+        enableAutoStart: Boolean(active.contentDetails?.enableAutoStart),
+        enableAutoStop: Boolean(active.contentDetails?.enableAutoStop),
+      };
+    }
+
+    return null;
+  } catch (err) {
+    _lastApiError = err.message;
+    return null;
+  }
+}
+
+/**
+ * Transition a liveBroadcast to a new lifecycle status (e.g., 'live').
+ *
+ * @param {string} broadcastId
+ * @param {'live'|'testing'|'complete'} [targetStatus='live']
+ * @returns {Promise<{ id: string, lifeCycleStatus: string }>}
+ */
+export async function transitionBroadcast(broadcastId, targetStatus = 'live') {
+  if (!broadcastId || !isYouTubeApiConfigured()) {
+    throw new Error('Broadcast ID or API credentials missing');
+  }
+
+  logger.info('youtube_api.transitioning', `Transitioning YouTube broadcast ${broadcastId} to '${targetStatus}'`);
+  const data = await youtubeFetch(
+    `liveBroadcasts/transition?broadcastStatus=${encodeURIComponent(targetStatus)}&id=${encodeURIComponent(broadcastId)}&part=id,status`,
+    { method: 'POST' }
+  );
+
+  const status = data.status?.lifeCycleStatus || targetStatus;
+  _currentLifeCycleStatus = status;
+  _lastCheckedAt = new Date().toISOString();
+  logger.info('youtube_api.transition_complete', `YouTube broadcast ${broadcastId} lifeCycleStatus is now '${status}'`);
+  return { id: broadcastId, lifeCycleStatus: status };
+}
+
+/**
+ * Create a fresh liveBroadcast and bind it to the specified streamId.
+ * Used during auto-recycle when the previous broadcast is closed ('complete').
+ *
+ * @param {object} opts
+ * @param {string} opts.streamId
+ * @param {string} [opts.title]
+ * @param {boolean} [opts.enableAutoStart=true]
+ * @param {boolean} [opts.enableAutoStop=false]
+ * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean }>}
+ */
+export async function createAndBindBroadcast({
+  streamId,
+  title = '',
+  enableAutoStart = true,
+  enableAutoStop = false,
+}) {
+  if (!streamId || !isYouTubeApiConfigured()) {
+    throw new Error('streamId and configured API required to create broadcast');
+  }
+
+  const broadcastTitle = title || `24×7 Live Stream — ${new Date().toISOString().slice(0, 10)}`;
+  logger.info('youtube_api.creating_broadcast', `Creating new liveBroadcast: "${broadcastTitle}"`);
+
+  // 1. Create broadcast resource
+  const created = await youtubeFetch('liveBroadcasts?part=snippet,status,contentDetails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      snippet: {
+        title: broadcastTitle,
+        scheduledStartTime: new Date().toISOString(),
+      },
+      status: {
+        privacyStatus: 'public',
+        selfDeclaredMadeForKids: false,
+      },
+      contentDetails: {
+        enableAutoStart,
+        enableAutoStop,
+        recordFromStart: true,
+      },
+    }),
+  });
+
+  const broadcastId = created.id;
+
+  // 2. Bind broadcast to the reusable liveStream
+  logger.info('youtube_api.binding_broadcast', `Binding broadcast ${broadcastId} to stream ${streamId}`);
+  await youtubeFetch(
+    `liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails`,
+    { method: 'POST' }
+  );
+
+  _currentBroadcastId = broadcastId;
+  _currentLifeCycleStatus = created.status?.lifeCycleStatus || 'ready';
+  _lastCheckedAt = new Date().toISOString();
+
+  return {
+    id: broadcastId,
+    title: broadcastTitle,
+    lifeCycleStatus: _currentLifeCycleStatus,
+    enableAutoStart,
+  };
+}
+
+// ─── Automated Broadcast Lifecycle Verification ───────────────────────────────
+
+/**
+ * Autonomous lifecycle transition after FFmpeg start:
+ * 1. Wait for streamStatus to become 'active'.
+ * 2. Resolve bound broadcast (or create new one if completed).
+ * 3. If enableAutoStart is false (or hasn't transitioned), invoke transition('live').
+ * 4. Verify lifeCycleStatus becomes 'live'.
+ *
+ * @param {object} opts
+ * @param {string} opts.streamKey
+ * @param {string} [opts.title]
+ * @param {number} [opts.streamTimeoutSec=45]
+ * @param {number} [opts.liveTimeoutSec=30]
+ * @returns {Promise<{ success: boolean, liveStreamId: string, broadcastId: string, streamStatus: string, lifeCycleStatus: string }>}
+ */
+export async function manageBroadcastLifecycleOnStart({
+  streamKey,
+  title = '',
+  streamTimeoutSec = 45,
+  liveTimeoutSec = 30,
+}) {
+  if (!isYouTubeApiConfigured()) {
+    return {
+      success: true,
+      unmanaged: true,
+      streamStatus: 'unmanaged',
+      lifeCycleStatus: 'unmanaged',
+    };
+  }
+
+  // 1. Resolve liveStream by streamKey
+  const stream = await resolveLiveStreamByStreamKey(streamKey);
+  if (!stream) {
+    logger.warn('youtube_api.lifecycle_aborted', 'Could not resolve liveStream for streamKey; proceeding in unmanaged mode');
+    return { success: false, reason: 'STREAM_KEY_NOT_MATCHED' };
+  }
+
+  // 2. Poll until streamStatus === 'active'
+  logger.info('youtube_api.waiting_stream_active', `Waiting for YouTube ingest to mark stream ${stream.id} active (up to ${streamTimeoutSec}s)...`);
+  const streamStart = Date.now();
+  let streamStatus = stream.streamStatus;
+
+  while (streamStatus !== 'active' && Date.now() - streamStart < streamTimeoutSec * 1000) {
+    await new Promise(r => setTimeout(r, 2000));
+    const st = await getLiveStreamStatus(stream.id);
+    streamStatus = st.streamStatus;
+    if (streamStatus === 'active') break;
+  }
+
+  if (streamStatus !== 'active') {
+    logger.warn('youtube_api.stream_active_timeout', `YouTube ingest stream ${stream.id} not marked active after ${streamTimeoutSec}s (status: ${streamStatus})`);
+  } else {
+    logger.info('youtube_api.stream_active', `YouTube ingest stream ${stream.id} is ACTIVE!`);
+  }
+
+  // 3. Resolve bound broadcast
+  let broadcast = await resolveBoundBroadcast(stream.id);
+
+  // If no broadcast or already completed, create a new broadcast and bind to reusable stream
+  if (!broadcast || broadcast.lifeCycleStatus === 'complete') {
+    logger.info('youtube_api.creating_fresh_broadcast', 'No active or ready broadcast bound; creating fresh broadcast...');
+    broadcast = await createAndBindBroadcast({ streamId: stream.id, title, enableAutoStart: true });
+  }
+
+  // 4. If broadcast is already 'live', we're done
+  if (broadcast.lifeCycleStatus === 'live') {
+    logger.info('youtube_api.broadcast_live', `YouTube broadcast ${broadcast.id} is confirmed LIVE!`);
+    return {
+      success: true,
+      liveStreamId: stream.id,
+      broadcastId: broadcast.id,
+      streamStatus,
+      lifeCycleStatus: 'live',
+    };
+  }
+
+  // 5. Handle Transition
+  if (broadcast.enableAutoStart) {
+    // Wait up to 10s for YouTube auto-start
+    logger.info('youtube_api.waiting_autostart', `Broadcast ${broadcast.id} has enableAutoStart=true; waiting for auto-transition...`);
+    const autoStartBegin = Date.now();
+    while (Date.now() - autoStartBegin < 10000) {
+      await new Promise(r => setTimeout(r, 2000));
+      const bCheck = await resolveBoundBroadcast(stream.id);
+      if (bCheck && bCheck.lifeCycleStatus === 'live') {
+        logger.info('youtube_api.autostart_succeeded', `Broadcast ${broadcast.id} auto-started to LIVE!`);
+        return {
+          success: true,
+          liveStreamId: stream.id,
+          broadcastId: broadcast.id,
+          streamStatus,
+          lifeCycleStatus: 'live',
+        };
+      }
+    }
+  }
+
+  // 6. Explicit Transition to LIVE if not auto-started or enableAutoStart is false
+  try {
+    const transitioned = await transitionBroadcast(broadcast.id, 'live');
+    if (transitioned.lifeCycleStatus === 'live') {
+      logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
+    }
+  } catch (err) {
+    logger.warn('youtube_api.transition_warn', `Transition to live returned error: ${err.message}; polling for status...`);
+  }
+
+  // 7. Final poll for 'live' status
+  const livePollStart = Date.now();
+  let lifeCycleStatus = _currentLifeCycleStatus;
+  while (lifeCycleStatus !== 'live' && Date.now() - livePollStart < liveTimeoutSec * 1000) {
+    await new Promise(r => setTimeout(r, 2000));
+    const bCheck = await resolveBoundBroadcast(stream.id);
+    if (bCheck) lifeCycleStatus = bCheck.lifeCycleStatus;
+    if (lifeCycleStatus === 'live') break;
+  }
+
+  const isLive = lifeCycleStatus === 'live';
+  if (isLive) {
+    logger.info('youtube_api.lifecycle_success', `Stream & Broadcast fully verified: Stream is ACTIVE and Broadcast is LIVE (${broadcast.id})`);
+  } else {
+    logger.warn('youtube_api.lifecycle_incomplete', `Broadcast ${broadcast.id} current status is '${lifeCycleStatus}'`);
+  }
+
+  return {
+    success: isLive,
+    liveStreamId: stream.id,
+    broadcastId: broadcast.id,
+    streamStatus,
+    lifeCycleStatus,
+  };
+}
+
+// ─── Status Getter ────────────────────────────────────────────────────────────
+
+export function getYouTubeLiveApiState() {
+  return {
+    configured: isYouTubeApiConfigured(),
+    liveStreamId: _currentStreamId,
+    broadcastId: _currentBroadcastId,
+    streamStatus: _currentStreamStatus,
+    healthStatus: _currentHealthStatus,
+    lifeCycleStatus: _currentLifeCycleStatus,
+    isBroadcastLive: _currentLifeCycleStatus === 'live',
+    lastCheckedAt: _lastCheckedAt,
+    lastError: _lastApiError,
+  };
+}
+
+export function _resetStateForTest() {
+  _clientId = '';
+  _clientSecret = '';
+  _refreshToken = '';
+  _cachedAccessToken = null;
+  _tokenExpiresAt = 0;
+  _currentStreamId = null;
+  _currentBroadcastId = null;
+  _currentStreamStatus = 'unknown';
+  _currentHealthStatus = 'unknown';
+  _currentLifeCycleStatus = 'unknown';
+  _lastCheckedAt = null;
+  _lastApiError = null;
+}

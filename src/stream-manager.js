@@ -26,6 +26,7 @@ import { getVideo, resolveVideoPath, listVideos, setActiveVideo, findPairedHoriz
 import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage } from './usage-manager.js';
 import { logger } from './logger.js';
+import { isYouTubeApiConfigured, manageBroadcastLifecycleOnStart } from './youtube-api-manager.js';
 import PATHS from './lib/paths.js';
 
 export const streamEvents = new EventEmitter();
@@ -576,6 +577,25 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             logger.info('stream.stable', `Stream has run stably for ${stableSec}s; resetting failure counter`);
             await saveState({ consecutiveFailures: 0 });
           }, stableSec * 1000);
+
+          // If YouTube Data API is configured, manage YouTube broadcast lifecycle autonomously
+          if (isYouTubeApiConfigured()) {
+            manageBroadcastLifecycleOnStart({
+              streamKey: secretKey,
+              title: settings.youtube?.title || '',
+            }).then(async (result) => {
+              if (result && result.success) {
+                await saveState({
+                  youtubeStreamActive: true,
+                  youtubeBroadcastLive: result.lifeCycleStatus === 'live',
+                  liveStreamId: result.liveStreamId,
+                  broadcastId: result.broadcastId,
+                });
+              }
+            }).catch(err => {
+              logger.warn('stream.youtube_lifecycle_error', `YouTube broadcast lifecycle error: ${err.message}`);
+            });
+          }
         },
         onExit: async ({ code, signal, expected, lastError }) => {
           if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }

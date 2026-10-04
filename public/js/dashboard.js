@@ -320,21 +320,28 @@ function renderStatus(data) {
   const isDual = Boolean(data.isDualStream);
 
   // Update status badge & dot
-  if (data.status === 'RUNNING' && isDual) {
-    statusText.textContent = 'DUAL LIVE';
+  const yt = data.youtubeLive;
+  if (data.status === 'RUNNING') {
+    if (yt && yt.configured) {
+      if (yt.isBroadcastLive) {
+        statusText.textContent = isDual ? 'DUAL LIVE (BROADCAST LIVE)' : 'YOUTUBE LIVE';
+        statusDot.className = 'status-dot live';
+      } else {
+        const streamState = yt.streamStatus === 'active' ? 'INGEST ACTIVE' : 'INGEST WAITING';
+        const bcastState = yt.lifeCycleStatus ? yt.lifeCycleStatus.toUpperCase() : 'PREPARING';
+        statusText.textContent = `ENCODER RUNNING (${streamState} • BROADCAST: ${bcastState})`;
+        statusDot.className = 'status-dot starting';
+      }
+    } else {
+      statusText.textContent = isDual ? 'DUAL LIVE (RTMPS ACTIVE)' : 'RUNNING (RTMPS ACTIVE)';
+      statusDot.className = 'status-dot live';
+    }
   } else {
     statusText.textContent = data.status;
+    statusDot.className = 'status-dot';
+    if (data.status === 'STARTING') statusDot.classList.add('starting');
+    else if (data.status === 'ERROR' || data.status === 'BANDWIDTH_LIMIT_REACHED') statusDot.classList.add('error');
   }
-  quickStatus.textContent = data.status;
-
-  if (deckDualStreamBadge) {
-    deckDualStreamBadge.style.display = (data.status === 'RUNNING' && isDual) ? 'inline-flex' : 'none';
-  }
-
-  statusDot.className = 'status-dot';
-  if (data.status === 'RUNNING') statusDot.classList.add('live');
-  else if (data.status === 'STARTING') statusDot.classList.add('starting');
-  else if (data.status === 'ERROR' || data.status === 'BANDWIDTH_LIMIT_REACHED') statusDot.classList.add('error');
 
   // Control buttons state
   btnStart.disabled = data.status === 'RUNNING' || data.status === 'STARTING' || data.disabled;
