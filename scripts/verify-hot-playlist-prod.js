@@ -187,7 +187,7 @@ async function main() {
     // Wait for stream to become stable RUNNING and YouTube lifecycle confirmed
     console.log('Waiting for dual health gating & YouTube confirmation...');
     let running = false;
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 90; i++) {
       await wait(1000);
       const st = getState();
       if (st.status === 'RUNNING' && st.primaryBroadcastStatus === 'live' && st.secondaryBroadcastStatus === 'live') {
@@ -334,14 +334,14 @@ async function main() {
     console.log('\n============================================================');
     console.log('STEP 5: TRANSITION 1 (ALLOW A TO NATURALLY FINISH)');
     console.log('============================================================');
-    console.log('Waiting for Video A feeder to naturally finish (~30s duration)...');
+    console.log('Waiting for Video A feeder to naturally finish (~80s duration)...');
 
     const transition1Start = Date.now();
     let transitionedToB = false;
     let stateAtB = null;
 
-    // A is ~30s long, started ~12s ago, so should finish in ~18-20s. Timeout at 45s.
-    for (let i = 0; i < 90; i++) {
+    // A is ~80s long. Timeout at 75s from upload completion.
+    for (let i = 0; i < 150; i++) {
       await wait(500);
       const st = getState();
       if (st.currentLogicalVideoId && st.currentLogicalVideoId !== logicalAId) {
@@ -380,14 +380,14 @@ async function main() {
     console.log('\n============================================================');
     console.log('STEP 6: TRANSITION 2 (ALLOW B TO NATURALLY FINISH)');
     console.log('============================================================');
-    console.log('Waiting for Video B feeder to naturally finish (~30s duration)...');
+    console.log('Waiting for Video B feeder to naturally finish (~80s duration)...');
 
     const transition2Start = Date.now();
     let transitionedToC = false;
     let stateAtC = null;
 
-    // B is ~30s long. Timeout at 45s.
-    for (let i = 0; i < 90; i++) {
+    // B is ~80s long. Timeout at 100s.
+    for (let i = 0; i < 200; i++) {
       await wait(500);
       const st = getState();
       if (st.currentLogicalVideoId && st.currentLogicalVideoId !== logicalB.id) {
