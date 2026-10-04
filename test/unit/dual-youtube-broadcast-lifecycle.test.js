@@ -154,6 +154,9 @@ describe('Dual YouTube Broadcast Lifecycle', () => {
           }),
         };
       }
+      if (url.includes('videos?part=snippet') && opts.method === 'PUT') {
+        return { ok: true, json: async () => ({ id: 'bcast_existing_ready' }) };
+      }
       if (url.includes('liveBroadcasts') && opts.method === 'POST') {
         insertCalled = true;
         return { ok: true, json: async () => ({}) };
@@ -167,6 +170,7 @@ describe('Dual YouTube Broadcast Lifecycle', () => {
     });
 
     assert.strictEqual(result.id, 'bcast_existing_ready');
+    assert.strictEqual(result.title, 'New Title', 'Should synchronize reused broadcast title to session title');
     assert.strictEqual(insertCalled, false, 'Should reuse existing ready broadcast instead of inserting new one');
   });
 
@@ -425,5 +429,95 @@ describe('Dual YouTube Broadcast Lifecycle', () => {
 
     const apiState = getYouTubeLiveApiState();
     assert.notStrictEqual(apiState.secondaryBroadcastStatus, 'live');
+  });
+
+  it('generates ONE session timestamp and identical dynamic title for both primary and secondary broadcasts in the same dual session', async () => {
+    const primaryKey = 'vert-key-111';
+    const secondaryKey = 'horiz-key-222';
+    const primaryStreamId = 'stream_vert_id_1';
+    const secondaryStreamId = 'stream_horiz_id_2';
+
+    const createdTitles = [];
+
+    setupMockYouTubeApi(async (url, opts) => {
+      // liveStreams
+      if (url.includes('liveStreams') && (!opts.method || opts.method === 'GET')) {
+        const u = new URL(url);
+        const idParam = u.searchParams.get('id');
+        if (idParam) {
+          return {
+            ok: true,
+            json: async () => ({
+              items: [{ id: idParam, status: { streamStatus: 'active', healthStatus: { status: 'good' } } }],
+            }),
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            items: [
+              { id: primaryStreamId, snippet: {}, cdn: { ingestionInfo: { streamName: primaryKey } }, status: { streamStatus: 'active' } },
+              { id: secondaryStreamId, snippet: {}, cdn: { ingestionInfo: { streamName: secondaryKey } }, status: { streamStatus: 'active' } },
+            ],
+          }),
+        };
+      }
+
+      // liveBroadcasts.list (no existing)
+      if (url.includes('liveBroadcasts') && (!opts.method || opts.method === 'GET')) {
+        const u = new URL(url);
+        const idParam = u.searchParams.get('id');
+        if (idParam) {
+          return { ok: true, json: async () => ({ items: [{ id: idParam, status: { lifeCycleStatus: 'live' } }] }) };
+        }
+        return { ok: true, json: async () => ({ items: [] }) };
+      }
+
+      // liveBroadcasts.insert
+      if (url.includes('liveBroadcasts') && opts.method === 'POST' && !url.includes('/bind') && !url.includes('/transition')) {
+        const body = JSON.parse(opts.body);
+        createdTitles.push(body.snippet.title);
+        return {
+          ok: true,
+          json: async () => ({
+            id: 'bcast_' + createdTitles.length,
+            snippet: body.snippet,
+            status: { lifeCycleStatus: 'created' },
+            contentDetails: {},
+          }),
+        };
+      }
+
+      // liveBroadcasts/bind
+      if (url.includes('liveBroadcasts/bind')) {
+        return { ok: true, json: async () => ({ id: 'mock', status: { lifeCycleStatus: 'ready' } }) };
+      }
+
+      // liveBroadcasts/transition
+      if (url.includes('liveBroadcasts/transition')) {
+        return { ok: true, json: async () => ({ id: 'mock', status: { lifeCycleStatus: 'live' } }) };
+      }
+
+      if (url.includes('videos?part=snippet')) {
+        return { ok: true, json: async () => ({}) };
+      }
+
+      throw new Error(`Unhandled mock URL: ${url}`);
+    });
+
+    const result = await manageBroadcastLifecycleOnStart({
+      streamKey: primaryKey,
+      secondaryStreamKey: secondaryKey,
+      isDual: true,
+      title: '', // Empty: trigger automatic dynamic title generation
+      streamTimeoutSec: 2,
+      liveTimeoutSec: 2,
+    });
+
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(createdTitles.length, 2, 'Should create two broadcasts');
+    // Crucial requirement: Both broadcasts must receive the exact same title with identical timestamp!
+    assert.strictEqual(createdTitles[0], createdTitles[1], 'Both broadcasts must have identical dynamic session title');
+    assert.match(createdTitles[0], /^Chinese Street Food Live Streaming Mochi "\d{2}-\d{2}-\d{4}" "\d{2}:\d{2} (?:AM|PM)"$/);
   });
 });

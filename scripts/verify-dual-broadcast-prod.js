@@ -83,6 +83,12 @@ async function main() {
   console.log('  broadcast.boundStreamId:    ', hb?.contentDetails?.boundStreamId);
   console.log('  Binding correct:            ', hb?.contentDetails?.boundStreamId === horizontalStreamId ? 'YES' : 'NO');
 
+  const titlesMatch = vb?.snippet?.title === hb?.snippet?.title;
+  console.log('\nSESSION TITLE VERIFICATION:');
+  console.log('  Primary Title:              ', vb?.snippet?.title);
+  console.log('  Secondary Title:            ', hb?.snippet?.title);
+  console.log('  Titles Identical:           ', titlesMatch ? 'YES (Identical timestamp)' : 'NO (Mismatch)');
+
   console.log('\n============================================================');
   const dualHealthy =
     vs?.status?.streamStatus === 'active' &&
@@ -90,9 +96,10 @@ async function main() {
     vb?.status?.lifeCycleStatus === 'live' &&
     hb?.status?.lifeCycleStatus === 'live' &&
     vb?.contentDetails?.boundStreamId === verticalStreamId &&
-    hb?.contentDetails?.boundStreamId === horizontalStreamId;
+    hb?.contentDetails?.boundStreamId === horizontalStreamId &&
+    titlesMatch;
 
-  console.log('DUAL LIVE BROADCAST ACCEPTANCE:', dualHealthy ? 'PASSED (BOTH LIVE & BOUND)' : 'FAILED');
+  console.log('DUAL LIVE BROADCAST ACCEPTANCE:', dualHealthy ? 'PASSED (BOTH LIVE, BOUND & IDENTICAL TITLE)' : 'FAILED');
   console.log('============================================================');
 }
 

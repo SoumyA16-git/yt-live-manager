@@ -601,6 +601,32 @@ export async function resolveOrCreateBroadcastForStream({
   // 2. If usable existing broadcast found (ready, testing, or live; NOT complete)
   if (existing && !existing.isComplete && existing.lifeCycleStatus !== 'complete') {
     logger.info('youtube_api.broadcast_reused', `Found existing active/ready broadcast ${existing.id} bound to stream ${streamId} (status: ${existing.lifeCycleStatus})`);
+
+    // Synchronize title if specified and differs (ensures both broadcasts of the same session have identical titles)
+    if (title && existing.title !== title) {
+      try {
+        let meta = metadata;
+        if (!meta) {
+          try {
+            const s = getSettings();
+            meta = s?.youtube || {};
+          } catch {
+            meta = {};
+          }
+        }
+        await updateVideoMetadata(existing.id, {
+          title,
+          description: meta.description || '',
+          categoryId: meta.categoryId || '22',
+          tags: meta.tags || [],
+        });
+        existing.title = title;
+        logger.info('youtube_api.broadcast_title_synced', `Synchronized title of reused broadcast ${existing.id} to session title: "${title}"`);
+      } catch (err) {
+        logger.warn('youtube_api.broadcast_title_sync_failed', `Failed to sync title of reused broadcast ${existing.id}: ${err.message}`);
+      }
+    }
+
     return existing;
   }
 
@@ -788,20 +814,21 @@ export async function manageBroadcastLifecycleOnStart({
     logger.info('youtube_api.dual_streams_active', `Both primary (${primaryStream.id}) and secondary (${secondaryStream.id}) streams are ACTIVE!`);
 
     // 3. Resolve or create PRIMARY and SECONDARY broadcasts with dynamic titles and metadata
-    const sessionDate = new Date();
-    const primaryTitle = title || generateBroadcastTitle(sessionDate);
-    const secondaryTitle = title || generateBroadcastTitle(sessionDate);
+    // For ONE Dual Live session, generate ONE session timestamp.
+    // Do NOT call dynamic title generator independently for primary and secondary broadcasts.
+    const sessionStart = new Date();
+    const sessionTitle = title || generateBroadcastTitle(sessionStart);
 
     let primaryBroadcast = await resolveOrCreatePrimaryBroadcast({
       streamId: primaryStream.id,
-      title: primaryTitle,
+      title: sessionTitle,
     });
     _primaryBroadcastId = primaryBroadcast.id;
     _primaryLifeCycleStatus = primaryBroadcast.lifeCycleStatus || 'ready';
 
     let secondaryBroadcast = await resolveOrCreateSecondaryBroadcast({
       streamId: secondaryStream.id,
-      title: secondaryTitle,
+      title: sessionTitle,
     });
     _secondaryBroadcastId = secondaryBroadcast.id;
     _secondaryLifeCycleStatus = secondaryBroadcast.lifeCycleStatus || 'ready';
@@ -908,9 +935,12 @@ export async function manageBroadcastLifecycleOnStart({
   _primaryStreamStatus = streamStatus;
 
   // 3. Resolve or create bound broadcast
+  const sessionStart = new Date();
+  const sessionTitle = title || generateBroadcastTitle(sessionStart);
+
   let broadcast = await resolveOrCreatePrimaryBroadcast({
     streamId: stream.id,
-    title,
+    title: sessionTitle,
   });
   _primaryBroadcastId = broadcast.id;
 
