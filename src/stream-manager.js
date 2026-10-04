@@ -734,7 +734,18 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
   const allowBookmark = settings.scheduler?.autoRecycle?.resumeBookmark !== false;
   let resumeBookmark = undefined;
 
-  if (allowBookmark && (reason.includes('recycle') || reason.includes('scheduler'))) {
+  const isExplicitManualStop = (reason === 'api_manual_stop' || reason === 'manual_stop');
+  const shouldSaveBookmark = allowBookmark && (
+    keepDesiredRunning ||
+    reason.includes('recycle') ||
+    reason.includes('scheduler') ||
+    reason.includes('restart') ||
+    reason.includes('system') ||
+    reason.includes('shutdown') ||
+    reason.includes('update')
+  );
+
+  if (shouldSaveBookmark) {
     const p = getLatestProgress();
     const st = getState();
     const startMs = st.streamStartedAt ? new Date(st.streamStartedAt).getTime() : 0;
@@ -744,9 +755,9 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
 
     resumeBookmark = await computeResumeBookmark(sessionElapsedSec);
     if (resumeBookmark) {
-      logger.info('stream.resume_bookmark_saved', `Saved playback bookmark at ${resumeBookmark.offsetSec}s (video: ${resumeBookmark.videoId})`);
+      logger.info('stream.resume_bookmark_saved', `Saved playback bookmark at ${resumeBookmark.offsetSec}s (video: ${resumeBookmark.videoId}, reason: ${reason})`);
     }
-  } else if (reason === 'api_manual_stop' || reason === 'manual_stop') {
+  } else if (isExplicitManualStop) {
     logger.info('stream.resume_bookmark_cleared', 'Manual stop requested; clearing resume bookmark for fresh start');
     resumeBookmark = null;
     _currentSessionStartOffset = 0;
