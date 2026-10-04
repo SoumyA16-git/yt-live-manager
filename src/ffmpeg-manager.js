@@ -291,25 +291,25 @@ export async function cleanupStaleLockOnBoot() {
 
 // ─── Module State ─────────────────────────────────────────────────────────────
 
-let _currentChild      = null;
-let _currentPid        = null;
-let _expectedExit      = false;
-let _latestProgress    = null;
-const _stderrRing      = []; // capped at 50 entries
-const RING_MAX         = 50;
+let _currentChild = null;
+let _currentPid = null;
+let _expectedExit = false;
+let _latestProgress = null;
+const _stderrRing = []; // capped at 50 entries
+const RING_MAX = 50;
 
 // Watchdog timers & state
-let _startupTimer      = null;
-let _stallWatchdog     = null;
-let _slowWatchdog      = null;
+let _startupTimer = null;
+let _stallWatchdog = null;
+let _slowWatchdog = null;
 let _lastProgressBytes = 0;
-let _lastProgressTime  = 0;
-let _slowStartTime     = null;
+let _lastProgressTime = 0;
+let _slowStartTime = null;
 
 function clearWatchdogs() {
-  if (_startupTimer)  { clearTimeout(_startupTimer);   _startupTimer = null; }
+  if (_startupTimer) { clearTimeout(_startupTimer); _startupTimer = null; }
   if (_stallWatchdog) { clearInterval(_stallWatchdog); _stallWatchdog = null; }
-  if (_slowWatchdog)  { clearInterval(_slowWatchdog);  _slowWatchdog = null; }
+  if (_slowWatchdog) { clearInterval(_slowWatchdog); _slowWatchdog = null; }
   _slowStartTime = null;
 }
 
@@ -339,12 +339,12 @@ export async function spawnFfmpeg({
     });
   }
 
-  _expectedExit      = false;
-  _latestProgress    = null;
+  _expectedExit = false;
+  _latestProgress = null;
   _stderrRing.length = 0;
   _lastProgressBytes = 0;
-  _lastProgressTime  = Date.now();
-  _slowStartTime     = null;
+  _lastProgressTime = Date.now();
+  _slowStartTime = null;
 
   // Masked command for logging (PRD §10, §20)
   const safeLogCmd = args.map(arg => redact(arg)).join(' ');
@@ -365,7 +365,7 @@ export async function spawnFfmpeg({
   }
 
   _currentChild = child;
-  _currentPid   = child.pid;
+  _currentPid = child.pid;
 
   // Lock acquisition
   try {
@@ -373,15 +373,15 @@ export async function spawnFfmpeg({
   } catch (err) {
     try { child.kill('SIGKILL'); } catch { /* ignore */ }
     _currentChild = null;
-    _currentPid   = null;
+    _currentPid = null;
     throw err;
   }
 
   const streamCfg = settings.stream || {};
   const startupTimeoutMs = (streamCfg.startupTimeoutSeconds ?? 30) * 1000;
-  const stallMs          = (streamCfg.stallSeconds ?? 30) * 1000;
-  const slowMs           = (streamCfg.slowSeconds ?? 60) * 1000;
-  const minSpeed         = streamCfg.minSpeed ?? 0.90;
+  const stallMs = (streamCfg.stallSeconds ?? 30) * 1000;
+  const slowMs = (streamCfg.slowSeconds ?? 60) * 1000;
+  const minSpeed = streamCfg.minSpeed ?? 0.90;
 
   let becameHealthy = false;
 
@@ -410,11 +410,11 @@ export async function spawnFfmpeg({
 
     if (trimmed.startsWith('progress=')) {
       const totalSize = parseInt(block.total_size, 10) || 0;
-      const speedStr  = (block.speed || '').replace('x', '').trim();
-      const speed     = parseFloat(speedStr) || 0;
-      const fps       = parseFloat(block.fps) || 0;
-      const bitrate   = block.bitrate || '';
-      const frame     = parseInt(block.frame, 10) || 0;
+      const speedStr = (block.speed || '').replace('x', '').trim();
+      const speed = parseFloat(speedStr) || 0;
+      const fps = parseFloat(block.fps) || 0;
+      const bitrate = block.bitrate || '';
+      const frame = parseInt(block.frame, 10) || 0;
 
       const outTimeUs = parseInt(block.out_time_us, 10) || 0;
       const outTimeMs = parseInt(block.out_time_ms, 10) || (outTimeUs > 0 ? Math.round(outTimeUs / 1000) : 0);
@@ -445,7 +445,7 @@ export async function spawnFfmpeg({
       // Check stall watchdog delta
       if (totalSize > _lastProgressBytes) {
         _lastProgressBytes = totalSize;
-        _lastProgressTime  = Date.now();
+        _lastProgressTime = Date.now();
       }
 
       // Check speed watchdog
@@ -504,9 +504,9 @@ export async function spawnFfmpeg({
     const wasExpected = _expectedExit;
     const pid = _currentPid;
 
-    _currentChild   = null;
-    _currentPid     = null;
-    _expectedExit   = false;
+    _currentChild = null;
+    _currentPid = null;
+    _expectedExit = false;
 
     await releaseLock();
 

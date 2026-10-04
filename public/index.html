@@ -1,18 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>24×7 YouTube Vertical Live Manager</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet">
   <link rel="stylesheet" href="/css/style.css?v=20261004_v17">
 </head>
+
 <body>
   <!-- Offline Disconnect Banner -->
   <div id="disconnect-banner">
-    <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <svg class="icon icon-sm" viewBox="0 0 24 24">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
     <span>Connection lost. Reconnecting to live controller...</span>
   </div>
 
@@ -22,7 +30,13 @@
       <div class="logo-group">
         <span class="logo-badge">24×7</span>
         <h1 class="brand-title">
-          <svg class="icon icon-md" viewBox="0 0 24 24"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1"/></svg>
+          <svg class="icon icon-md" viewBox="0 0 24 24">
+            <path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9" />
+            <path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5" />
+            <circle cx="12" cy="12" r="2" />
+            <path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5" />
+            <path d="M19.1 4.9C23 8.8 23 15.2 19.1 19.1" />
+          </svg>
           YT Live Manager
         </h1>
         <span class="brand-tag">Console</span>
@@ -30,11 +44,19 @@
       <div class="header-actions">
         <span id="user-display" class="header-user">admin</span>
         <button id="btn-open-settings" class="btn btn-secondary btn-sm" title="Open Configuration Settings">
-          <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <svg class="icon icon-sm" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
           Settings
         </button>
         <button id="btn-logout" class="btn btn-outline btn-sm" title="Sign Out">
-          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <svg class="icon icon-sm" viewBox="0 0 24 24">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
         </button>
       </div>
     </div>
@@ -51,13 +73,20 @@
             <span id="status-text" class="status-text">STOPPED</span>
           </div>
           <span id="reachability-badge" class="reachability-pill">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <path
+                d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+            </svg>
             Checking ingest...
           </span>
-          <span id="deck-stream-key-badge" class="reachability-pill" style="cursor: pointer;" title="YouTube Stream Key status. Click to open Settings.">
+          <span id="deck-stream-key-badge" class="reachability-pill" style="cursor: pointer;"
+            title="YouTube Stream Key status. Click to open Settings.">
             Checking Key...
           </span>
-          <span id="deck-dual-stream-badge" class="reachability-pill" style="display: none; cursor: pointer;" title="Dual live streaming active: Shorts (9:16) + Normal (16:9). Click to open Settings.">
+          <span id="deck-dual-stream-badge" class="reachability-pill" style="display: none; cursor: pointer;"
+            title="Dual live streaming active: Shorts (9:16) + Normal (16:9). Click to open Settings.">
             Dual Live: Shorts + 16:9
           </span>
         </div>
@@ -77,15 +106,22 @@
       <!-- Action Buttons Row -->
       <div class="deck-actions-row">
         <button id="btn-start" class="btn btn-primary" title="Start live streaming">
-          <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          <svg class="icon icon-sm" viewBox="0 0 24 24">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
           START
         </button>
         <button id="btn-stop" class="btn btn-danger" disabled title="Stop live streaming">
-          <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+          <svg class="icon icon-sm" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+          </svg>
           STOP
         </button>
         <button id="btn-restart" class="btn btn-secondary" disabled title="Restart streaming engine">
-          <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          <svg class="icon icon-sm" viewBox="0 0 24 24">
+            <path d="M23 4v6h-6" />
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+          </svg>
           RESTART
         </button>
       </div>
@@ -109,9 +145,13 @@
     </section>
 
     <!-- Maintenance Mode Banner -->
-    <div id="banner-maintenance" style="display: none; background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.875rem; align-items: center; justify-content: space-between; gap: 0.75rem;">
+    <div id="banner-maintenance"
+      style="display: none; background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.875rem; align-items: center; justify-content: space-between; gap: 0.75rem;">
       <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-main); font-size: 0.8125rem;">
-        <svg class="icon icon-md" viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+        <svg class="icon icon-md" viewBox="0 0 24 24">
+          <path
+            d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+        </svg>
         <span><strong>Maintenance Mode Active:</strong> Streaming paused for server maintenance.</span>
       </div>
       <button type="button" id="btn-disable-maintenance" class="btn btn-sm btn-outline">
@@ -126,13 +166,17 @@
       <div class="card" id="panel-telemetry">
         <div class="collapsible-header" data-target="body-telemetry">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+            </svg>
             Stream Telemetry
           </span>
           <div class="header-right">
             <span id="telemetry-speed-badge" class="meta-tag" style="color: #38bdf8; font-weight: 600;">0.00 Mbps</span>
             <button class="panel-toggle-btn" data-target="body-telemetry" aria-label="Toggle Telemetry Panel">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
           </div>
         </div>
@@ -171,13 +215,18 @@
             </div>
           </div>
 
-          <div id="last-error-box" style="display: none; background: var(--status-error-bg); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 0.5rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; font-family: var(--font-mono);"></div>
+          <div id="last-error-box"
+            style="display: none; background: var(--status-error-bg); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 0.5rem 0.75rem; border-radius: var(--radius-xs); font-size: 0.75rem; font-family: var(--font-mono);">
+          </div>
 
           <!-- Live Bandwidth Speed Meter (Egress Speedometer & Activity) -->
           <div class="speed-meter-card" id="speed-meter-panel">
             <div class="speed-meter-header">
               <div class="speed-meter-title-wrap">
-                <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                <svg class="icon icon-sm" viewBox="0 0 24 24">
+                  <path
+                    d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                </svg>
                 <span class="speed-meter-title">Bandwidth Speed Meter</span>
               </div>
               <div class="speed-meter-badge-group">
@@ -204,38 +253,23 @@
                       <feComposite in="SourceGraphic" in2="blur" operator="over" />
                     </filter>
                     <filter id="pointer-glow" x="-30%" y="-30%" width="160%" height="160%">
-                      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#ef4444" flood-opacity="0.6"/>
+                      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#ef4444" flood-opacity="0.6" />
                     </filter>
                   </defs>
 
                   <!-- MUI GaugeReferenceArc (-110° to 110°, R=75, cx=110, cy=105) -->
-                  <path class="speed-gauge-track"
-                        d="M 39.52 130.65 A 75 75 0 1 1 180.48 130.65"
-                        fill="none"
-                        stroke="#222227"
-                        stroke-width="12"
-                        stroke-linecap="round" />
+                  <path class="speed-gauge-track" d="M 39.52 130.65 A 75 75 0 1 1 180.48 130.65" fill="none"
+                    stroke="#222227" stroke-width="12" stroke-linecap="round" />
 
                   <!-- MUI GaugeValueArc (dynamic value fill) -->
-                  <path id="speed-gauge-fill"
-                        class="speed-gauge-fill"
-                        d="M 39.52 130.65 A 75 75 0 1 1 180.48 130.65"
-                        fill="none"
-                        stroke="url(#speed-arc-grad)"
-                        stroke-width="12"
-                        stroke-linecap="round"
-                        stroke-dasharray="288"
-                        stroke-dashoffset="288"
-                        filter="url(#speed-glow)" />
+                  <path id="speed-gauge-fill" class="speed-gauge-fill" d="M 39.52 130.65 A 75 75 0 1 1 180.48 130.65"
+                    fill="none" stroke="url(#speed-arc-grad)" stroke-width="12" stroke-linecap="round"
+                    stroke-dasharray="288" stroke-dashoffset="288" filter="url(#speed-glow)" />
 
                   <!-- MUI GaugePointer (<GaugePointer />) with target needle & center pivot -->
                   <g id="gauge-pointer-group" class="gauge-pointer-group" filter="url(#pointer-glow)">
-                    <path id="gauge-pointer-needle"
-                          class="gauge-pointer-needle"
-                          d="M 110 105 L 110 37"
-                          stroke="#ef4444"
-                          stroke-width="3"
-                          stroke-linecap="round" />
+                    <path id="gauge-pointer-needle" class="gauge-pointer-needle" d="M 110 105 L 110 37" stroke="#ef4444"
+                      stroke-width="3" stroke-linecap="round" />
                     <circle cx="110" cy="105" r="5" fill="#ef4444" />
                     <circle cx="110" cy="105" r="2" fill="#ffffff" />
                   </g>
@@ -282,7 +316,8 @@
                     <span class="speed-wave-title">Realtime Egress Pulse</span>
                     <span id="speed-wave-fps" class="speed-wave-meta">0 FPS</span>
                   </div>
-                  <svg id="speed-activity-svg" class="speed-activity-svg" viewBox="0 0 200 36" preserveAspectRatio="none">
+                  <svg id="speed-activity-svg" class="speed-activity-svg" viewBox="0 0 200 36"
+                    preserveAspectRatio="none">
                     <defs>
                       <linearGradient id="wave-pulse-grad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.35" />
@@ -290,7 +325,8 @@
                       </linearGradient>
                     </defs>
                     <path id="speed-wave-area" d="M 0 36 L 200 36 Z" fill="url(#wave-pulse-grad)" />
-                    <path id="speed-wave-line" d="M 0 36 L 200 36" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    <path id="speed-wave-line" d="M 0 36 L 200 36" fill="none" stroke="#38bdf8" stroke-width="2"
+                      stroke-linecap="round" stroke-linejoin="round" />
                   </svg>
                 </div>
               </div>
@@ -303,13 +339,19 @@
       <div class="card" id="panel-bandwidth">
         <div class="collapsible-header" data-target="body-bandwidth">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <line x1="18" y1="20" x2="18" y2="10" />
+              <line x1="12" y1="20" x2="12" y2="4" />
+              <line x1="6" y1="20" x2="6" y2="14" />
+            </svg>
             Bandwidth Accounting
           </span>
           <div class="header-right">
             <span id="period-badge" class="meta-tag">Period: 2026-10</span>
             <button class="panel-toggle-btn" data-target="body-bandwidth" aria-label="Toggle Bandwidth Panel">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
           </div>
         </div>
@@ -368,21 +410,21 @@
                 <svg id="bw-bar-svg" viewBox="0 0 280 125" preserveAspectRatio="none" class="bw-svg-graph">
                   <defs>
                     <linearGradient id="bw-bar-grad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="#3b82f6" stop-opacity="1.0"/>
-                      <stop offset="100%" stop-color="#2563eb" stop-opacity="0.75"/>
+                      <stop offset="0%" stop-color="#3b82f6" stop-opacity="1.0" />
+                      <stop offset="100%" stop-color="#2563eb" stop-opacity="0.75" />
                     </linearGradient>
                     <linearGradient id="bw-wave-grad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25"/>
-                      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0"/>
+                      <stop offset="0%" stop-color="#3b82f6" stop-opacity="0.25" />
+                      <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.0" />
                     </linearGradient>
                   </defs>
                   <!-- Horizontal Grid Reference Lines -->
-                  <line x1="10" y1="28" x2="270" y2="28" stroke="#222227" stroke-dasharray="3,3" stroke-width="1"/>
-                  <line x1="10" y1="62" x2="270" y2="62" stroke="#222227" stroke-dasharray="3,3" stroke-width="1"/>
-                  <line x1="10" y1="95" x2="270" y2="95" stroke="#27272a" stroke-width="1"/>
+                  <line x1="10" y1="28" x2="270" y2="28" stroke="#222227" stroke-dasharray="3,3" stroke-width="1" />
+                  <line x1="10" y1="62" x2="270" y2="62" stroke="#222227" stroke-dasharray="3,3" stroke-width="1" />
+                  <line x1="10" y1="95" x2="270" y2="95" stroke="#27272a" stroke-width="1" />
 
                   <!-- Dynamic Area Wave behind Bars -->
-                  <path id="bw-bar-wave-path" d="M 28 95 L 256 95 Z" fill="url(#bw-wave-grad)"/>
+                  <path id="bw-bar-wave-path" d="M 28 95 L 256 95 Z" fill="url(#bw-wave-grad)" />
 
                   <!-- Dynamic Bars & Day Group -->
                   <g id="bw-bars-group">
@@ -404,15 +446,20 @@
                     <!-- Background Base Track -->
                     <circle cx="70" cy="60" r="44" fill="none" stroke="#222227" stroke-width="16" />
                     <!-- OCI Buffer Slice (10 TB - 9 TB = 10%) -->
-                    <circle id="bw-pie-slice-buffer" cx="70" cy="60" r="44" fill="none" stroke="#f97316" stroke-width="16" stroke-dasharray="27.6 248.8" stroke-dashoffset="0" stroke-linecap="round" />
+                    <circle id="bw-pie-slice-buffer" cx="70" cy="60" r="44" fill="none" stroke="#f97316"
+                      stroke-width="16" stroke-dasharray="27.6 248.8" stroke-dashoffset="0" stroke-linecap="round" />
                     <!-- Safe Quota Remaining Slice (89.8%) -->
-                    <circle id="bw-pie-slice-safe" cx="70" cy="60" r="44" fill="none" stroke="#6366f1" stroke-width="16" stroke-dasharray="248 28.4" stroke-dashoffset="-27.6" />
+                    <circle id="bw-pie-slice-safe" cx="70" cy="60" r="44" fill="none" stroke="#6366f1" stroke-width="16"
+                      stroke-dasharray="248 28.4" stroke-dashoffset="-27.6" />
                     <!-- Used Bandwidth Slice (0.2%) -->
-                    <circle id="bw-pie-slice-used" cx="70" cy="60" r="44" fill="none" stroke="#3b82f6" stroke-width="16" stroke-dasharray="2 274.4" stroke-dashoffset="0" stroke-linecap="round" />
+                    <circle id="bw-pie-slice-used" cx="70" cy="60" r="44" fill="none" stroke="#3b82f6" stroke-width="16"
+                      stroke-dasharray="2 274.4" stroke-dashoffset="0" stroke-linecap="round" />
                   </g>
                   <!-- Center Donut Counter -->
-                  <text id="bw-pie-center-val" x="70" y="58" text-anchor="middle" font-size="11" font-weight="700" fill="#fafafa">0 GB</text>
-                  <text x="70" y="70" text-anchor="middle" font-size="8" font-weight="500" fill="#71717a">Consumed</text>
+                  <text id="bw-pie-center-val" x="70" y="58" text-anchor="middle" font-size="11" font-weight="700"
+                    fill="#fafafa">0 GB</text>
+                  <text x="70" y="70" text-anchor="middle" font-size="8" font-weight="500"
+                    fill="#71717a">Consumed</text>
                 </svg>
               </div>
               <div class="bw-pie-legend">
@@ -465,14 +512,20 @@
       <div class="card grid-full-width" id="panel-scheduler">
         <div class="collapsible-header" data-target="body-scheduler">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
             Stream Scheduler & Auto-Recycle (IST)
           </span>
           <div class="header-right">
-            <span id="sched-ist-clock" class="meta-tag" style="font-family: var(--font-mono); color: #38bdf8;">IST --:--:--</span>
+            <span id="sched-ist-clock" class="meta-tag" style="font-family: var(--font-mono); color: #38bdf8;">IST
+              --:--:--</span>
             <span id="sched-mode-badge" class="badge-tag compatible">24×7 Continuous</span>
             <button class="panel-toggle-btn" data-target="body-scheduler" aria-label="Toggle Scheduler Panel">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
           </div>
         </div>
@@ -480,7 +533,11 @@
         <div class="panel-body" id="body-scheduler">
           <!-- Active Schedule Status Banner -->
           <div id="sched-status-banner" class="sched-banner info">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
             <span id="sched-status-text">Loading stream schedule status...</span>
           </div>
 
@@ -489,11 +546,18 @@
             <span class="form-label" style="margin-bottom: 0;">Operation Mode:</span>
             <div class="sched-toggle-pills">
               <button type="button" id="btn-mode-continuous" class="sched-pill-btn active">
-                <svg class="icon icon-xs" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <svg class="icon icon-xs" viewBox="0 0 24 24">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
                 24×7 Continuous
               </button>
               <button type="button" id="btn-mode-scheduled" class="sched-pill-btn">
-                <svg class="icon icon-xs" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <svg class="icon icon-xs" viewBox="0 0 24 24">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                  <line x1="16" y1="2" x2="16" y2="6" />
+                  <line x1="8" y1="2" x2="8" y2="6" />
+                  <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
                 Scheduled Windows (IST)
               </button>
             </div>
@@ -507,7 +571,8 @@
                 <span class="sched-card-title">Daily Streaming Windows (IST)</span>
                 <span class="meta-tag">Up to 2 Times/Day</span>
               </div>
-              <p class="sched-hint">Stream automatically starts at Start time, and stops at Stop time in Indian Standard Time (IST).</p>
+              <p class="sched-hint">Stream automatically starts at Start time, and stops at Stop time in Indian Standard
+                Time (IST).</p>
 
               <!-- Slot 1 -->
               <div class="sched-slot-box">
@@ -558,7 +623,8 @@
                 <span class="sched-card-title">YouTube 12h VOD Auto-Archive</span>
                 <span class="badge-tag compatible" id="sched-recycle-status-badge">Protected</span>
               </div>
-              <p class="sched-hint">YouTube will NOT archive streams that exceed 12 hours. Auto-Recycle stops and restarts the stream periodically so YouTube saves every session as a permanent VOD video.</p>
+              <p class="sched-hint">YouTube will NOT archive streams that exceed 12 hours. Auto-Recycle stops and
+                restarts the stream periodically so YouTube saves every session as a permanent VOD video.</p>
 
               <div class="sched-slot-box">
                 <div class="sched-slot-top">
@@ -572,7 +638,8 @@
                   <div class="form-group">
                     <span class="form-label">Max Stream Duration</span>
                     <div style="display: flex; align-items: center; gap: 0.35rem;">
-                      <input type="number" id="sched-recycle-hours" min="2" max="11" step="1" value="8" class="form-control">
+                      <input type="number" id="sched-recycle-hours" min="2" max="11" step="1" value="8"
+                        class="form-control">
                       <span class="meta-tag">Hours</span>
                     </div>
                     <span class="kpi-sub">Restart before 12h limit</span>
@@ -581,7 +648,8 @@
                   <div class="form-group">
                     <span class="form-label">VOD Finalize Pause</span>
                     <div style="display: flex; align-items: center; gap: 0.35rem;">
-                      <input type="number" id="sched-pause-mins" min="5" max="120" step="5" value="60" class="form-control">
+                      <input type="number" id="sched-pause-mins" min="5" max="120" step="5" value="60"
+                        class="form-control">
                       <span class="meta-tag">Mins</span>
                     </div>
                     <span class="kpi-sub">Wait for YouTube to save VOD</span>
@@ -593,14 +661,19 @@
                     <input type="checkbox" id="sched-bookmark-enabled" checked>
                     <span><strong>Resume from last stopped position</strong> (Auto-bookmark)</span>
                   </label>
-                  <p class="kpi-sub" style="margin-top: 0.25rem; margin-left: 1.5rem;">When Auto-Recycle restarts, continues the video from the exact second it stopped instead of repeating from 00:00.</p>
+                  <p class="kpi-sub" style="margin-top: 0.25rem; margin-left: 1.5rem;">When Auto-Recycle restarts,
+                    continues the video from the exact second it stopped instead of repeating from 00:00.</p>
                 </div>
               </div>
 
               <!-- Recommendation note -->
               <div class="sched-note-box">
-                <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                <span><strong>Pro Tip:</strong> 8 hours streaming + 1 hour pause ensures 2-3 completed VODs are saved to your channel every day, building your video count automatically!</span>
+                <svg class="icon icon-sm" viewBox="0 0 24 24">
+                  <polygon
+                    points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                </svg>
+                <span><strong>Pro Tip:</strong> 8 hours streaming + 1 hour pause ensures 2-3 completed VODs are saved to
+                  your channel every day, building your video count automatically!</span>
               </div>
             </div>
           </div>
@@ -608,10 +681,15 @@
           <!-- Save Footer Actions -->
           <div class="sched-actions-footer">
             <button type="button" id="btn-save-schedule" class="btn btn-primary btn-sm">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                <polyline points="17 21 17 13 7 13 7 21" />
+                <polyline points="7 3 7 8 15 8" />
+              </svg>
               Save & Apply Schedule
             </button>
-            <span id="sched-save-feedback" class="sched-feedback" style="display: none;">Schedule updated successfully</span>
+            <span id="sched-save-feedback" class="sched-feedback" style="display: none;">Schedule updated
+              successfully</span>
           </div>
         </div>
       </div>
@@ -620,13 +698,24 @@
       <div class="card" id="panel-videos">
         <div class="collapsible-header" data-target="body-videos">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" />
+              <line x1="7" y1="2" x2="7" y2="22" />
+              <line x1="17" y1="2" x2="17" y2="22" />
+              <line x1="2" y1="12" x2="22" y2="12" />
+              <line x1="2" y1="7" x2="7" y2="7" />
+              <line x1="2" y1="17" x2="7" y2="17" />
+              <line x1="17" y1="17" x2="22" y2="17" />
+              <line x1="17" y1="7" x2="22" y2="7" />
+            </svg>
             Video Library
           </span>
           <div class="header-right">
             <span id="video-count-badge" class="brand-tag">0 Videos</span>
             <button class="panel-toggle-btn" data-target="body-videos" aria-label="Toggle Video Library Panel">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
           </div>
         </div>
@@ -641,38 +730,64 @@
           <!-- Video Ingestion Tab Switcher -->
           <div id="video-ingest-tabs" class="ingest-tabs-nav">
             <button id="tab-upload" class="ingest-tab-btn active">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
               File Upload
             </button>
             <button id="tab-youtube" class="ingest-tab-btn">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" />
+                <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+              </svg>
               YouTube URL
             </button>
           </div>
 
           <!-- File Upload Dropzone -->
           <div id="upload-zone" class="upload-dropzone">
-            <svg class="icon icon-lg" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <div style="font-size: 0.8125rem; font-weight: 500; color: var(--text-main);">Tap or Drag Vertical MP4 Video Here</div>
-            <div style="font-size: 0.6875rem; color: var(--text-muted);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps</div>
-            <div style="font-size: 0.6875rem; color: var(--text-dim);">Multi-Video Playlist: Select multiple videos to stream sequentially or in shuffle loop.</div>
+            <svg class="icon icon-lg" viewBox="0 0 24 24">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+            <div style="font-size: 0.8125rem; font-weight: 500; color: var(--text-main);">Tap or Drag Vertical MP4 Video
+              Here</div>
+            <div style="font-size: 0.6875rem; color: var(--text-muted);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps,
+              Constant 30/60 fps</div>
+            <div style="font-size: 0.6875rem; color: var(--text-dim);">Multi-Video Playlist: Select multiple videos to
+              stream sequentially or in shuffle loop.</div>
             <input type="file" id="file-input" accept=".mp4,.mov,.m4v,.mkv" style="display: none;">
           </div>
 
           <!-- YouTube URL Import Panel -->
           <div id="yt-import-panel" style="display: none; flex-direction: column; gap: 0.625rem;">
             <!-- Cookies Warning Banner -->
-            <div id="yt-cookies-banner" style="display:none; background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.75rem;">
+            <div id="yt-cookies-banner"
+              style="display:none; background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.75rem;">
               <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-                <svg class="icon icon-sm" viewBox="0 0 24 24" style="margin-top:2px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                <svg class="icon icon-sm" viewBox="0 0 24 24" style="margin-top:2px;">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
                 <div style="flex:1; min-width:0;">
-                  <div style="font-size:0.75rem; font-weight:600; color:var(--text-main); margin-bottom:0.2rem;">YouTube cookies required</div>
+                  <div style="font-size:0.75rem; font-weight:600; color:var(--text-main); margin-bottom:0.2rem;">YouTube
+                    cookies required</div>
                   <div style="font-size:0.6875rem; color:var(--text-muted); line-height:1.45; margin-bottom:0.4rem;">
-                    VPS IPs are blocked by YouTube. Export cookies using the <strong>Get cookies.txt LOCALLY</strong> extension on YouTube.com, then upload below.
+                    VPS IPs are blocked by YouTube. Export cookies using the <strong>Get cookies.txt LOCALLY</strong>
+                    extension on YouTube.com, then upload below.
                   </div>
                   <div style="display:flex; align-items:center; gap:0.4rem;">
-                    <label for="cookies-file-input" id="btn-upload-cookies" class="btn btn-outline btn-sm" style="cursor:pointer;">
-                      <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <label for="cookies-file-input" id="btn-upload-cookies" class="btn btn-outline btn-sm"
+                      style="cursor:pointer;">
+                      <svg class="icon icon-sm" viewBox="0 0 24 24">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                      </svg>
                       Upload yt-cookies.txt
                     </label>
                     <input type="file" id="cookies-file-input" accept=".txt,.cookie,.cookies" style="display:none;">
@@ -682,39 +797,59 @@
               </div>
             </div>
 
-            <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
-              <div style="font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; display: flex; align-items: center; gap: 0.35rem; text-transform: uppercase; letter-spacing: 0.04em;">
-                <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/></svg>
+            <div
+              style="background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+              <div
+                style="font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; display: flex; align-items: center; gap: 0.35rem; text-transform: uppercase; letter-spacing: 0.04em;">
+                <svg class="icon icon-sm" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="10" />
+                  <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+                </svg>
                 Download from YouTube &mdash; auto-converts to 1080&times;1920 30fps
               </div>
               <div style="display: flex; gap: 0.375rem;">
-                <input type="url" id="yt-url-input" class="form-control" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false" style="flex: 1;">
+                <input type="url" id="yt-url-input" class="form-control"
+                  placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false"
+                  style="flex: 1;">
                 <button id="btn-yt-download" class="btn btn-primary btn-sm">
-                  <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                  <svg class="icon icon-sm" viewBox="0 0 24 24">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
                   Download
                 </button>
               </div>
               <div style="font-size: 0.6875rem; color: var(--text-dim);">
-                Supports: youtube.com/watch &nbsp;&bull;&nbsp; youtu.be &nbsp;&bull;&nbsp; /shorts/ &nbsp;&bull;&nbsp; /live/
+                Supports: youtube.com/watch &nbsp;&bull;&nbsp; youtu.be &nbsp;&bull;&nbsp; /shorts/ &nbsp;&bull;&nbsp;
+                /live/
               </div>
             </div>
 
             <!-- YT Download Progress -->
             <div id="yt-dl-progress-box" style="display: none;" class="progress-container">
               <div class="progress-header">
-                <span id="yt-dl-stage-text" style="display:flex; align-items:center; gap:0.3rem; color: var(--text-main); font-weight: 500; font-size: 0.75rem;">
-                  <svg id="yt-stage-icon" class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span id="yt-dl-stage-text"
+                  style="display:flex; align-items:center; gap:0.3rem; color: var(--text-main); font-weight: 500; font-size: 0.75rem;">
+                  <svg id="yt-stage-icon" class="icon icon-sm" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
                   <span id="yt-stage-label">Fetching info...</span>
                 </span>
                 <span id="yt-dl-pct" style="font-weight: 600; font-size: 0.75rem; color: var(--text-main);">0%</span>
               </div>
-              <div id="yt-dl-title" style="font-size: 0.6875rem; color: var(--text-muted); margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+              <div id="yt-dl-title"
+                style="font-size: 0.6875rem; color: var(--text-muted); margin-bottom: 0.2rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              </div>
               <div class="progress-track">
                 <div id="yt-dl-fill" class="progress-fill" style="width: 0%;"></div>
               </div>
               <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.35rem;">
                 <span id="yt-dl-details" style="font-size: 0.6875rem; color: var(--text-muted);">Waiting...</span>
-                <button id="btn-cancel-yt-dl" class="btn btn-outline btn-sm" style="height: 24px; padding: 0 0.5rem; font-size: 0.6875rem;">
+                <button id="btn-cancel-yt-dl" class="btn btn-outline btn-sm"
+                  style="height: 24px; padding: 0 0.5rem; font-size: 0.6875rem;">
                   Cancel
                 </button>
               </div>
@@ -724,13 +859,16 @@
           <!-- Upload Progress -->
           <div id="upload-progress-box" style="display: none;" class="progress-container">
             <div class="progress-header">
-              <span id="upload-status-text" style="color: var(--text-main); font-weight: 500; font-size: 0.75rem;">Uploading file to server...</span>
+              <span id="upload-status-text"
+                style="color: var(--text-main); font-weight: 500; font-size: 0.75rem;">Uploading file to
+                server...</span>
               <span id="upload-pct" style="font-weight: 600; font-size: 0.75rem;">0%</span>
             </div>
             <div class="progress-track">
               <div id="upload-fill" class="progress-fill" style="width: 0%;"></div>
             </div>
-            <div id="upload-details-text" style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; justify-content: space-between;">
+            <div id="upload-details-text"
+              style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 0.25rem; display: flex; justify-content: space-between;">
               <span id="upload-bytes-text">0 MB / 0 MB</span>
               <span id="upload-speed-text">0 MB/s</span>
             </div>
@@ -760,7 +898,8 @@
 
           <!-- Video Catalog Cards -->
           <div id="videos-list" class="videos-list" style="max-height: 280px; overflow-y: auto;">
-            <div style="font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 1.25rem;">No videos in library. Upload one above.</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 1.25rem;">No videos
+              in library. Upload one above.</div>
           </div>
         </div>
       </div>
@@ -769,13 +908,26 @@
       <div class="card" id="panel-system">
         <div class="collapsible-header" data-target="body-system">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <rect x="4" y="4" width="16" height="16" rx="2" ry="2" />
+              <rect x="9" y="9" width="6" height="6" />
+              <line x1="9" y1="1" x2="9" y2="4" />
+              <line x1="15" y1="1" x2="15" y2="4" />
+              <line x1="9" y1="20" x2="9" y2="23" />
+              <line x1="15" y1="20" x2="15" y2="23" />
+              <line x1="20" y1="9" x2="23" y2="9" />
+              <line x1="20" y1="14" x2="23" y2="14" />
+              <line x1="1" y1="9" x2="4" y2="9" />
+              <line x1="1" y1="14" x2="4" y2="14" />
+            </svg>
             Server Hardware
           </span>
           <div class="header-right">
             <span id="metric-uptime" class="meta-tag">Uptime: 0d 0h</span>
             <button class="panel-toggle-btn" data-target="body-system" aria-label="Toggle Server Panel">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
           </div>
         </div>
@@ -795,11 +947,15 @@
             <div class="kpi-card" id="card-disk-storage">
               <div style="display: flex; justify-content: space-between; align-items: baseline;">
                 <span class="kpi-label">Disk Storage</span>
-                <span id="metric-disk-pct" style="font-size: 0.6875rem; font-weight: 600; color: var(--text-main);">0%</span>
+                <span id="metric-disk-pct"
+                  style="font-size: 0.6875rem; font-weight: 600; color: var(--text-main);">0%</span>
               </div>
               <span id="metric-disk" class="kpi-val">0 GB / 0 GB</span>
-              <div style="width: 100%; height: 4px; background: var(--bg-canvas); border-radius: 2px; overflow: hidden; margin: 2px 0;">
-                <div id="metric-disk-bar" style="width: 0%; height: 100%; background: #fafafa; border-radius: 2px; transition: width 0.3s ease;"></div>
+              <div
+                style="width: 100%; height: 4px; background: var(--bg-canvas); border-radius: 2px; overflow: hidden; margin: 2px 0;">
+                <div id="metric-disk-bar"
+                  style="width: 0%; height: 100%; background: #fafafa; border-radius: 2px; transition: width 0.3s ease;">
+                </div>
               </div>
               <span class="kpi-sub" id="metric-disk-sub">Free: 0 GB · Used: 0 GB</span>
             </div>
@@ -822,33 +978,33 @@
                 <svg class="hw-pie-svg" viewBox="0 0 130 130">
                   <defs>
                     <linearGradient id="hw-grad-videos" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stop-color="#38bdf8"/>
-                      <stop offset="100%" stop-color="#0284c7"/>
+                      <stop offset="0%" stop-color="#38bdf8" />
+                      <stop offset="100%" stop-color="#0284c7" />
                     </linearGradient>
                     <linearGradient id="hw-grad-system" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stop-color="#a855f7"/>
-                      <stop offset="100%" stop-color="#7c3aed"/>
+                      <stop offset="0%" stop-color="#a855f7" />
+                      <stop offset="100%" stop-color="#7c3aed" />
                     </linearGradient>
                     <linearGradient id="hw-grad-other" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stop-color="#f59e0b"/>
-                      <stop offset="100%" stop-color="#d97706"/>
+                      <stop offset="0%" stop-color="#f59e0b" />
+                      <stop offset="100%" stop-color="#d97706" />
                     </linearGradient>
                   </defs>
                   <!-- Track / Base Ring -->
                   <circle cx="65" cy="65" r="46" fill="none" stroke="#222227" stroke-width="14" />
-                  
+
                   <g transform="rotate(-90 65 65)">
                     <!-- Segment 1: Video Library (Cyan) -->
-                    <circle id="hw-pie-videos" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-videos)" stroke-width="14"
-                            stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
-                    
+                    <circle id="hw-pie-videos" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-videos)"
+                      stroke-width="14" stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
+
                     <!-- Segment 2: System & OS (Purple) -->
-                    <circle id="hw-pie-system" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-system)" stroke-width="14"
-                            stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
+                    <circle id="hw-pie-system" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-system)"
+                      stroke-width="14" stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
 
                     <!-- Segment 3: Logs & Backups (Amber) -->
-                    <circle id="hw-pie-other" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-other)" stroke-width="14"
-                            stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
+                    <circle id="hw-pie-other" cx="65" cy="65" r="46" fill="none" stroke="url(#hw-grad-other)"
+                      stroke-width="14" stroke-dasharray="0 289" stroke-dashoffset="0" stroke-linecap="round" />
                   </g>
 
                   <!-- Donut Center Text -->
@@ -899,7 +1055,8 @@
                     <span id="hw-bar-val-cpu" class="hw-bar-val">0.0%</span>
                   </div>
                   <div class="hw-bar-track">
-                    <div id="hw-bar-fill-cpu" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #3b82f6, #06b6d4);"></div>
+                    <div id="hw-bar-fill-cpu" class="hw-bar-fill"
+                      style="width: 0%; background: linear-gradient(90deg, #3b82f6, #06b6d4);"></div>
                     <div class="hw-bar-threshold" style="left: 4%;" title="Target threshold &lt; 4%"></div>
                   </div>
                 </div>
@@ -911,7 +1068,8 @@
                     <span id="hw-bar-val-appram" class="hw-bar-val">0 MB</span>
                   </div>
                   <div class="hw-bar-track">
-                    <div id="hw-bar-fill-appram" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
+                    <div id="hw-bar-fill-appram" class="hw-bar-fill"
+                      style="width: 0%; background: linear-gradient(90deg, #10b981, #34d399);"></div>
                   </div>
                 </div>
 
@@ -922,7 +1080,8 @@
                     <span id="hw-bar-val-sysram" class="hw-bar-val">0%</span>
                   </div>
                   <div class="hw-bar-track">
-                    <div id="hw-bar-fill-sysram" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #6366f1, #8b5cf6);"></div>
+                    <div id="hw-bar-fill-sysram" class="hw-bar-fill"
+                      style="width: 0%; background: linear-gradient(90deg, #6366f1, #8b5cf6);"></div>
                     <div class="hw-bar-threshold" style="left: 80%;" title="High RAM threshold 80%"></div>
                   </div>
                 </div>
@@ -934,7 +1093,8 @@
                     <span id="hw-bar-val-disk" class="hw-bar-val">0%</span>
                   </div>
                   <div class="hw-bar-track">
-                    <div id="hw-bar-fill-disk" class="hw-bar-fill" style="width: 0%; background: linear-gradient(90deg, #06b6d4, #10b981);"></div>
+                    <div id="hw-bar-fill-disk" class="hw-bar-fill"
+                      style="width: 0%; background: linear-gradient(90deg, #06b6d4, #10b981);"></div>
                     <div class="hw-bar-threshold" style="left: 85%;" title="Warn threshold 85%"></div>
                   </div>
                 </div>
@@ -948,7 +1108,8 @@
             </div>
           </div>
 
-          <div style="font-size: 0.6875rem; color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
+          <div
+            style="font-size: 0.6875rem; color: var(--text-muted); display: flex; justify-content: space-between; padding-top: 0.25rem;">
             <span>Logs: <span id="dir-logs" style="color: var(--text-secondary);">0 MB</span></span>
             <span>Backups: <span id="dir-backups" style="color: var(--text-secondary);">0 MB</span></span>
           </div>
@@ -959,16 +1120,24 @@
       <div class="card grid-full-width" id="panel-logs">
         <div class="collapsible-header" data-target="body-logs">
           <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
             Application Logs
           </span>
           <div class="header-right">
             <button id="btn-refresh-logs" class="btn btn-outline btn-sm" title="Refresh Log Tail">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <path d="M23 4v6h-6" />
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
               Refresh
             </button>
             <button class="panel-toggle-btn" data-target="body-logs" aria-label="Toggle Logs Panel">
-              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
             </button>
           </div>
         </div>
@@ -989,13 +1158,20 @@
       <div class="modal-header">
         <div class="modal-title-group">
           <h2 class="modal-title">
-            <svg class="icon icon-md" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <svg class="icon icon-md" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="3" />
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
             Stream & Ingest Configuration
           </h2>
           <span class="modal-subtitle">Configure YouTube RTMPS endpoints, dual feeds, and FFmpeg engine</span>
         </div>
         <button id="btn-close-settings" class="modal-close-btn" aria-label="Close dialog" title="Close settings">
-          <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <svg class="icon icon-sm" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
         </button>
       </div>
 
@@ -1004,7 +1180,11 @@
         <!-- Section 1: YouTube Ingest & Dual Feeds -->
         <div class="settings-section">
           <div class="settings-section-header">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z"/><polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <path
+                d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
+              <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" />
+            </svg>
             <span>YouTube Destination & Feeds</span>
           </div>
 
@@ -1014,17 +1194,23 @@
               <span>RTMPS Ingest URL</span>
               <span class="form-badge-static">Primary Ingest</span>
             </label>
-            <input type="text" id="cfg-rtmps-url" class="form-control" required placeholder="rtmps://a.rtmps.youtube.com/live2" autocomplete="off">
+            <input type="text" id="cfg-rtmps-url" class="form-control" required
+              placeholder="rtmps://a.rtmps.youtube.com/live2" autocomplete="off">
           </div>
 
           <!-- Dual Streaming Toggle Row -->
           <div class="settings-toggle-row">
             <div class="settings-toggle-info">
               <span class="settings-toggle-title">
-                <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #38bdf8;"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #38bdf8;">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
+                </svg>
                 Dual Feed Live (Shorts 9:16 + Normal 16:9)
               </span>
-              <span class="settings-toggle-desc">Simultaneously broadcast to mobile YouTube Shorts and landscape desktop live feeds</span>
+              <span class="settings-toggle-desc">Simultaneously broadcast to mobile YouTube Shorts and landscape desktop
+                live feeds</span>
             </div>
             <label class="toggle-switch" for="cfg-dual-stream-enabled" title="Toggle dual streaming">
               <input type="checkbox" id="cfg-dual-stream-enabled" checked>
@@ -1039,10 +1225,19 @@
               <span id="key-badge" class="badge-tag">Checking...</span>
             </label>
             <div class="input-action-group">
-              <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Shorts stream key" autocomplete="new-password">
-              <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm input-action-btn" title="Show or hide stream key">
-                <svg id="icon-eye-show" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                <svg id="icon-eye-hide" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Shorts stream key"
+                autocomplete="new-password">
+              <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm input-action-btn"
+                title="Show or hide stream key">
+                <svg id="icon-eye-show" class="icon icon-sm" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <svg id="icon-eye-hide" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;">
+                  <path
+                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
                 <span id="btn-reveal-text">Show</span>
               </button>
             </div>
@@ -1056,21 +1251,33 @@
               <span id="horizontal-key-badge" class="badge-tag">Optional</span>
             </label>
             <div class="input-action-group">
-              <input type="password" id="cfg-horizontal-stream-key" class="form-control" placeholder="Enter normal feed stream key (optional)" autocomplete="new-password">
-              <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm input-action-btn" title="Show or hide stream key">
-                <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              <input type="password" id="cfg-horizontal-stream-key" class="form-control"
+                placeholder="Enter normal feed stream key (optional)" autocomplete="new-password">
+              <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm input-action-btn"
+                title="Show or hide stream key">
+                <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;">
+                  <path
+                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
                 <span id="btn-reveal-horiz-text">Show</span>
               </button>
             </div>
-            <div id="horizontal-key-hint-text" class="form-hint">Optional: Stream simultaneously to YouTube Shorts (9:16) and Normal Live (16:9).</div>
+            <div id="horizontal-key-hint-text" class="form-hint">Optional: Stream simultaneously to YouTube Shorts
+              (9:16) and Normal Live (16:9).</div>
           </div>
         </div>
 
         <!-- Section 2: Encoding Engine & Quality -->
         <div class="settings-section">
           <div class="settings-section-header">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
             <span>FFmpeg Encoding Engine & Bitrate</span>
           </div>
 
@@ -1094,10 +1301,15 @@
           <div class="settings-toggle-row">
             <div class="settings-toggle-info">
               <span class="settings-toggle-title">
-                <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #fbbf24;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #fbbf24;">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
                 Allow Incompatible Codec Transcoding
               </span>
-              <span class="settings-toggle-desc">Automatically re-encode videos with incompatible codecs (e.g. VP9/AV1) so stream never fails</span>
+              <span class="settings-toggle-desc">Automatically re-encode videos with incompatible codecs (e.g. VP9/AV1)
+                so stream never fails</span>
             </div>
             <label class="toggle-switch" for="cfg-allow-transcode" title="Toggle transcode fallback">
               <input type="checkbox" id="cfg-allow-transcode" checked>
@@ -1108,7 +1320,9 @@
           <!-- Live Projection Box -->
           <div class="settings-projection-card">
             <div class="projection-meta">
-              <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #38bdf8;"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #38bdf8;">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+              </svg>
               <span>Projected Egress (+10% overhead):</span>
             </div>
             <div class="projection-badges">
@@ -1121,7 +1335,9 @@
         <!-- Section 3: Ingest Safety & Bandwidth Limits -->
         <div class="settings-section">
           <div class="settings-section-header">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
             <span>Bandwidth Quota & Safety</span>
           </div>
 
@@ -1140,7 +1356,11 @@
         <!-- Form Actions Footer -->
         <div class="modal-footer">
           <span class="modal-footer-note">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
             Bitrate changes will prompt for a clean restart.
           </span>
           <div class="modal-footer-actions">
@@ -1153,9 +1373,10 @@
     </div>
   </div>
 
-<!-- Toast Notification Container (shadcn style) -->
+  <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
   <script type="module" src="/js/dashboard.js?v=20261004_v17"></script>
 </body>
+
 </html>

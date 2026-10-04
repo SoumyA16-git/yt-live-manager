@@ -9,10 +9,10 @@
  */
 
 import { readJSON, writeJSON, writeBackup, listBackups } from './lib/atomic-json.js';
-import { validateSettings }  from './lib/validate.js';
-import { setSecret }         from './lib/redact.js';
-import { logger }            from './logger.js';
-import PATHS                 from './lib/paths.js';
+import { validateSettings } from './lib/validate.js';
+import { setSecret } from './lib/redact.js';
+import { logger } from './logger.js';
+import PATHS from './lib/paths.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -28,74 +28,74 @@ const MIGRATIONS = {
 export const DEFAULTS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
   stream: {
-    videoId:               '',
-    playlist:              [],
-    playbackOrder:         'sequential',
-    modePreference:        'auto',
-    allowTranscode:        true,
-    autoResume:            true,
-    resolution:            '1080x1920',
-    fps:                   30,
-    videoBitrateMbps:      4,
-    audioBitrateKbps:      128,
-    audioSampleRate:       44100,
-    keyframeSeconds:       2,
-    keyframeMaxSeconds:    6,
-    x264Preset:            'veryfast',
-    loopStrategy:          'stream_loop',
-    copyMinMbps:           0.1,
-    copyMaxMbps:           4.0,
-    stallSeconds:          30,
-    slowSeconds:           60,
-    minSpeed:              0.90,
+    videoId: '',
+    playlist: [],
+    playbackOrder: 'sequential',
+    modePreference: 'auto',
+    allowTranscode: true,
+    autoResume: true,
+    resolution: '1080x1920',
+    fps: 30,
+    videoBitrateMbps: 4,
+    audioBitrateKbps: 128,
+    audioSampleRate: 44100,
+    keyframeSeconds: 2,
+    keyframeMaxSeconds: 6,
+    x264Preset: 'veryfast',
+    loopStrategy: 'stream_loop',
+    copyMinMbps: 0.1,
+    copyMaxMbps: 4.0,
+    stallSeconds: 30,
+    slowSeconds: 60,
+    minSpeed: 0.90,
     startupTimeoutSeconds: 30,
-    stopGraceSeconds:      8,
+    stopGraceSeconds: 8,
   },
   youtube: {
-    rtmpsUrl:            'rtmps://a.rtmps.youtube.com:443/live2',
-    streamKey:           '',
+    rtmpsUrl: 'rtmps://a.rtmps.youtube.com:443/live2',
+    streamKey: '',
     horizontalStreamKey: '',
-    dualStreamEnabled:   true,
-    title:               '',
-    label:               '',
+    dualStreamEnabled: true,
+    title: '',
+    label: '',
   },
   youtubeGuidance: { recommendedMbps: [3, 9] },
   bandwidth: {
-    monthlyAllowanceTB:     10,
-    safetyLimitTB:          9,
-    unitBase:               1000,
-    overheadPercent:        10,
-    warningThresholds:      [70, 80, 90, 95],
-    accounting:             { resetDay: 1, resetHour: 0, timezone: 'UTC' },
+    monthlyAllowanceTB: 10,
+    safetyLimitTB: 9,
+    unitBase: 1000,
+    overheadPercent: 10,
+    warningThresholds: [70, 80, 90, 95],
+    accounting: { resetDay: 1, resetHour: 0, timezone: 'UTC' },
     persistIntervalSeconds: 30,
-    oci:                    { enabled: false, maxAgeHours: 24 },
+    oci: { enabled: false, maxAgeHours: 24 },
   },
   recovery: {
-    strategy:                 'exponential',
-    baseDelaySeconds:         10,
-    factor:                   2,
-    maxDelaySeconds:          300,
-    jitterPercent:            10,
-    stableAfterSeconds:       120,
-    maxConsecutiveFailures:   20,
-    onThresholdExceeded:      'slow_retry',
+    strategy: 'exponential',
+    baseDelaySeconds: 10,
+    factor: 2,
+    maxDelaySeconds: 300,
+    jitterPercent: 10,
+    stableAfterSeconds: 120,
+    maxConsecutiveFailures: 20,
+    onThresholdExceeded: 'slow_retry',
     slowRetryCooldownSeconds: 600,
   },
   scheduler: {
-    mode:     'continuous',
+    mode: 'continuous',
     timezone: 'Asia/Kolkata',
-    windows:  [],
+    windows: [],
     autoRecycle: {
-      enabled:         false,
+      enabled: false,
       maxSessionHours: 8,
-      pauseMinutes:    60,
-      resumeBookmark:  true,
+      pauseMinutes: 60,
+      resumeBookmark: true,
     },
   },
   uploads: {
-    maxBytes:          4 * 1024 * 1024 * 1024,  // 4 GiB
+    maxBytes: 4 * 1024 * 1024 * 1024,  // 4 GiB
     allowedExtensions: ['.mp4', '.mov', '.m4v', '.mkv'],
-    diskReserveBytes:  5 * 1024 * 1024 * 1024,  // 5 GiB
+    diskReserveBytes: 5 * 1024 * 1024 * 1024,  // 5 GiB
   },
   disk: { warnPercent: 80, criticalPercent: 90, emergencyPercent: 95 },
   logs: { level: 'info', maxFileMB: 10, maxFiles: 5 },
@@ -117,9 +117,9 @@ function deepMerge(defaults, overrides) {
   const result = { ...defaults };
   for (const key of Object.keys(overrides)) {
     if (key in defaults
-        && typeof defaults[key] === 'object'
-        && defaults[key] !== null
-        && !Array.isArray(defaults[key])) {
+      && typeof defaults[key] === 'object'
+      && defaults[key] !== null
+      && !Array.isArray(defaults[key])) {
       result[key] = deepMerge(defaults[key], overrides[key]);
     } else {
       result[key] = overrides[key];
@@ -142,9 +142,9 @@ function migrate(data) {
 
 // ─── Module state ─────────────────────────────────────────────────────────────
 
-let _settings    = null;
+let _settings = null;
 let _settingsPath = PATHS.settings;
-let _backupDir    = PATHS.backups;
+let _backupDir = PATHS.backups;
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -254,23 +254,23 @@ export function getSettings() {
  * Return settings safe for API responses — stream keys replaced with hints.
  */
 export function getMaskedSettings() {
-  const s   = getSettings();
+  const s = getSettings();
   const key = s.youtube?.streamKey;
   if (key) {
-    s.youtube.streamKeySet  = true;
+    s.youtube.streamKeySet = true;
     s.youtube.streamKeyHint = key.slice(-4);
   } else {
-    s.youtube.streamKeySet  = false;
+    s.youtube.streamKeySet = false;
     s.youtube.streamKeyHint = '';
   }
   delete s.youtube.streamKey;
 
   const hKey = s.youtube?.horizontalStreamKey;
   if (hKey) {
-    s.youtube.horizontalStreamKeySet  = true;
+    s.youtube.horizontalStreamKeySet = true;
     s.youtube.horizontalStreamKeyHint = hKey.slice(-4);
   } else {
-    s.youtube.horizontalStreamKeySet  = false;
+    s.youtube.horizontalStreamKeySet = false;
     s.youtube.horizontalStreamKeyHint = '';
   }
   delete s.youtube.horizontalStreamKey;
@@ -326,6 +326,6 @@ export function getMonthlyAllowanceBytes() {
 /** Allow tests to inject custom paths without touching real data. */
 export function _setPathsForTest(settingsPath, backupDir) {
   _settingsPath = settingsPath;
-  _backupDir    = backupDir;
-  _settings     = null;
+  _backupDir = backupDir;
+  _settings = null;
 }
