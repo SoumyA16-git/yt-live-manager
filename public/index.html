@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v11">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v12">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -579,6 +579,14 @@
                     <span class="kpi-sub">Wait for YouTube to save VOD</span>
                   </div>
                 </div>
+
+                <div style="margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--border-color);">
+                  <label class="sched-checkbox-label">
+                    <input type="checkbox" id="sched-bookmark-enabled" checked>
+                    <span><strong>Resume from last stopped position</strong> (Auto-bookmark)</span>
+                  </label>
+                  <p class="kpi-sub" style="margin-top: 0.25rem; margin-left: 1.5rem;">When Auto-Recycle restarts, continues the video from the exact second it stopped instead of repeating from 00:00.</p>
+                </div>
               </div>
 
               <!-- Recommendation note -->
@@ -950,6 +958,6 @@
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261004_v11"></script>
+  <script type="module" src="/js/dashboard.js?v=20261004_v12"></script>
 </body>
 </html>

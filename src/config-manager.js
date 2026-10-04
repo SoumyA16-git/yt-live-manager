@@ -89,6 +89,7 @@ export const DEFAULTS = Object.freeze({
       enabled:         false,
       maxSessionHours: 8,
       pauseMinutes:    60,
+      resumeBookmark:  true,
     },
   },
   uploads: {

@@ -13,6 +13,7 @@ import {
   setDisabled,
   setMaintenance,
   clearConfigGateError,
+  computeResumeBookmark,
 } from '../../src/stream-manager.js';
 import {
   loadSettings,
@@ -315,5 +316,94 @@ describe('stream-manager — evaluateStartGates', () => {
     assert.ok(concatContent.includes('ffconcat version 1.0'));
     assert.ok(concatContent.includes(`${vid1}.mp4`));
     assert.ok(concatContent.includes(`${vid2}.mp4`));
+  });
+});
+
+describe('stream-manager — computeResumeBookmark', () => {
+  test('calculates correct single video resume offset with modulo', async () => {
+    const sPath = path.join(tmpDir, 'settings-bm1.json');
+    const stPath = path.join(tmpDir, 'state-bm1.json');
+    const hPath  = path.join(tmpDir, 'hist-bm1.json');
+    const bDir   = path.join(tmpDir, 'backups-bm1');
+    const vDir   = path.join(tmpDir, 'videos-bm1');
+    const catPath = path.join(vDir, 'catalog.json');
+
+    const inDir = path.join(vDir, 'incoming');
+    await fs.mkdir(vDir, { recursive: true });
+    _setConfigPaths(sPath, bDir);
+    _setStatePaths(stPath, hPath, bDir);
+    _setVideoPaths(vDir, inDir, catPath);
+
+    await loadSettings();
+    await loadState();
+
+    const vidId = 'vid_bm01';
+    await writeJSON(catPath, {
+      schemaVersion: 1,
+      videos: [
+        {
+          id: vidId,
+          filename: `${vidId}.mp4`,
+          originalName: 'single.mp4',
+          probe: { duration: 3600 },
+        },
+      ],
+    });
+
+    await saveSettings({
+      stream: {
+        videoId: vidId,
+        playlist: [],
+      },
+    });
+
+    // 4000s elapsed, duration 3600s => offset 400s
+    const bm = await computeResumeBookmark(4000);
+    assert.ok(bm);
+    assert.equal(bm.type, 'single');
+    assert.equal(bm.videoId, vidId);
+    assert.equal(bm.offsetSec, 400);
+  });
+
+  test('calculates correct playlist video and offset in cycle', async () => {
+    const sPath = path.join(tmpDir, 'settings-bm2.json');
+    const stPath = path.join(tmpDir, 'state-bm2.json');
+    const hPath  = path.join(tmpDir, 'hist-bm2.json');
+    const bDir   = path.join(tmpDir, 'backups-bm2');
+    const vDir   = path.join(tmpDir, 'videos-bm2');
+    const inDir  = path.join(vDir, 'incoming');
+    const catPath = path.join(vDir, 'catalog.json');
+
+    await fs.mkdir(vDir, { recursive: true });
+    _setConfigPaths(sPath, bDir);
+    _setStatePaths(stPath, hPath, bDir);
+    _setVideoPaths(vDir, inDir, catPath);
+
+    await loadSettings();
+    await loadState();
+
+    const vidA = 'vid_p111';
+    const vidB = 'vid_p222';
+    await writeJSON(catPath, {
+      schemaVersion: 1,
+      videos: [
+        { id: vidA, filename: `${vidA}.mp4`, probe: { duration: 1000 } },
+        { id: vidB, filename: `${vidB}.mp4`, probe: { duration: 2000 } },
+      ],
+    });
+
+    await saveSettings({
+      stream: {
+        playlist: [vidA, vidB],
+        playbackOrder: 'sequential',
+      },
+    });
+
+    // 1500s elapsed in cycle of 3000s => lands in vidB at offset 500s
+    const bm = await computeResumeBookmark(1500);
+    assert.ok(bm);
+    assert.equal(bm.type, 'playlist');
+    assert.equal(bm.videoId, vidB);
+    assert.equal(bm.offsetSec, 500);
   });
 });

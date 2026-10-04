@@ -262,10 +262,19 @@ describe('validateSettings — scheduler section', () => {
     assert.ok(valid, errors.join(', '));
   });
 
-  test('rejects invalid autoRecycle maxSessionHours', () => {
+  test('accepts valid autoRecycle settings with resumeBookmark', () => {
+    const { valid, errors } = validateSettings({
+      scheduler: {
+        autoRecycle: { enabled: true, maxSessionHours: 8, pauseMinutes: 60, resumeBookmark: true },
+      },
+    });
+    assert.ok(valid, errors.join(', '));
+  });
+
+  test('rejects invalid autoRecycle resumeBookmark (non-boolean)', () => {
     const { valid } = validateSettings({
       scheduler: {
-        autoRecycle: { enabled: true, maxSessionHours: 30, pauseMinutes: 60 },
+        autoRecycle: { enabled: true, maxSessionHours: 8, pauseMinutes: 60, resumeBookmark: 'yes' },
       },
     });
     assert.ok(!valid);

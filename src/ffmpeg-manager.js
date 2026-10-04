@@ -33,9 +33,10 @@ import PATHS from './lib/paths.js';
  * @param {object|null} [horizontalMeta=null] Optional matching horizontal video metadata
  * @returns {string[]} Argument array (safe for child_process.spawn with shell: false)
  */
-export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy', dualTarget = null, horizontalMeta = null) {
+export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy', dualTarget = null, horizontalMeta = null, seekOffset = 0) {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
+  const effectiveSeek = Number(seekOffset || videoMeta?.seekOffset || 0);
 
   const args = [
     '-hide_banner',
@@ -55,6 +56,9 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     if (isConcat) {
       args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
     } else {
+      if (effectiveSeek > 0) {
+        args.push('-ss', effectiveSeek.toFixed(2));
+      }
       args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
     }
 
@@ -64,6 +68,9 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     if (isHorizontalConcat) {
       args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcatHorizontal);
     } else {
+      if (effectiveSeek > 0) {
+        args.push('-ss', effectiveSeek.toFixed(2));
+      }
       args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
     }
 
@@ -95,6 +102,9 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
   if (isConcat) {
     args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
   } else {
+    if (effectiveSeek > 0) {
+      args.push('-ss', effectiveSeek.toFixed(2));
+    }
     args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
   }
 
@@ -406,11 +416,17 @@ export async function spawnFfmpeg({
       const bitrate   = block.bitrate || '';
       const frame     = parseInt(block.frame, 10) || 0;
 
+      const outTimeUs = parseInt(block.out_time_us, 10) || 0;
+      const outTimeMs = parseInt(block.out_time_ms, 10) || (outTimeUs > 0 ? Math.round(outTimeUs / 1000) : 0);
+      const outTimeSec = outTimeMs > 0 ? (outTimeMs / 1000) : (outTimeUs > 0 ? outTimeUs / 1000000 : 0);
+
       const progressData = {
         frame,
         fps,
         bitrate,
         total_size: totalSize,
+        outTimeSec,
+        outTimeStr: block.out_time || '',
         speed,
         speedStr: block.speed || '',
         progress: block.progress || '',

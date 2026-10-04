@@ -262,6 +262,7 @@ const schedRecycleStatusBadge  = document.getElementById('sched-recycle-status-b
 const schedRecycleEnabled      = document.getElementById('sched-recycle-enabled');
 const schedRecycleHours        = document.getElementById('sched-recycle-hours');
 const schedPauseMins           = document.getElementById('sched-pause-mins');
+const schedBookmarkEnabled     = document.getElementById('sched-bookmark-enabled');
 const btnSaveSchedule          = document.getElementById('btn-save-schedule');
 
 // ─── Network Event Listeners ──────────────────────────────────────────────────
@@ -796,6 +797,7 @@ function renderScheduler(data) {
   if (schedRecycleEnabled) schedRecycleEnabled.checked = !!ar.enabled;
   if (schedRecycleHours)   schedRecycleHours.value = ar.maxSessionHours || 8;
   if (schedPauseMins)      schedPauseMins.value    = ar.pauseMinutes || 60;
+  if (schedBookmarkEnabled) schedBookmarkEnabled.checked = ar.resumeBookmark !== false;
   if (schedRecycleStatusBadge) {
     schedRecycleStatusBadge.textContent = ar.enabled ? 'Protected' : 'Off';
     schedRecycleStatusBadge.className = `badge-tag ${ar.enabled ? 'compatible' : 'disabled'}`;
@@ -886,6 +888,7 @@ async function saveSchedulerSettings() {
         enabled: schedRecycleEnabled ? schedRecycleEnabled.checked : false,
         maxSessionHours: parseFloat(schedRecycleHours?.value) || 8,
         pauseMinutes: parseInt(schedPauseMins?.value, 10) || 60,
+        resumeBookmark: schedBookmarkEnabled ? schedBookmarkEnabled.checked : true,
       },
     };
 
