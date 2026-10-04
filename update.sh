@@ -14,6 +14,8 @@ echo "Updating 24×7 YouTube Vertical Live Streaming Manager"
 echo "Timestamp: ${TIMESTAMP}"
 echo "=========================================================="
 
+CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 if [[ $EUID -ne 0 ]]; then
   echo "Error: This script must be run as root (use sudo)."
   exit 1
@@ -22,6 +24,12 @@ fi
 # 1. Graceful Stop
 echo "--> Stopping systemd service..."
 systemctl stop yt-live-manager || true
+
+# Preserve playback position as bookmark if not already saved
+if [[ -f "${CURRENT_DIR}/scripts/preserve-bookmark.js" ]]; then
+  echo "--> Checking playback bookmark preservation..."
+  node "${CURRENT_DIR}/scripts/preserve-bookmark.js" "${INSTALL_DIR}" || true
+fi
 
 # 2. Backup config and data
 echo "--> Creating pre-update backup of config and data..."
@@ -59,7 +67,6 @@ rollback() {
 }
 
 # 3. Copy New Code (Preserving config, data, videos, logs, backups)
-CURRENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "--> Updating application files..."
 cp -ru "${CURRENT_DIR}/src" "${INSTALL_DIR}/"
 cp -ru "${CURRENT_DIR}/public" "${INSTALL_DIR}/"
