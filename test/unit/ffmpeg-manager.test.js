@@ -155,4 +155,36 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.ok(args.includes(dualTarget));
     assert.ok(args.includes('-safe'));
   });
+
+  test('Clamps seek offset to video durationSec if seek exceeds duration', () => {
+    const metaWithDur = {
+      filePath: '/var/videos/vid_test.mp4',
+      probe: { durationSec: 100 },
+    };
+    // Seek offset 250s on a 100s video should clamp to 250 % 100 = 50s
+    const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'copy', null, null, 250);
+    const ssIdx = args.indexOf('-ss');
+    assert.ok(ssIdx !== -1, 'Expected -ss flag');
+    assert.equal(args[ssIdx + 1], '50.00');
+  });
+
+  test('Clamps seek offset for both feeds in dual streaming mode', () => {
+    const vMeta = {
+      filePath: '/var/videos/v.mp4',
+      probe: { durationSec: 100 },
+    };
+    const hMeta = {
+      filePath: '/var/videos/h.mp4',
+      probe: { durationSec: 80 },
+      seekOffset: 250,
+    };
+    const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/key2';
+    // Vertical: 250 % 100 = 50.00, Horizontal: 250 % 80 = 10.00
+    const args = buildFfmpegArgs(dummySettings, vMeta, secretTarget, 'copy', dualTarget, hMeta, 250);
+    const ssIndices = [];
+    args.forEach((a, i) => { if (a === '-ss') ssIndices.push(i); });
+    assert.equal(ssIndices.length, 2, 'Expected two -ss flags');
+    assert.equal(args[ssIndices[0] + 1], '50.00');
+    assert.equal(args[ssIndices[1] + 1], '10.00');
+  });
 });

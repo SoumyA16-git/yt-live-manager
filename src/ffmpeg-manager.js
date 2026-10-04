@@ -56,8 +56,10 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     if (isConcat) {
       args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
     } else {
-      if (effectiveSeek > 0) {
-        args.push('-ss', effectiveSeek.toFixed(2));
+      const vDur = Number(videoMeta?.probe?.durationSec || videoMeta?.probe?.duration || 0);
+      const safeVSeek = (vDur > 0 && effectiveSeek > 0) ? (effectiveSeek % vDur) : Math.max(0, effectiveSeek);
+      if (safeVSeek > 0) {
+        args.push('-ss', safeVSeek.toFixed(2));
       }
       args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
     }
@@ -68,8 +70,11 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     if (isHorizontalConcat) {
       args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcatHorizontal);
     } else {
-      if (effectiveSeek > 0) {
-        args.push('-ss', effectiveSeek.toFixed(2));
+      const hDur = Number(horizontalMeta?.probe?.durationSec || horizontalMeta?.probe?.duration || 0);
+      const rawHSeek = Number(horizontalMeta?.seekOffset ?? effectiveSeek);
+      const safeHSeek = (hDur > 0 && rawHSeek > 0) ? (rawHSeek % hDur) : Math.max(0, rawHSeek);
+      if (safeHSeek > 0) {
+        args.push('-ss', safeHSeek.toFixed(2));
       }
       args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
     }
@@ -102,8 +107,10 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
   if (isConcat) {
     args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
   } else {
-    if (effectiveSeek > 0) {
-      args.push('-ss', effectiveSeek.toFixed(2));
+    const vDur = Number(videoMeta?.probe?.durationSec || videoMeta?.probe?.duration || 0);
+    const safeSeek = (vDur > 0 && effectiveSeek > 0) ? (effectiveSeek % vDur) : Math.max(0, effectiveSeek);
+    if (safeSeek > 0) {
+      args.push('-ss', safeSeek.toFixed(2));
     }
     args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
   }
@@ -416,9 +423,23 @@ export async function spawnFfmpeg({
       const bitrate = block.bitrate || '';
       const frame = parseInt(block.frame, 10) || 0;
 
-      const outTimeUs = parseInt(block.out_time_us, 10) || 0;
-      const outTimeMs = parseInt(block.out_time_ms, 10) || (outTimeUs > 0 ? Math.round(outTimeUs / 1000) : 0);
-      const outTimeSec = outTimeMs > 0 ? (outTimeMs / 1000) : (outTimeUs > 0 ? outTimeUs / 1000000 : 0);
+      let outTimeSec = 0;
+      if (block.out_time && block.out_time.includes(':')) {
+        const parts = block.out_time.trim().split(':');
+        if (parts.length === 3) {
+          const h = parseFloat(parts[0]) || 0;
+          const m = parseFloat(parts[1]) || 0;
+          const s = parseFloat(parts[2]) || 0;
+          outTimeSec = h * 3600 + m * 60 + s;
+        }
+      }
+      if (!outTimeSec || isNaN(outTimeSec)) {
+        const outTimeUs = parseInt(block.out_time_us, 10) || 0;
+        const outTimeMs = parseInt(block.out_time_ms, 10) || 0;
+        // In FFmpeg -progress pipe:1, out_time_us and out_time_ms are reported in microseconds
+        const us = outTimeUs > 0 ? outTimeUs : outTimeMs;
+        outTimeSec = us > 0 ? (us / 1000000) : 0;
+      }
 
       const progressData = {
         frame,

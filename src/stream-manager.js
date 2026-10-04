@@ -180,11 +180,13 @@ export async function evaluateStartGates() {
   if (playlistMetas.length === 1) {
     videoMeta = playlistMetas[0];
     videoMeta.isConcat = false;
-    _lastCycleOrder = [{ id: videoMeta.id, duration: videoMeta.probe?.duration || 0 }];
+    const vDur = Number(videoMeta.probe?.durationSec || videoMeta.probe?.duration || 0);
+    _lastCycleOrder = [{ id: videoMeta.id, duration: vDur }];
     if (bookmark && bookmark.offsetSec > 0 && bookmark.videoId === videoMeta.id) {
-      videoMeta.seekOffset = bookmark.offsetSec;
-      _currentSessionStartOffset = bookmark.offsetSec;
-      logger.info('stream.resume_bookmark_applied', `Resuming single video ${videoMeta.id} from bookmark: ${bookmark.offsetSec}s`);
+      const safeOffset = vDur > 0 ? (bookmark.offsetSec % vDur) : 0;
+      videoMeta.seekOffset = safeOffset;
+      _currentSessionStartOffset = safeOffset;
+      logger.info('stream.resume_bookmark_applied', `Resuming single video ${videoMeta.id} from bookmark: ${safeOffset.toFixed(1)}s (saved: ${bookmark.offsetSec}s)`);
     } else {
       _currentSessionStartOffset = 0;
     }
@@ -199,7 +201,8 @@ export async function evaluateStartGates() {
       const bIdx = orderedMetas.findIndex(m => m.id === bookmark.videoId);
       if (bIdx !== -1) {
         bookmarkedMeta = orderedMetas[bIdx];
-        resumeSeek = bookmark.offsetSec;
+        const bDur = Number(bookmarkedMeta.probe?.durationSec || bookmarkedMeta.probe?.duration || 0);
+        resumeSeek = bDur > 0 ? (bookmark.offsetSec % bDur) : 0;
         orderedMetas.splice(bIdx, 1);
       }
     }
@@ -214,12 +217,12 @@ export async function evaluateStartGates() {
     if (bookmarkedMeta) {
       orderedMetas.unshift(bookmarkedMeta);
       _currentSessionStartOffset = resumeSeek;
-      logger.info('stream.resume_bookmark_applied', `Resuming playlist video ${bookmarkedMeta.id} from bookmark: ${resumeSeek}s`);
+      logger.info('stream.resume_bookmark_applied', `Resuming playlist video ${bookmarkedMeta.id} from bookmark: ${resumeSeek.toFixed(1)}s (saved: ${bookmark.offsetSec}s)`);
     } else {
       _currentSessionStartOffset = 0;
     }
 
-    _lastCycleOrder = orderedMetas.map(m => ({ id: m.id, duration: m.probe?.duration || 0 }));
+    _lastCycleOrder = orderedMetas.map(m => ({ id: m.id, duration: Number(m.probe?.durationSec || m.probe?.duration || 0) }));
 
     const concatLines = ['ffconcat version 1.0'];
     if (bookmarkedMeta && resumeSeek > 0) {
@@ -340,11 +343,14 @@ export async function evaluateStartGates() {
         const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
         try {
           await fs.access(resolvedHPath);
+          const hDur = Number(pairedH.probe?.durationSec || pairedH.probe?.duration || 0);
+          const vSeek = Number(videoMeta.seekOffset || 0);
+          const hSeek = hDur > 0 ? (vSeek % hDur) : vSeek;
           horizontalMeta = {
             ...pairedH,
             filePath: resolvedHPath,
             isConcat: false,
-            seekOffset: videoMeta.seekOffset || 0,
+            seekOffset: hSeek,
           };
           dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
           logger.info('stream.dual_stream_paired', `Dual streaming enabled: Paired vertical ${playlistMetas[0].id} with horizontal ${pairedH.id}`);
@@ -646,8 +652,8 @@ export async function computeResumeBookmark(sessionElapsedSec) {
     const vidId = primaryId || playlist[0];
     if (!vidId) return null;
     const video = await getVideo(vidId);
-    const duration = video?.probe?.duration || 0;
-    const offsetSec = duration > 0 ? (totalElapsed % duration) : totalElapsed;
+    const duration = Number(video?.probe?.durationSec || video?.probe?.duration || 0);
+    const offsetSec = duration > 0 ? (totalElapsed % duration) : 0;
     return {
       type: 'single',
       videoId: vidId,
@@ -667,7 +673,10 @@ export async function computeResumeBookmark(sessionElapsedSec) {
 
   const orderMetas = cycleOrderValid
     ? _lastCycleOrder
-    : playlist.map(id => ({ id, duration: videoMap.get(id)?.probe?.duration || 0 }));
+    : playlist.map(id => {
+        const v = videoMap.get(id);
+        return { id, duration: Number(v?.probe?.durationSec || v?.probe?.duration || 0) };
+      });
 
   let totalCycleDuration = 0;
   for (const item of orderMetas) {
@@ -739,6 +748,7 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
   } else if (reason === 'api_manual_stop' || reason === 'manual_stop') {
     logger.info('stream.resume_bookmark_cleared', 'Manual stop requested; clearing resume bookmark for fresh start');
     resumeBookmark = null;
+    _currentSessionStartOffset = 0;
   }
 
   await saveState({
@@ -770,6 +780,13 @@ async function handleUnexpectedExit({ code, signal, lastError }) {
   if (state.desiredState === 'stopped') {
     await transitionState('STOPPED', 'FFmpeg exited and desired state is stopped');
     return;
+  }
+
+  // Clear any pending resume bookmark on unexpected crash so retry starts clean
+  if (state.resumeBookmark) {
+    logger.warn('stream.resume_bookmark_dropped', 'Stream exited unexpectedly; clearing bookmark to prevent looping seek errors');
+    await saveState({ resumeBookmark: null });
+    _currentSessionStartOffset = 0;
   }
 
   // Increment failure count

@@ -27,6 +27,16 @@ const disconnectBanner = document.getElementById('disconnect-banner');
 const userDisplay = document.getElementById('user-display');
 const btnLogout = document.getElementById('btn-logout');
 
+function formatDuration(sec) {
+  if (!sec || isNaN(sec) || sec <= 0) return '';
+  const s = Math.floor(sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sc = s % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${sc}s`;
+}
+
 // ─── Toast Notifications (Zero Emojis, Pure SVG Vector Icons) ────────────────
 
 export function showToast(message, type = 'info', title = '') {
@@ -1281,6 +1291,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
           <span class="meta-tag">${v.probe?.aspectRatio || (isHorizontal ? '1920:1080' : '1080:1920')}</span>
           <span class="meta-tag">${v.probe?.fps || 30}fps</span>
           <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
+          ${v.probe?.durationSec ? `<span class="meta-tag">${formatDuration(v.probe.durationSec)}</span>` : ''}
           <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
         </div>
         ${v.paired

@@ -406,4 +406,50 @@ describe('stream-manager — computeResumeBookmark', () => {
     assert.equal(bm.videoId, vidB);
     assert.equal(bm.offsetSec, 500);
   });
+
+  test('calculates correct resume offset when probe has durationSec (production schema)', async () => {
+    const sPath = path.join(tmpDir, 'settings-bm3.json');
+    const stPath = path.join(tmpDir, 'state-bm3.json');
+    const hPath  = path.join(tmpDir, 'hist-bm3.json');
+    const bDir   = path.join(tmpDir, 'backups-bm3');
+    const vDir   = path.join(tmpDir, 'videos-bm3');
+    const inDir  = path.join(vDir, 'incoming');
+    const catPath = path.join(vDir, 'catalog.json');
+
+    await fs.mkdir(vDir, { recursive: true });
+    _setConfigPaths(sPath, bDir);
+    _setStatePaths(stPath, hPath, bDir);
+    _setVideoPaths(vDir, inDir, catPath);
+
+    await loadSettings();
+    await loadState();
+
+    const vidId = 'vid_dursec1';
+    await writeJSON(catPath, {
+      schemaVersion: 1,
+      videos: [
+        {
+          id: vidId,
+          filename: `${vidId}.mp4`,
+          originalName: 'single.mp4',
+          probe: { durationSec: 17714.06 },
+        },
+      ],
+    });
+
+    await saveSettings({
+      stream: {
+        videoId: vidId,
+        playlist: [],
+      },
+    });
+
+    // 21602s elapsed (~6 hours), video is 17714.06s (~4.9h)
+    // Modulo: 21602 % 17714.06 = 3887.94s
+    const bm = await computeResumeBookmark(21602);
+    assert.ok(bm);
+    assert.equal(bm.type, 'single');
+    assert.equal(bm.videoId, vidId);
+    assert.equal(bm.offsetSec, 3887);
+  });
 });
