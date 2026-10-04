@@ -965,10 +965,11 @@ function renderSystem(data) {
   metricCpu.textContent = `${data.cpuPercent || 0}%`;
 
   const appMb = data.appRam?.rssMB || 0;
+  const heapUsed = data.appRam?.heapUsedMB || 0;
   const sysPct = data.ram?.usedPercent || 0;
   metricRam.textContent = `${appMb} MB`;
   if (metricRamSub) {
-    metricRamSub.textContent = `Node: ${appMb} MB · System: ${sysPct}%`;
+    metricRamSub.textContent = `Heap: ${heapUsed} MB (Pool: ${appMb} MB) · Sys: ${sysPct}%`;
   }
 
   if (data.disk) {

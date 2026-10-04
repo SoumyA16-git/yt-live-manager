@@ -18,7 +18,7 @@ LimitNOFILE=4096
 UMask=0077
 
 # Memory Boundaries (Ultra-low RAM tuning: < 40 MB footprint)
-Environment="NODE_OPTIONS=--max-old-space-size=128"
+Environment="NODE_OPTIONS=--max-old-space-size=128 --expose-gc"
 MemoryMax=256M
 MemoryHigh=192M
 

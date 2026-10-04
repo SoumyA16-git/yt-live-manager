@@ -136,11 +136,14 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
     // 5. Start in-process scheduler
     startScheduler();
 
-    // Idle Garbage Collection (runs every 5 minutes if --expose-gc is enabled)
+    // Idle Garbage Collection (runs every 2 minutes if --expose-gc is enabled to trim memory)
     if (typeof global.gc === 'function') {
       setInterval(() => {
-        try { global.gc(); } catch { /* ignore */ }
-      }, 300000).unref();
+        try {
+          global.gc();
+          logger.debug('system.gc_sweep', 'Periodic idle memory compaction completed');
+        } catch { /* ignore */ }
+      }, 120000).unref();
     }
 
     // 6. Auto-resume stream if configured (PRD §8.5)
