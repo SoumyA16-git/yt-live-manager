@@ -58,7 +58,7 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
     }
 
-    // Input 1: Horizontal 16:9 Video (file or concat)
+    // Input 1: Secondary Paired Video (file or concat)
     const isHorizontalConcat = Boolean(horizontalMeta?.isConcat);
     const horizPath = horizontalMeta?.filePath || horizontalMeta?.path || '';
     if (isHorizontalConcat) {
@@ -67,11 +67,15 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       args.push('-re', '-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
     }
 
-    // Output 0: YouTube Shorts Feed (Vertical 9:16)
+    const dualCodecs = (mode === 'hybrid')
+      ? ['-c:v', 'copy', '-c:a', 'aac', '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`, '-ar', `${streamCfg.audioSampleRate ?? 44100}`, '-ac', '2']
+      : ['-c', 'copy'];
+
+    // Output 0: Primary Feed -> secretTarget
     args.push(
       '-map', '0:v:0',
       '-map', '0:a?',
-      '-c', 'copy',
+      ...dualCodecs,
       '-avoid_negative_ts', 'make_zero',
       '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
@@ -79,11 +83,11 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       secretTarget
     );
 
-    // Output 1: YouTube Normal Feed (Horizontal 16:9)
+    // Output 1: Secondary Paired Feed -> dualTarget
     args.push(
       '-map', '1:v:0',
       '-map', '1:a?',
-      '-c', 'copy',
+      ...dualCodecs,
       '-avoid_negative_ts', 'make_zero',
       '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
@@ -544,12 +548,12 @@ export async function spawnFfmpeg({
         if (_outputDestinations.vertical.status !== 'FAILED') {
           _outputDestinations.vertical.status = 'CONNECTED';
           _outputDestinations.vertical.connectedAt = new Date().toISOString();
-          logger.info('ffmpeg.rtmps_vertical', 'RTMPS vertical output: CONNECTED');
+          logger.info('ffmpeg.rtmps_vertical', 'RTMPS primary output: CONNECTED (outbound socket active, data transmitting)');
         }
         if (_outputDestinations.horizontal.enabled && _outputDestinations.horizontal.status !== 'FAILED') {
           _outputDestinations.horizontal.status = 'CONNECTED';
           _outputDestinations.horizontal.connectedAt = new Date().toISOString();
-          logger.info('ffmpeg.rtmps_horizontal', 'RTMPS horizontal output: CONNECTED');
+          logger.info('ffmpeg.rtmps_horizontal', 'RTMPS secondary output: CONNECTED (outbound socket active, data transmitting)');
         }
         if (_startupTimer) { clearTimeout(_startupTimer); _startupTimer = null; }
         if (typeof onHealthy === 'function') onHealthy(progressData);

@@ -129,6 +129,74 @@ export function findPairedHorizontalVideo(verticalVideo, allVideos = []) {
   return null;
 }
 
+/**
+ * Find matching vertical video for a given horizontal video.
+ *
+ * @param {object} horizontalVideo
+ * @param {Array<object>} allVideos
+ * @returns {object|null}
+ */
+export function findPairedVerticalVideo(horizontalVideo, allVideos = []) {
+  if (!horizontalVideo) return null;
+
+  // Filter for vertical video candidates (height >= width or orientation vertical)
+  const verticalVideos = allVideos.filter(v => {
+    if (v.id === horizontalVideo.id) return false;
+    const w = v.probe?.width || 0;
+    const h = v.probe?.height || 0;
+    return h >= w || v.probe?.orientation === 'vertical' || v.orientation === 'vertical';
+  });
+
+  if (verticalVideos.length === 0) return null;
+
+  // 1. Explicit pairing if configured in metadata
+  if (horizontalVideo.pairedVideoId) {
+    const explicit = verticalVideos.find(v => v.id === horizontalVideo.pairedVideoId);
+    if (explicit) return explicit;
+  }
+
+  // 2. Base name match
+  const horizBase = getBaseVideoName(horizontalVideo.originalName || horizontalVideo.label || '');
+  if (horizBase) {
+    const exactMatch = verticalVideos.find(v => {
+      const vertBase = getBaseVideoName(v.originalName || v.label || '');
+      return vertBase && vertBase === horizBase;
+    });
+    if (exactMatch) return exactMatch;
+  }
+
+  // 3. Prefix matching: if horizBase starts with vertBase or vice versa
+  if (horizBase && horizBase.length >= 3) {
+    const prefixMatch = verticalVideos.find(v => {
+      const vertBase = getBaseVideoName(v.originalName || v.label || '');
+      return vertBase && vertBase.length >= 3 && (horizBase.startsWith(vertBase) || vertBase.startsWith(horizBase));
+    });
+    if (prefixMatch) return prefixMatch;
+  }
+
+  // 4. If there is only ONE vertical video in the entire library, auto-pair with it
+  if (verticalVideos.length === 1) {
+    return verticalVideos[0];
+  }
+
+  return null;
+}
+
+/**
+ * Find matching complementary video for either horizontal or vertical input video.
+ *
+ * @param {object} video
+ * @param {Array<object>} allVideos
+ * @returns {object|null}
+ */
+export function findPairedComplementaryVideo(video, allVideos = []) {
+  if (!video) return null;
+  const w = video.probe?.width || 0;
+  const h = video.probe?.height || 0;
+  const isHoriz = w > h || video.probe?.orientation === 'horizontal' || video.orientation === 'horizontal';
+  return isHoriz ? findPairedVerticalVideo(video, allVideos) : findPairedHorizontalVideo(video, allVideos);
+}
+
 // ─── Module State ────────────────────────────────────────────────────────────
 
 let _videosIndex = PATHS.videosIndex;

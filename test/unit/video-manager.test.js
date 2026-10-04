@@ -17,6 +17,8 @@ import {
   setPlaylist,
   getBaseVideoName,
   findPairedHorizontalVideo,
+  findPairedVerticalVideo,
+  findPairedComplementaryVideo,
   _setPathsForTest as _setVideoPaths,
 } from '../../src/video-manager.js';
 import {
@@ -226,5 +228,35 @@ describe('video-manager — library operations', () => {
     const match = findPairedHorizontalVideo(verticalVideo, [verticalVideo, unrelatedVideo, horizontalVideo]);
     assert.ok(match);
     assert.equal(match.id, 'vid_horiz222');
+  });
+
+  test('findPairedVerticalVideo and findPairedComplementaryVideo match bidirectional complementary orientation', () => {
+    const verticalVideo = {
+      id: 'vid_vert1111',
+      originalName: 'gameplay_Vertical_Shorts.mp4',
+      label: 'gameplay_Vertical_Shorts',
+      probe: { width: 1080, height: 1920, orientation: 'vertical' },
+    };
+
+    const horizontalVideo = {
+      id: 'vid_horiz222',
+      originalName: 'gameplay_Horizontal_16x9.mp4',
+      label: 'gameplay_Horizontal_16x9',
+      probe: { width: 1920, height: 1080, orientation: 'horizontal' },
+    };
+
+    // Vertical finds horizontal
+    const matchH = findPairedComplementaryVideo(verticalVideo, [verticalVideo, horizontalVideo]);
+    assert.ok(matchH);
+    assert.equal(matchH.id, 'vid_horiz222');
+
+    // Horizontal finds vertical
+    const matchV = findPairedVerticalVideo(horizontalVideo, [verticalVideo, horizontalVideo]);
+    assert.ok(matchV);
+    assert.equal(matchV.id, 'vid_vert1111');
+
+    const matchCompV = findPairedComplementaryVideo(horizontalVideo, [verticalVideo, horizontalVideo]);
+    assert.ok(matchCompV);
+    assert.equal(matchCompV.id, 'vid_vert1111');
   });
 });

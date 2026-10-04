@@ -22,7 +22,7 @@ import {
 } from './ffmpeg-manager.js';
 import { getSettings, getStreamKey, getHorizontalStreamKey, isDualStreamEnabled } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
-import { getVideo, resolveVideoPath, listVideos, setActiveVideo, findPairedHorizontalVideo } from './video-manager.js';
+import { getVideo, resolveVideoPath, listVideos, setActiveVideo, findPairedHorizontalVideo, findPairedComplementaryVideo } from './video-manager.js';
 import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage } from './usage-manager.js';
 import { logger } from './logger.js';
@@ -220,7 +220,10 @@ export async function evaluateStartGates(options = {}) {
   let allCompatible = true;
   let allCopyAllowed = true;
   for (const m of playlistMetas) {
-    const c = m.probe ? evaluateCompatibility(m.probe, settings) : (m.compatibility || {});
+    const orient = (m.probe?.width && m.probe?.height)
+      ? (m.probe.width > m.probe.height ? 'horizontal' : 'vertical')
+      : (m.orientation || 'vertical');
+    const c = m.probe ? evaluateCompatibility(m.probe, settings, orient) : (m.compatibility || {});
     if (c.status !== 'COMPATIBLE') {
       allCompatible = false;
     }
@@ -298,7 +301,7 @@ export async function evaluateStartGates(options = {}) {
     const rtmpsUrl = settings.youtube?.rtmpsUrl || 'rtmps://a.rtmps.youtube.com:443/live2';
 
     if (playlistMetas.length === 1) {
-      const pairedH = findPairedHorizontalVideo(playlistMetas[0], allVideos);
+      const pairedH = findPairedComplementaryVideo(playlistMetas[0], allVideos);
       if (pairedH) {
         const hExt = path.extname(pairedH.filename || `${pairedH.id}.mp4`);
         const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
@@ -311,20 +314,20 @@ export async function evaluateStartGates(options = {}) {
             seekOffset: 0,
           };
           dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
-          logger.info('stream.dual_stream_paired', `Dual streaming enabled: Paired vertical ${playlistMetas[0].id} with horizontal ${pairedH.id}`);
+          logger.info('stream.dual_stream_paired', `Dual streaming enabled: Paired primary ${playlistMetas[0].id} with complementary ${pairedH.id}`);
         } catch {
-          logger.warn('stream.dual_stream_file_missing', `Paired horizontal video file missing: ${resolvedHPath}; streaming vertical only`);
+          logger.warn('stream.dual_stream_file_missing', `Paired complementary video file missing: ${resolvedHPath}; streaming primary only`);
         }
       } else {
-        logger.info('stream.dual_stream_no_pair', 'Horizontal stream key configured, but no matching horizontal video found. Streaming vertical only.');
+        logger.info('stream.dual_stream_no_pair', 'Secondary stream key configured, but no matching complementary video found. Streaming primary only.');
       }
     } else {
-      // Multi-video playlist: find paired horizontal video for each
+      // Multi-video playlist: find paired complementary video for each
       const horizontalMap = new Map();
       let allPaired = true;
 
       for (const vMeta of playlistMetas) {
-        const pairedH = findPairedHorizontalVideo(vMeta, allVideos);
+        const pairedH = findPairedComplementaryVideo(vMeta, allVideos);
         if (!pairedH) {
           allPaired = false;
           break;
