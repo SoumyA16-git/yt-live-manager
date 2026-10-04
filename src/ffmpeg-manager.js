@@ -23,17 +23,16 @@ import PATHS from './lib/paths.js';
 // ─── Arg Builder (Pure Function) ──────────────────────────────────────────────
 
 /**
- * Build FFmpeg command-line arguments array.
+ * Build FFmpeg command-line arguments array for a single stream.
+ * Proven, clean single-input single-output command from known-good baseline (8b215d8).
  *
  * @param {object} settings
  * @param {object} videoMeta
  * @param {string} secretTarget Full destination URL (rtmpsUrl + "/" + streamKey)
  * @param {'copy'|'hybrid'|'transcode'} [mode='copy']
- * @param {string|null} [dualTarget=null] Optional secondary horizontal destination URL
- * @param {object|null} [horizontalMeta=null] Optional matching horizontal video metadata
  * @returns {string[]} Argument array (safe for child_process.spawn with shell: false)
  */
-export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy', dualTarget = null, horizontalMeta = null) {
+export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy') {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
 
@@ -46,62 +45,11 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     '-re',
   ];
 
-  const isDual = Boolean(dualTarget && horizontalMeta);
-
-  if (isDual) {
-    // Dual Streaming Mode: Simultaneously output to Shorts (Vertical) and Normal (Horizontal)
-    // Input 0: Vertical Shorts Video (file or concat)
-    const isConcat = Boolean(videoMeta?.isConcat) || streamCfg.loopStrategy === 'concat' || (Array.isArray(streamCfg.playlist) && streamCfg.playlist.length > 1);
-    if (isConcat) {
-      args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
-    } else {
-      args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
-    }
-
-    // Input 1: Secondary Paired Video (file or concat)
-    const isHorizontalConcat = Boolean(horizontalMeta?.isConcat);
-    const horizPath = horizontalMeta?.filePath || horizontalMeta?.path || '';
-    if (isHorizontalConcat) {
-      args.push('-re', '-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcatHorizontal);
-    } else {
-      args.push('-re', '-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
-    }
-
-    const dualCodecs = (mode === 'hybrid')
-      ? ['-c:v', 'copy', '-c:a', 'aac', '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`, '-ar', `${streamCfg.audioSampleRate ?? 44100}`, '-ac', '2']
-      : ['-c', 'copy'];
-
-    // Output 0: Primary Feed -> secretTarget
-    args.push(
-      '-map', '0:v:0',
-      '-map', '0:a?',
-      ...dualCodecs,
-      '-avoid_negative_ts', 'make_zero',
-      '-max_muxing_queue_size', '1024',
-      '-flvflags', 'no_duration_filesize',
-      '-f', 'flv',
-      secretTarget
-    );
-
-    // Output 1: Secondary Paired Feed -> dualTarget
-    args.push(
-      '-map', '1:v:0',
-      '-map', '1:a?',
-      ...dualCodecs,
-      '-avoid_negative_ts', 'make_zero',
-      '-max_muxing_queue_size', '1024',
-      '-flvflags', 'no_duration_filesize',
-      '-f', 'flv',
-      dualTarget
-    );
-
-    return args;
-  }
-
   // Infinite looping (PRD §4.5)
   const isConcat = Boolean(videoMeta?.isConcat) || streamCfg.loopStrategy === 'concat' || (Array.isArray(streamCfg.playlist) && streamCfg.playlist.length > 1);
   if (isConcat) {
-    args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
+    const concatPath = (videoMeta?.filePath && videoMeta.filePath.endsWith('.ffconcat')) ? videoMeta.filePath : PATHS.loopConcat;
+    args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', concatPath);
   } else {
     args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
   }
@@ -114,8 +62,6 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     // Pure Copy Mode (PRD §4.4)
     args.push(
       '-c', 'copy',
-      '-avoid_negative_ts', 'make_zero',
-      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       secretTarget
@@ -147,18 +93,19 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     }
 
     args.push(
-      '-avoid_negative_ts', 'make_zero',
-      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       secretTarget
     );
   } else {
     // Transcode Mode (PRD §4.4)
-    const resolution = streamCfg.resolution || '1080x1920';
+    const isHoriz = (videoMeta?.probe?.width && videoMeta?.probe?.height && videoMeta.probe.width > videoMeta.probe.height) ||
+      videoMeta?.orientation === 'horizontal' || videoMeta?.probe?.orientation === 'horizontal';
+    const defaultRes = isHoriz ? '1920x1080' : '1080x1920';
+    const resolution = streamCfg.resolution || defaultRes;
     const [w, h] = resolution.split('x');
-    const width = parseInt(w, 10) || 1080;
-    const height = parseInt(h, 10) || 1920;
+    const width = parseInt(w, 10) || (isHoriz ? 1920 : 1080);
+    const height = parseInt(h, 10) || (isHoriz ? 1080 : 1920);
 
     const maxKbps = (streamCfg.videoBitrateMbps ?? 4) * 1000;
     const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
@@ -208,8 +155,6 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
       '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
       '-ac', '2',
-      '-avoid_negative_ts', 'make_zero',
-      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       secretTarget
@@ -294,8 +239,10 @@ export async function cleanupStaleLockOnBoot() {
   }
 }
 
-let _currentChild = null;
-let _currentPid = null;
+let _primaryChild = null;
+let _secondaryChild = null;
+let _primaryPid = null;
+let _secondaryPid = null;
 let _expectedExit = false;
 let _latestProgress = null;
 const _stderrRing = []; // capped at 50 entries
@@ -328,12 +275,26 @@ async function killRogueFfmpegProcesses() {
   if (process.platform !== 'linux') return;
   try {
     const { execSync } = await import('node:child_process');
-    const out = execSync("pgrep -f 'ffmpeg.*(live2|flv)' || true", { encoding: 'utf8' }).trim();
+    const out = execSync("pgrep -x ffmpeg || true", { encoding: 'utf8' }).trim();
     if (out) {
-      const pids = out.split(/\s+/).map(p => parseInt(p, 10)).filter(p => p > 0 && p !== process.pid && p !== _currentPid);
-      for (const p of pids) {
-        logger.warn('ffmpeg.rogue_killed', `Found orphaned/rogue FFmpeg process PID ${p}; terminating`);
-        try { process.kill(p, 'SIGTERM'); } catch { /* ignore */ }
+      const pids = out.split(/\s+/).map(p => parseInt(p, 10)).filter(p => p > 0 && p !== process.pid && p !== _primaryPid && p !== _secondaryPid);
+      if (pids.length > 0) {
+        for (const p of pids) {
+          logger.warn('ffmpeg.rogue_killed', `Found orphaned/rogue FFmpeg process PID ${p}; terminating`);
+          try { process.kill(p, 'SIGTERM'); } catch { /* ignore */ }
+        }
+        for (const p of pids) {
+          let alive = true;
+          for (let i = 0; i < 30; i++) {
+            try { process.kill(p, 0); await new Promise(r => setTimeout(r, 100)); } catch { alive = false; break; }
+          }
+          if (alive) {
+            try { process.kill(p, 'SIGKILL'); } catch { /* ignore */ }
+            await new Promise(r => setTimeout(r, 200));
+          }
+        }
+        // Wait 1000ms to allow remote YouTube RTMP sockets to cleanly terminate
+        await new Promise(r => setTimeout(r, 1000));
       }
     }
   } catch { /* ignore */ }
@@ -343,9 +304,12 @@ async function killRogueFfmpegProcesses() {
 
 /**
  * Spawn an FFmpeg streaming process.
+ * In Dual Live mode, primary (vertical) and secondary (horizontal) run as independent
+ * processes so that the vertical stream is 100% equivalent to the single-output baseline.
  *
  * @param {object} params
- * @param {string[]} params.args Array of CLI arguments
+ * @param {string[]} params.args Array of CLI arguments for primary vertical stream
+ * @param {string[]|null} [params.secondaryArgs=null] Optional CLI arguments for secondary horizontal stream
  * @param {object} params.settings
  * @param {Function} params.onProgress Called on progress updates: (parsedProgress) => void
  * @param {Function} params.onExit     Called when process exits: ({ code, signal, expected, lastError }) => void
@@ -354,6 +318,7 @@ async function killRogueFfmpegProcesses() {
  */
 export async function spawnFfmpeg({
   args,
+  secondaryArgs = null,
   settings,
   onProgress,
   onExit,
@@ -366,7 +331,7 @@ export async function spawnFfmpeg({
     } catch { /* ignore */ }
   }
 
-  if (_currentChild) {
+  if (_primaryChild || _secondaryChild) {
     throw Object.assign(new Error('FFmpeg is already running in this instance'), {
       code: 'E_ALREADY_RUNNING',
     });
@@ -375,12 +340,7 @@ export async function spawnFfmpeg({
   // Terminate any rogue/orphaned FFmpeg processes on system before spawning
   await killRogueFfmpegProcesses();
 
-  // Detect output destinations from args
-  let flvCount = 0;
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '-f' && args[i + 1] === 'flv') flvCount++;
-  }
-  const hasHorizontal = flvCount >= 2;
+  const hasHorizontal = Boolean(secondaryArgs && Array.isArray(secondaryArgs) && secondaryArgs.length > 0);
 
   _outputDestinations = {
     vertical: { status: 'INIT', lastError: null, connectedAt: null },
@@ -399,16 +359,16 @@ export async function spawnFfmpeg({
 
   // Masked command for logging (PRD §10, §20)
   const safeLogCmd = args.map(arg => redact(arg)).join(' ');
-  logger.info('ffmpeg.spawn', `Spawning FFmpeg: ffmpeg ${safeLogCmd}`);
+  logger.info('ffmpeg.spawn', `Spawning Primary Vertical FFmpeg: ffmpeg ${safeLogCmd}`);
 
   // Create the exit completion promise BEFORE spawning
   _exitCompletionPromise = new Promise(resolve => {
     _resolveExitCompletion = resolve;
   });
 
-  let child;
+  let primaryChild;
   try {
-    child = spawn('ffmpeg', args, {
+    primaryChild = spawn('ffmpeg', args, {
       shell: false,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
@@ -420,20 +380,39 @@ export async function spawnFfmpeg({
     throw err;
   }
 
-  _currentChild = child;
-  _currentPid = child.pid;
-  logger.info('ffmpeg.spawned', `New FFmpeg process spawned with PID ${child.pid}`);
+  _primaryChild = primaryChild;
+  _primaryPid = primaryChild.pid;
+  logger.info('ffmpeg.spawned', `New Primary FFmpeg process spawned with PID ${primaryChild.pid}`);
 
-  // Lock acquisition
+  // Lock acquisition on primary process PID
   try {
-    await acquireLock(child.pid);
+    await acquireLock(primaryChild.pid);
   } catch (err) {
-    try { child.kill('SIGKILL'); } catch { /* ignore */ }
-    _currentChild = null;
-    _currentPid = null;
+    try { primaryChild.kill('SIGKILL'); } catch { /* ignore */ }
+    _primaryChild = null;
+    _primaryPid = null;
     _exitCompletionPromise = null;
     _resolveExitCompletion = null;
     throw err;
+  }
+
+  // If dual streaming enabled, spawn independent secondary horizontal process
+  if (hasHorizontal) {
+    const safeLogSecCmd = secondaryArgs.map(arg => redact(arg)).join(' ');
+    logger.info('ffmpeg.spawn_secondary', `Spawning Secondary Horizontal FFmpeg: ffmpeg ${safeLogSecCmd}`);
+    try {
+      _secondaryChild = spawn('ffmpeg', secondaryArgs, {
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      });
+      _secondaryPid = _secondaryChild.pid;
+      logger.info('ffmpeg.spawned_secondary', `Secondary Horizontal FFmpeg process spawned with PID ${_secondaryChild.pid}`);
+    } catch (err) {
+      logger.error('ffmpeg.secondary_spawn_failed', `Failed to spawn secondary horizontal FFmpeg: ${err.message}`);
+      _outputDestinations.horizontal.status = 'FAILED';
+      _outputDestinations.horizontal.lastError = err.message;
+    }
   }
 
   const streamCfg = settings.stream || {};
@@ -452,8 +431,8 @@ export async function spawnFfmpeg({
     }
   }, startupTimeoutMs);
 
-  // 2. Parse Stdout (-progress pipe:1)
-  const rlStdout = readline.createInterface({ input: child.stdout, terminal: false });
+  // 2. Parse Primary Child Stdout (-progress pipe:1)
+  const rlStdout = readline.createInterface({ input: primaryChild.stdout, terminal: false });
   let block = {};
 
   rlStdout.on('line', line => {
@@ -519,7 +498,6 @@ export async function spawnFfmpeg({
       if (!outTimeSec || isNaN(outTimeSec)) {
         const outTimeUs = parseInt(block.out_time_us, 10) || 0;
         const outTimeMs = parseInt(block.out_time_ms, 10) || 0;
-        // In FFmpeg -progress pipe:1, out_time_us and out_time_ms are reported in microseconds
         const us = outTimeUs > 0 ? outTimeUs : outTimeMs;
         outTimeSec = us > 0 ? (us / 1000000) : 0;
       }
@@ -539,22 +517,13 @@ export async function spawnFfmpeg({
 
       _latestProgress = progressData;
 
-      // Check Healthy trigger: verify encoder speed & progress, and ensure neither configured output has failed
-      const vertFailed = _outputDestinations.vertical.status === 'FAILED';
-      const horizFailed = _outputDestinations.horizontal.enabled && _outputDestinations.horizontal.status === 'FAILED';
-
-      if (!becameHealthy && totalSize > 0 && speed >= minSpeed && !vertFailed && !horizFailed) {
+      // Healthy trigger: primary vertical output transmitting
+      if (!becameHealthy && totalSize > 0 && speed >= minSpeed && _outputDestinations.vertical.status !== 'FAILED') {
         becameHealthy = true;
-        if (_outputDestinations.vertical.status !== 'FAILED') {
-          _outputDestinations.vertical.status = 'CONNECTED';
-          _outputDestinations.vertical.connectedAt = new Date().toISOString();
-          logger.info('ffmpeg.rtmps_vertical', 'RTMPS primary output: CONNECTED (outbound socket active, data transmitting)');
-        }
-        if (_outputDestinations.horizontal.enabled && _outputDestinations.horizontal.status !== 'FAILED') {
-          _outputDestinations.horizontal.status = 'CONNECTED';
-          _outputDestinations.horizontal.connectedAt = new Date().toISOString();
-          logger.info('ffmpeg.rtmps_horizontal', 'RTMPS secondary output: CONNECTED (outbound socket active, data transmitting)');
-        }
+        _outputDestinations.vertical.status = 'CONNECTED';
+        _outputDestinations.vertical.connectedAt = new Date().toISOString();
+        logger.info('ffmpeg.rtmps_vertical', 'RTMPS primary vertical output: CONNECTED (outbound socket active, data transmitting)');
+
         if (_startupTimer) { clearTimeout(_startupTimer); _startupTimer = null; }
         if (typeof onHealthy === 'function') onHealthy(progressData);
       }
@@ -594,69 +563,119 @@ export async function spawnFfmpeg({
     }
   }, 5000);
 
-  // 4. Stderr line buffering & redaction (PRD §10)
-  const rlStderr = readline.createInterface({ input: child.stderr, terminal: false });
+  // 4. Stderr line buffering & redaction for Primary
+  const rlStderr = readline.createInterface({ input: primaryChild.stderr, terminal: false });
   rlStderr.on('line', line => {
     const redacted = redact(line.trim());
     if (!redacted) return;
 
-    _stderrRing.push({ line: redacted, at: new Date().toISOString() });
+    _stderrRing.push({ line: `[Primary] ${redacted}`, at: new Date().toISOString() });
     if (_stderrRing.length > RING_MAX) _stderrRing.shift();
 
     const lower = redacted.toLowerCase();
     const isError = lower.includes('error') || lower.includes('failed') || lower.includes('broken pipe') || lower.includes('connection reset');
 
-    // Categorize output failure
-    const isOut0 = redacted.includes('[out#0') || redacted.includes('[vost#0') || redacted.includes('[aost#0');
-    const isOut1 = redacted.includes('[out#1') || redacted.includes('[vost#1') || redacted.includes('[aost#1');
-
-    if (isOut0 && isError) {
+    if (isError) {
       _outputDestinations.vertical.status = 'FAILED';
       _outputDestinations.vertical.lastError = redacted;
       logger.error('ffmpeg.rtmps_vertical_failed', `RTMPS vertical output: FAILED (${redacted})`);
-    } else if (isOut1 && isError) {
-      _outputDestinations.horizontal.status = 'FAILED';
-      _outputDestinations.horizontal.lastError = redacted;
-      logger.error('ffmpeg.rtmps_horizontal_failed', `RTMPS horizontal output: FAILED (${redacted})`);
-    } else if (isError) {
-      logger.warn('ffmpeg.stderr', redacted);
     } else {
-      logger.debug('ffmpeg.stderr', redacted);
+      logger.debug('ffmpeg.stderr_primary', redacted);
     }
   });
 
-  // 5. Child Exit & Error Handling
-  child.on('error', err => {
+  primaryChild.on('error', err => {
     clearWatchdogs();
-    logger.error('ffmpeg.child_error', `FFmpeg process error: ${err.message}`);
+    logger.error('ffmpeg.child_error', `Primary FFmpeg process error: ${err.message}`);
   });
 
-  child.on('exit', async (code, signal) => {
+  // 5. Setup Secondary Child (Horizontal) if active
+  if (_secondaryChild) {
+    const secChild = _secondaryChild;
+    const rlSecStdout = readline.createInterface({ input: secChild.stdout, terminal: false });
+    let secBlock = {};
+
+    rlSecStdout.on('line', line => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx !== -1) {
+        secBlock[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
+      }
+      if (trimmed.startsWith('progress=')) {
+        const secTotalSize = parseInt(secBlock.total_size, 10) || 0;
+        const secSpeed = parseFloat((secBlock.speed || '').replace('x', '').trim()) || 0;
+        if (secTotalSize > 0 && secSpeed >= minSpeed && _outputDestinations.horizontal.status !== 'CONNECTED' && _outputDestinations.horizontal.status !== 'FAILED') {
+          _outputDestinations.horizontal.status = 'CONNECTED';
+          _outputDestinations.horizontal.connectedAt = new Date().toISOString();
+          logger.info('ffmpeg.rtmps_horizontal', 'RTMPS secondary horizontal output: CONNECTED (outbound socket active, data transmitting)');
+        }
+        secBlock = {};
+      }
+    });
+
+    const rlSecStderr = readline.createInterface({ input: secChild.stderr, terminal: false });
+    rlSecStderr.on('line', line => {
+      const redacted = redact(line.trim());
+      if (!redacted) return;
+
+      _stderrRing.push({ line: `[Secondary] ${redacted}`, at: new Date().toISOString() });
+      if (_stderrRing.length > RING_MAX) _stderrRing.shift();
+
+      const lower = redacted.toLowerCase();
+      const isError = lower.includes('error') || lower.includes('failed') || lower.includes('broken pipe') || lower.includes('connection reset');
+      if (isError) {
+        _outputDestinations.horizontal.status = 'FAILED';
+        _outputDestinations.horizontal.lastError = redacted;
+        logger.error('ffmpeg.rtmps_horizontal_failed', `RTMPS horizontal output: FAILED (${redacted})`);
+      } else {
+        logger.debug('ffmpeg.stderr_secondary', redacted);
+      }
+    });
+
+    secChild.on('error', err => {
+      logger.warn('ffmpeg.secondary_error', `Secondary FFmpeg error: ${err.message}`);
+    });
+
+    secChild.on('exit', (code, signal) => {
+      logger.info('ffmpeg.secondary_exit', `Secondary FFmpeg PID ${_secondaryPid} exited with code ${code}, signal ${signal}`);
+      _secondaryChild = null;
+      _secondaryPid = null;
+      if (!_expectedExit && code !== 0) {
+        _outputDestinations.horizontal.status = 'FAILED';
+        _outputDestinations.horizontal.lastError = `Process exited with code ${code}`;
+      }
+    });
+  }
+
+  // 6. Primary Child Exit & Cleanup
+  primaryChild.on('exit', async (code, signal) => {
     clearWatchdogs();
     const wasExpected = _expectedExit;
-    const pid = _currentPid;
-    const childRef = _currentChild;
+    const pid = _primaryPid;
+    const childRef = _primaryChild;
+
+    // Terminate secondary process if still running
+    if (_secondaryChild) {
+      try { _secondaryChild.kill('SIGTERM'); } catch { /* ignore */ }
+    }
 
     try {
-      // 1. Destroy stdio pipe streams if open
       try {
         if (childRef?.stdin && !childRef.stdin.destroyed) childRef.stdin.destroy();
         if (childRef?.stdout && !childRef.stdout.destroyed) childRef.stdout.destroy();
         if (childRef?.stderr && !childRef.stderr.destroyed) childRef.stderr.destroy();
       } catch { /* ignore */ }
 
-      // 2. Clear current child & PID references
-      _currentChild = null;
-      _currentPid = null;
+      _primaryChild = null;
+      _primaryPid = null;
       _expectedExit = false;
 
-      // 3. Release atomic lock file
       await releaseLock();
 
       const lastErrLine = _stderrRing.length > 0 ? _stderrRing[_stderrRing.length - 1].line : null;
-      logger.info('ffmpeg.exit', `FFmpeg process PID ${pid} exited with code ${code}, signal ${signal} (expected: ${wasExpected})`);
+      logger.info('ffmpeg.exit', `Primary FFmpeg process PID ${pid} exited with code ${code}, signal ${signal} (expected: ${wasExpected})`);
 
-      // 4. Await asynchronous onExit callback completely
       if (typeof onExit === 'function') {
         try {
           await onExit({
@@ -670,12 +689,10 @@ export async function spawnFfmpeg({
         }
       }
     } finally {
-      // 5. Ensure references cleared in case of errors
-      _currentChild = null;
-      _currentPid = null;
+      _primaryChild = null;
+      _primaryPid = null;
       _expectedExit = false;
 
-      // 6. Resolve the exit completion promise so stopFfmpeg or new spawn can proceed
       if (_resolveExitCompletion) {
         const resolve = _resolveExitCompletion;
         _resolveExitCompletion = null;
@@ -685,15 +702,15 @@ export async function spawnFfmpeg({
     }
   });
 
-  return { pid: child.pid };
+  return { pid: primaryChild.pid };
 }
 
 // ─── Process Stopping ─────────────────────────────────────────────────────────
 
 /**
- * Stop currently running FFmpeg process.
+ * Stop currently running FFmpeg processes.
  * Order: SIGTERM → wait stopGraceSeconds → SIGKILL.
- * Guaranteed: returns only when process exited, lock released, and onExit completed.
+ * Guaranteed: returns only when processes exited, lock released, and onExit completed.
  *
  * @param {object}  [opts]
  * @param {boolean} [opts.force=false]
@@ -701,23 +718,24 @@ export async function spawnFfmpeg({
  * @param {number}  [opts.graceSeconds=8]
  */
 export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceSeconds = 8 } = {}) {
-  // If no process is running, but previous cleanup is still in progress, wait for it
-  if (!_currentChild) {
+  if (!_primaryChild && !_secondaryChild) {
     if (_exitCompletionPromise) {
       await _exitCompletionPromise;
     }
     return { stopped: true };
   }
 
-  const child = _currentChild;
+  const primary = _primaryChild;
+  const secondary = _secondaryChild;
   const exitPromise = _exitCompletionPromise;
   _expectedExit = true;
   clearWatchdogs();
 
-  logger.info('ffmpeg.stopping', `Stopping FFmpeg PID ${child.pid} (reason: ${reason}, force: ${force})`);
+  logger.info('ffmpeg.stopping', `Stopping FFmpeg (primary PID: ${primary?.pid}, secondary PID: ${secondary?.pid}, reason: ${reason}, force: ${force})`);
 
   if (force) {
-    try { child.kill('SIGKILL'); } catch { /* ignore */ }
+    if (primary) { try { primary.kill('SIGKILL'); } catch { /* ignore */ } }
+    if (secondary) { try { secondary.kill('SIGKILL'); } catch { /* ignore */ } }
     if (exitPromise) {
       await Promise.race([
         exitPromise,
@@ -729,16 +747,14 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
 
   // Graceful SIGTERM
   try {
-    child.kill('SIGTERM');
+    if (primary) primary.kill('SIGTERM');
   } catch (err) {
-    try { child.kill('SIGKILL'); } catch { /* ignore */ }
-    if (exitPromise) {
-      await Promise.race([
-        exitPromise,
-        new Promise(resolve => setTimeout(resolve, 5000))
-      ]);
-    }
-    return { stopped: true };
+    try { primary?.kill('SIGKILL'); } catch { /* ignore */ }
+  }
+  try {
+    if (secondary) secondary.kill('SIGTERM');
+  } catch (err) {
+    try { secondary?.kill('SIGKILL'); } catch { /* ignore */ }
   }
 
   // Wait for complete exit cleanup with graceSeconds timeout
@@ -756,8 +772,9 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
   if (timerId) clearTimeout(timerId);
 
   if (result === 'TIMEOUT') {
-    logger.warn('ffmpeg.sigterm_timeout', `FFmpeg PID ${child.pid} did not exit within ${graceSeconds}s; sending SIGKILL`);
-    try { child.kill('SIGKILL'); } catch { /* ignore */ }
+    logger.warn('ffmpeg.sigterm_timeout', `Primary FFmpeg PID ${primary?.pid} did not exit within ${graceSeconds}s; sending SIGKILL`);
+    if (primary) { try { primary.kill('SIGKILL'); } catch { /* ignore */ } }
+    if (secondary) { try { secondary.kill('SIGKILL'); } catch { /* ignore */ } }
     if (exitPromise) {
       await Promise.race([
         exitPromise,
@@ -772,11 +789,11 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
 // ─── Getters ──────────────────────────────────────────────────────────────────
 
 export function isFfmpegRunning() {
-  return Boolean(_currentChild || _exitCompletionPromise);
+  return Boolean(_primaryChild || _secondaryChild || _exitCompletionPromise);
 }
 
 export function getFfmpegPid() {
-  return _currentPid;
+  return _primaryPid;
 }
 
 export function getLatestProgress() {
@@ -804,8 +821,10 @@ export function _setOutputStatusForTest(destination, status, error = null) {
 }
 
 export function _resetStateForTest() {
-  _currentChild = null;
-  _currentPid = null;
+  _primaryChild = null;
+  _secondaryChild = null;
+  _primaryPid = null;
+  _secondaryPid = null;
   _expectedExit = false;
   _latestProgress = null;
   _exitCompletionPromise = null;
@@ -822,3 +841,4 @@ export function _resetStateForTest() {
 export function _setLockPathForTest(lockPath) {
   _lockPath = lockPath;
 }
+

@@ -114,59 +114,34 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.equal(args[args.length - 1], secretTarget);
   });
 
-  test('Dual Streaming Mode args structure with two outputs', () => {
+  test('Dual Streaming independent primary and secondary args structures', () => {
+    const verticalMeta = {
+      filePath: '/var/videos/vid_vertical.mp4',
+      probe: { width: 720, height: 1280, orientation: 'vertical' },
+    };
     const horizontalMeta = {
-      filePath: '/var/videos/vid_87654321.mp4',
-      isConcat: false,
+      filePath: '/var/videos/vid_horizontal.mp4',
+      probe: { width: 1920, height: 1080, orientation: 'horizontal' },
     };
     const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/my-horizontal-key-456';
-    const args = buildFfmpegArgs(dummySettings, dummyMeta, secretTarget, 'copy', dualTarget, horizontalMeta);
 
-    // Verify both inputs present
-    assert.ok(args.includes('/var/videos/vid_12345678.mp4'));
-    assert.ok(args.includes('/var/videos/vid_87654321.mp4'));
+    // Primary Vertical Stream (Shorts Feed)
+    const primaryArgs = buildFfmpegArgs(dummySettings, verticalMeta, secretTarget, 'copy');
+    assert.ok(primaryArgs.includes('/var/videos/vid_vertical.mp4'));
+    assert.ok(primaryArgs.includes('-re'));
+    assert.ok(primaryArgs.includes('-c'));
+    assert.ok(primaryArgs.includes('copy'));
+    assert.ok(primaryArgs.includes('no_duration_filesize'));
+    assert.equal(primaryArgs[primaryArgs.length - 1], secretTarget);
 
-    // Verify -re is present for both inputs (count >= 2)
-    const reIndices = [];
-    args.forEach((a, idx) => { if (a === '-re') reIndices.push(idx); });
-    assert.ok(reIndices.length >= 2, '-re must be present for both input 0 and input 1');
-
-    // Verify maps for output 0 (vertical shorts)
-    assert.ok(args.includes('-map'));
-    assert.ok(args.includes('0:v:0'));
-    assert.ok(args.includes('0:a?'));
-
-    // Verify maps for output 1 (horizontal 16:9)
-    assert.ok(args.includes('1:v:0'));
-    assert.ok(args.includes('1:a?'));
-
-    // Verify both outputs use copy mode
-    const copyIndices = [];
-    args.forEach((a, idx) => { if (a === 'copy') copyIndices.push(idx); });
-    assert.ok(copyIndices.length >= 2);
-
-    // Verify both target URLs present
-    assert.ok(args.includes(secretTarget));
-    assert.ok(args.includes(dualTarget));
-
-    // Verify avoid_negative_ts and max_muxing_queue_size
-    assert.ok(args.includes('-avoid_negative_ts'));
-    assert.ok(args.includes('-max_muxing_queue_size'));
-  });
-
-  test('Dual Streaming Mode args structure with multi-video concat', () => {
-    const verticalConcatMeta = { isConcat: true };
-    const horizontalConcatMeta = { isConcat: true };
-    const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/my-horizontal-key-456';
-    const args = buildFfmpegArgs(dummySettings, verticalConcatMeta, secretTarget, 'copy', dualTarget, horizontalConcatMeta);
-
-    assert.ok(args.includes(secretTarget));
-    assert.ok(args.includes(dualTarget));
-    assert.ok(args.includes('-safe'));
-
-    const reIndices = [];
-    args.forEach((a, idx) => { if (a === '-re') reIndices.push(idx); });
-    assert.ok(reIndices.length >= 2, '-re must be present for both concat inputs');
+    // Secondary Horizontal Stream (Normal Feed)
+    const secondaryArgs = buildFfmpegArgs(dummySettings, horizontalMeta, dualTarget, 'copy');
+    assert.ok(secondaryArgs.includes('/var/videos/vid_horizontal.mp4'));
+    assert.ok(secondaryArgs.includes('-re'));
+    assert.ok(secondaryArgs.includes('-c'));
+    assert.ok(secondaryArgs.includes('copy'));
+    assert.ok(secondaryArgs.includes('no_duration_filesize'));
+    assert.equal(secondaryArgs[secondaryArgs.length - 1], dualTarget);
   });
 
   test('Always starts cleanly from 0s without -ss seeking flags', () => {
@@ -176,27 +151,7 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     };
     const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'copy');
     assert.equal(args.includes('-ss'), false, 'Should not contain -ss flag');
-    assert.ok(args.includes('-avoid_negative_ts'), 'Should contain -avoid_negative_ts flag');
-    assert.equal(args[args.indexOf('-avoid_negative_ts') + 1], 'make_zero');
     assert.ok(args.includes('-fflags'));
     assert.ok(args.includes('+genpts'));
-  });
-
-  test('Always starts cleanly from 0s in dual streaming mode without -ss flags', () => {
-    const vMeta = {
-      filePath: '/var/videos/v.mp4',
-      probe: { durationSec: 100 },
-    };
-    const hMeta = {
-      filePath: '/var/videos/h.mp4',
-      probe: { durationSec: 80 },
-    };
-    const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/key2';
-    const args = buildFfmpegArgs(dummySettings, vMeta, secretTarget, 'copy', dualTarget, hMeta);
-    assert.equal(args.includes('-ss'), false, 'Dual streaming should not contain -ss flag');
-    assert.ok(args.includes('-avoid_negative_ts'), 'Should contain -avoid_negative_ts flag');
-    assert.equal(args[args.indexOf('-avoid_negative_ts') + 1], 'make_zero');
-    assert.ok(args.includes(secretTarget));
-    assert.ok(args.includes(dualTarget));
   });
 });

@@ -40,6 +40,7 @@ let _lastSpawnTime     = 0;
 const _spawnTimestamps = []; // for circuit breaker (> 30 in 10 min)
 let _lastCycleOrder    = []; // active cycle order of { id, duration }
 let _currentSessionStartOffset = 0; // seek offset applied at session start
+let _startInProgress   = false; // re-entrancy mutex for startStream
 
 // ─── Helper: Backoff Calculation (PRD §9.2) ──────────────────────────────────
 
@@ -355,6 +356,7 @@ export async function evaluateStartGates(options = {}) {
         await fs.mkdir(path.dirname(PATHS.loopConcatHorizontal), { recursive: true });
         await fs.writeFile(PATHS.loopConcatHorizontal, concatLines.join('\n') + '\n', 'utf8');
 
+        const firstH = horizontalMap.get(orderedMetas[0].id) || {};
         horizontalMeta = {
           ...firstH,
           filePath: PATHS.loopConcatHorizontal,
@@ -404,187 +406,238 @@ export async function transitionState(to, reason = '') {
  */
 export async function startStream({ reason = 'manual_start', clearMaintenance = false } = {}) {
   logger.info('stream.start_requested', `Stream start requested (reason: ${reason})`);
-  // Clear any pending timers
-  if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
-  if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
 
-  // If manual start requested, auto-clear maintenance mode and recycle pause
-  if (clearMaintenance || reason === 'api_manual_start' || reason === 'manual_start') {
-    const currentState = getState();
-    if (currentState.maintenance?.active) {
-      logger.info('stream.maintenance_auto_cleared', `Manual stream start (${reason}); auto-clearing maintenance mode`);
-      await setMaintenance(false, 'manual_start');
-    }
-    if (currentState.recyclingUntil) {
-      logger.info('stream.recycle_pause_cleared', `Manual stream start (${reason}); clearing VOD recycle pause`);
-      await saveState({ recyclingUntil: null });
-    }
-  }
-
-  // Set desired state to running
-  await saveState({ desiredState: 'running' });
-
-  // Gate evaluation
-  const gate = await evaluateStartGates({ reason });
-  if (!gate.allowed) {
-    logger.warn('stream.start_blocked', `Stream start blocked: ${gate.reason} (${gate.code})`);
-    if (gate.code === 'E_SCHEDULED') {
-      await transitionState('SCHEDULED', gate.reason);
-    } else if (gate.code === 'E_BW_LIMIT') {
-      await transitionState('BANDWIDTH_LIMIT_REACHED', gate.reason);
-    } else if (gate.code === 'E_DISABLED') {
-      await transitionState('DISABLED', gate.reason);
-    } else if (gate.code === 'E_MAINTENANCE') {
-      await transitionState('MAINTENANCE', gate.reason);
-    } else {
-      await transitionState('ERROR', gate.reason);
-      await saveState({ lastError: { code: gate.code, message: gate.reason, at: new Date().toISOString() } });
-    }
-    return { started: false, code: gate.code, message: gate.reason };
-  }
-
-  // Check cooldown & circuit breaker
-  const now = Date.now();
-  if (now - _lastSpawnTime < 5000) {
-    const waitMs = 5000 - (now - _lastSpawnTime);
-    logger.info('stream.cooldown_wait', `Enforcing 5s cooldown; waiting ${waitMs} ms before spawn`);
-    await new Promise(r => setTimeout(r, waitMs));
-  }
-  _lastSpawnTime = Date.now();
-
-  if (checkCircuitBreaker()) {
-    await transitionState('ERROR', 'Circuit breaker tripped');
-    return { started: false, code: 'E_CIRCUIT_BREAKER', message: 'Too many restarts in short period' };
-  }
-
-  await transitionState('STARTING', reason);
-
-  const settings = getSettings();
-  const secretKey = getStreamKey();
-
-  // Hard guard: ensure key and RTMPS URL are both present before spawning
-  const rtmpsUrl = settings.youtube?.rtmpsUrl;
-  if (!secretKey || !secretKey.trim()) {
-    logger.error('stream.key_empty', 'Stream key is empty at spawn time — aborting FFmpeg spawn');
-    await transitionState('ERROR', 'YouTube stream key is empty');
-    await saveState({ lastError: { code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured', at: new Date().toISOString() } });
-    return { started: false, code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured' };
-  }
-  if (!rtmpsUrl || !rtmpsUrl.startsWith('rtmps://')) {
-    logger.error('stream.url_invalid', `Invalid RTMPS URL at spawn time: ${rtmpsUrl}`);
-    await transitionState('ERROR', 'RTMPS URL is missing or invalid');
-    await saveState({ lastError: { code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://', at: new Date().toISOString() } });
-    return { started: false, code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://' };
-  }
-
-  const destUrl = `${rtmpsUrl}/${secretKey.trim()}`;
-
-  const args = buildFfmpegArgs(
-    settings,
-    gate.videoMeta,
-    destUrl,
-    gate.mode,
-    gate.dualTarget,
-    gate.horizontalMeta
-  );
-
-  try {
-    const { pid } = await spawnFfmpeg({
-      args,
-      settings,
-      onProgress: (p) => {
-        const overhead = settings.bandwidth?.overheadPercent ?? 10;
-        recordProgressBytes(p.total_size, 1, overhead);
-      },
-      onHealthy: async () => {
-        _streamStartTime = Date.now();
-        await transitionState('RUNNING', 'FFmpeg healthy output detected');
-        logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid}`);
-        await saveState({
-          streamMode: gate.mode,
-          activeVideoId: gate.videoMeta.id,
-          ffmpegPid: pid,
-          streamStartedAt: new Date().toISOString(),
-          currentSeekOffset: 0,
-          isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
-          pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
-          resumeBookmark: null,
-          lastError: null,
-        });
-        await appendHistory({
-          event: 'start',
-          mode: gate.mode,
-          videoId: gate.videoMeta.id,
-          pid,
-          isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
-        });
-
-        // Start stability timer
-        const stableSec = settings.recovery?.stableAfterSeconds ?? 120;
-        if (_stabilityTimer) clearTimeout(_stabilityTimer);
-        _stabilityTimer = setTimeout(async () => {
-          logger.info('stream.stable', `Stream has run stably for ${stableSec}s; resetting failure counter`);
-          await saveState({ consecutiveFailures: 0 });
-        }, stableSec * 1000);
-      },
-      onExit: async ({ code, signal, expected, lastError }) => {
-        if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
-        await flushUsage({ force: true });
-
-        const durationSec = _streamStartTime ? Math.round((Date.now() - _streamStartTime) / 1000) : 0;
-        _streamStartTime = null;
-
-        await saveState({
-          ffmpegPid: null,
-          streamStartedAt: null,
-          isDualStream: false,
-          pairedHorizontalVideoId: null,
-          lastExit: { code, signal, at: new Date().toISOString() },
-        });
-
-        await appendHistory({
-          event: 'exit',
-          code,
-          signal,
-          expected,
-          durationSec,
-          lastError,
-          isDualStream: false,
-        });
-
-        if (expected) {
-          const desired = getState().desiredState;
-          if (desired === 'stopped') {
-            await transitionState('STOPPED', 'FFmpeg stopped as requested');
-          }
-        } else {
-          // Unexpected exit → trigger recovery
-          await handleUnexpectedExit({ code, signal, lastError });
-        }
-      },
-    });
-
-    // Update restart counters
-    const st = getState();
-    await saveState({
-      restartCountSession: (st.restartCountSession || 0) + 1,
-      restartCountTotal:   (st.restartCountTotal || 0) + 1,
-      ffmpegPid: pid,
-    });
-
+  if (isFfmpegRunning()) {
+    logger.info('stream.already_running', 'Stream is already running; ignoring redundant start request');
+    const curState = getState();
     return {
       started: true,
-      pid,
-      mode: gate.mode,
-      isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+      pid: getFfmpegPid(),
+      mode: curState.streamMode,
+      isDualStream: Boolean(curState.isDualStream),
+      alreadyRunning: true,
     };
-  } catch (err) {
-    logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);
-    await transitionState('ERROR', err.message);
-    await saveState({
-      lastError: { code: err.code || 'E_SPAWN_FAILED', message: err.message, at: new Date().toISOString() },
-    });
-    return { started: false, code: err.code || 'E_SPAWN_FAILED', message: err.message };
+  }
+
+  if (_startInProgress) {
+    logger.info('stream.start_in_progress', 'Stream start already in progress; waiting');
+    return { started: false, code: 'E_START_IN_PROGRESS', message: 'Stream start already in progress' };
+  }
+
+  _startInProgress = true;
+
+  try {
+    // Clear any pending timers
+    if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
+    if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
+
+    // If manual start requested, auto-clear maintenance mode and recycle pause
+    if (clearMaintenance || reason === 'api_manual_start' || reason === 'manual_start') {
+      const currentState = getState();
+      if (currentState.maintenance?.active) {
+        logger.info('stream.maintenance_auto_cleared', `Manual stream start (${reason}); auto-clearing maintenance mode`);
+        await setMaintenance(false, 'manual_start');
+      }
+      if (currentState.recyclingUntil) {
+        logger.info('stream.recycle_pause_cleared', `Manual stream start (${reason}); clearing VOD recycle pause`);
+        await saveState({ recyclingUntil: null });
+      }
+    }
+
+    // Set desired state to running
+    await saveState({ desiredState: 'running' });
+
+    // Gate evaluation
+    const gate = await evaluateStartGates({ reason });
+    if (!gate.allowed) {
+      logger.warn('stream.start_blocked', `Stream start blocked: ${gate.reason} (${gate.code})`);
+      if (gate.code === 'E_SCHEDULED') {
+        await transitionState('SCHEDULED', gate.reason);
+      } else if (gate.code === 'E_BW_LIMIT') {
+        await transitionState('BANDWIDTH_LIMIT_REACHED', gate.reason);
+      } else if (gate.code === 'E_DISABLED') {
+        await transitionState('DISABLED', gate.reason);
+      } else if (gate.code === 'E_MAINTENANCE') {
+        await transitionState('MAINTENANCE', gate.reason);
+      } else {
+        await transitionState('ERROR', gate.reason);
+        await saveState({ lastError: { code: gate.code, message: gate.reason, at: new Date().toISOString() } });
+      }
+      return { started: false, code: gate.code, message: gate.reason };
+    }
+
+    // Check cooldown & circuit breaker
+    const now = Date.now();
+    if (now - _lastSpawnTime < 5000) {
+      const waitMs = 5000 - (now - _lastSpawnTime);
+      logger.info('stream.cooldown_wait', `Enforcing 5s cooldown; waiting ${waitMs} ms before spawn`);
+      await new Promise(r => setTimeout(r, waitMs));
+    }
+    _lastSpawnTime = Date.now();
+
+    if (checkCircuitBreaker()) {
+      await transitionState('ERROR', 'Circuit breaker tripped');
+      return { started: false, code: 'E_CIRCUIT_BREAKER', message: 'Too many restarts in short period' };
+    }
+
+    await transitionState('STARTING', reason);
+
+    const settings = getSettings();
+    const secretKey = getStreamKey();
+
+    // Hard guard: ensure key and RTMPS URL are both present before spawning
+    const rtmpsUrl = settings.youtube?.rtmpsUrl;
+    if (!secretKey || !secretKey.trim()) {
+      logger.error('stream.key_empty', 'Stream key is empty at spawn time — aborting FFmpeg spawn');
+      await transitionState('ERROR', 'YouTube stream key is empty');
+      await saveState({ lastError: { code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured', at: new Date().toISOString() } });
+      return { started: false, code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured' };
+    }
+    if (!rtmpsUrl || !rtmpsUrl.startsWith('rtmps://')) {
+      logger.error('stream.url_invalid', `Invalid RTMPS URL at spawn time: ${rtmpsUrl}`);
+      await transitionState('ERROR', 'RTMPS URL is missing or invalid');
+      await saveState({ lastError: { code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://', at: new Date().toISOString() } });
+      return { started: false, code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://' };
+    }
+
+    const destUrl = `${rtmpsUrl}/${secretKey.trim()}`;
+
+    // Resolve orientation: ensure Shorts target (secretKey) always receives vertical video
+    const isPrimaryHorizontal = Boolean(
+      (gate.videoMeta?.probe?.width && gate.videoMeta?.probe?.height && gate.videoMeta.probe.width > gate.videoMeta.probe.height) ||
+      gate.videoMeta?.orientation === 'horizontal' ||
+      gate.videoMeta?.probe?.orientation === 'horizontal'
+    );
+
+    let vertMeta = gate.videoMeta;
+    let horizMeta = gate.horizontalMeta;
+
+    if (isPrimaryHorizontal && gate.horizontalMeta) {
+      vertMeta = gate.horizontalMeta;
+      horizMeta = gate.videoMeta;
+    }
+
+    // Primary Vertical Stream (Shorts Feed) -> destUrl (secretKey)
+    // EXACT single-input/single-output command from known-good baseline 8b215d8
+    const args = buildFfmpegArgs(
+      settings,
+      vertMeta,
+      destUrl,
+      gate.mode
+    );
+
+    // Secondary Horizontal Stream (Normal Feed) -> dualTarget (if configured and paired)
+    let secondaryArgs = null;
+    if (gate.dualTarget && horizMeta) {
+      secondaryArgs = buildFfmpegArgs(
+        settings,
+        horizMeta,
+        gate.dualTarget,
+        gate.mode
+      );
+    }
+
+    try {
+      const { pid } = await spawnFfmpeg({
+        args,
+        secondaryArgs,
+        settings,
+        onProgress: (p) => {
+          const overhead = settings.bandwidth?.overheadPercent ?? 10;
+          recordProgressBytes(p.total_size, 1, overhead);
+        },
+        onHealthy: async () => {
+          _streamStartTime = Date.now();
+          await transitionState('RUNNING', 'FFmpeg healthy output detected');
+          logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid}`);
+          await saveState({
+            streamMode: gate.mode,
+            activeVideoId: gate.videoMeta.id,
+            ffmpegPid: pid,
+            streamStartedAt: new Date().toISOString(),
+            currentSeekOffset: 0,
+            isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+            pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
+            resumeBookmark: null,
+            lastError: null,
+          });
+          await appendHistory({
+            event: 'start',
+            mode: gate.mode,
+            videoId: gate.videoMeta.id,
+            pid,
+            isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+          });
+
+          // Start stability timer
+          const stableSec = settings.recovery?.stableAfterSeconds ?? 120;
+          if (_stabilityTimer) clearTimeout(_stabilityTimer);
+          _stabilityTimer = setTimeout(async () => {
+            logger.info('stream.stable', `Stream has run stably for ${stableSec}s; resetting failure counter`);
+            await saveState({ consecutiveFailures: 0 });
+          }, stableSec * 1000);
+        },
+        onExit: async ({ code, signal, expected, lastError }) => {
+          if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
+          await flushUsage({ force: true });
+
+          const durationSec = _streamStartTime ? Math.round((Date.now() - _streamStartTime) / 1000) : 0;
+          _streamStartTime = null;
+
+          await saveState({
+            ffmpegPid: null,
+            streamStartedAt: null,
+            isDualStream: false,
+            pairedHorizontalVideoId: null,
+            lastExit: { code, signal, at: new Date().toISOString() },
+          });
+
+          await appendHistory({
+            event: 'exit',
+            code,
+            signal,
+            expected,
+            durationSec,
+            lastError,
+            isDualStream: false,
+          });
+
+          if (expected) {
+            const desired = getState().desiredState;
+            if (desired === 'stopped') {
+              await transitionState('STOPPED', 'FFmpeg stopped as requested');
+            }
+          } else {
+            // Unexpected exit → trigger recovery
+            await handleUnexpectedExit({ code, signal, lastError });
+          }
+        },
+      });
+
+      // Update restart counters
+      const st = getState();
+      await saveState({
+        restartCountSession: (st.restartCountSession || 0) + 1,
+        restartCountTotal:   (st.restartCountTotal || 0) + 1,
+        ffmpegPid: pid,
+      });
+
+      return {
+        started: true,
+        pid,
+        mode: gate.mode,
+        isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+      };
+    } catch (err) {
+      logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);
+      await transitionState('ERROR', err.message);
+      await saveState({
+        lastError: { code: err.code || 'E_SPAWN_FAILED', message: err.message, at: new Date().toISOString() },
+      });
+      return { started: false, code: err.code || 'E_SPAWN_FAILED', message: err.message };
+    }
+  } finally {
+    _startInProgress = false;
   }
 }
 
