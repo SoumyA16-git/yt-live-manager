@@ -448,7 +448,8 @@ export async function finalizePairIfComplete(videoId) {
     }
 
     // Verify probe validity
-    if (!uploaded.probe?.hasVideo || !comp.probe?.hasVideo) {
+    const hasValidVideo = (p) => Boolean(p && (p.hasVideo !== false) && (p.width > 0 || p.hasVideo));
+    if (!hasValidVideo(uploaded.probe) || !hasValidVideo(comp.probe)) {
       logger.warn('playlist.pair_validation_failed', `Invalid video streams for pair ${uploaded.id} + ${comp.id}`);
       return { paired: false, isComplete: false, error: 'Invalid video stream probe' };
     }

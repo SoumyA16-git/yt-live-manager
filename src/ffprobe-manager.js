@@ -122,6 +122,7 @@ export function parseProbeOutput(probeJson, keyframeCsv = '') {
 
   return {
     // Video
+    hasVideo:       true,
     width,
     height,
     aspectRatio,
