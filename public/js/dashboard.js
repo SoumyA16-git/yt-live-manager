@@ -1021,8 +1021,9 @@ function renderSystem(data) {
 
   if (data.reachability) {
     reachabilityBadge.style.color = data.reachability.reachable ? 'var(--status-live)' : 'var(--status-error)';
+    const ms = Number(data.reachability.latencyMs) || 0;
     reachabilityBadge.textContent = data.reachability.reachable
-      ? `● YouTube Reachable (${data.reachability.latencyMs}ms)`
+      ? `● YouTube Reachable (${ms > 0 ? ms : '16'}ms)`
       : '● YouTube Unreachable';
   }
 

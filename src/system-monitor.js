@@ -11,6 +11,7 @@
  */
 
 import os from 'node:os';
+import net from 'node:net';
 import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import path from 'node:path';
@@ -207,16 +208,92 @@ export function getFfmpegProcessStats() {
   };
 }
 
-// ─── Destination Reachability (Zero-Overhead Stub) ───────────────────────────
+// ─── Destination Reachability (Real TCP Latency Probe) ─────────────────────────
 
-export async function probeDestinationReachability() {
-  return {
-    reachable: true,
-    latencyMs: 0,
-    host: 'a.rtmps.youtube.com',
-    port: 443,
-    checkedAt: new Date().toISOString(),
-  };
+let _reachabilityCache = null;
+let _reachabilityCacheTime = 0;
+const REACHABILITY_CACHE_TTL_MS = 20_000; // Cache for 20s to avoid frequent socket spam
+
+export async function probeDestinationReachability(defaultHost = 'a.rtmps.youtube.com', defaultPort = 443) {
+  let host = defaultHost;
+  let port = defaultPort;
+
+  try {
+    const settings = getSettings();
+    if (settings?.youtube?.rtmpsUrl) {
+      try {
+        const u = new URL(settings.youtube.rtmpsUrl.replace(/^rtmps?:\/\//, 'https://'));
+        if (u.hostname) host = u.hostname;
+        if (u.port) port = parseInt(u.port, 10);
+      } catch { /* use default */ }
+    }
+  } catch { /* ignore */ }
+
+  const now = Date.now();
+  if (_reachabilityCache && (now - _reachabilityCacheTime < REACHABILITY_CACHE_TTL_MS)) {
+    return _reachabilityCache;
+  }
+
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    const socket = new net.Socket();
+    let resolved = false;
+
+    const cleanup = () => {
+      socket.removeAllListeners();
+      socket.destroy();
+    };
+
+    socket.setTimeout(4000);
+
+    socket.connect(port, host, () => {
+      if (resolved) return;
+      resolved = true;
+      const latencyMs = Math.max(1, Date.now() - startTime);
+      cleanup();
+      _reachabilityCache = {
+        reachable: true,
+        latencyMs,
+        host,
+        port,
+        checkedAt: new Date().toISOString(),
+      };
+      _reachabilityCacheTime = Date.now();
+      resolve(_reachabilityCache);
+    });
+
+    socket.on('timeout', () => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      _reachabilityCache = {
+        reachable: false,
+        latencyMs: 0,
+        host,
+        port,
+        checkedAt: new Date().toISOString(),
+        error: 'Connection timed out (4s)',
+      };
+      _reachabilityCacheTime = Date.now();
+      resolve(_reachabilityCache);
+    });
+
+    socket.on('error', (err) => {
+      if (resolved) return;
+      resolved = true;
+      cleanup();
+      _reachabilityCache = {
+        reachable: false,
+        latencyMs: 0,
+        host,
+        port,
+        checkedAt: new Date().toISOString(),
+        error: err.message,
+      };
+      _reachabilityCacheTime = Date.now();
+      resolve(_reachabilityCache);
+    });
+  });
 }
 
 // ─── Combined System Snapshot ─────────────────────────────────────────────────
