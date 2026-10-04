@@ -272,10 +272,28 @@ const schedSlot2Stop = document.getElementById('sched-slot2-stop');
 const schedRecycleCard = document.getElementById('sched-recycle-card');
 const schedRecycleStatusBadge = document.getElementById('sched-recycle-status-badge');
 const schedRecycleEnabled = document.getElementById('sched-recycle-enabled');
-const schedRecycleHours = document.getElementById('sched-recycle-hours');
+const schedRecycleMinutes = document.getElementById('sched-recycle-minutes') || document.getElementById('sched-recycle-hours');
 const schedPauseMins = document.getElementById('sched-pause-mins');
 const schedBookmarkEnabled = document.getElementById('sched-bookmark-enabled');
 const btnSaveSchedule = document.getElementById('btn-save-schedule');
+
+function updateRecycleHint(mins) {
+  const hintEl = document.getElementById('sched-recycle-hint');
+  if (!hintEl) return;
+  const num = parseInt(mins, 10);
+  if (!num || num <= 0) {
+    hintEl.textContent = 'Set stream duration in minutes';
+    return;
+  }
+  const h = (num / 60).toFixed(1).replace(/\.0$/, '');
+  hintEl.textContent = `${num} mins = ${h} hours (Restart before 12h limit)`;
+}
+
+if (schedRecycleMinutes) {
+  schedRecycleMinutes.addEventListener('input', () => {
+    updateRecycleHint(schedRecycleMinutes.value);
+  });
+}
 
 // ─── Network Event Listeners ──────────────────────────────────────────────────
 
@@ -841,8 +859,10 @@ function renderScheduler(data) {
   // 4. Auto-Recycle Settings (VOD Archive Protection)
   const ar = data.autoRecycle || {};
   if (schedRecycleEnabled) schedRecycleEnabled.checked = !!ar.enabled;
-  if (schedRecycleHours) schedRecycleHours.value = ar.maxSessionHours || 8;
-  if (schedPauseMins) schedPauseMins.value = ar.pauseMinutes || 60;
+  const recMins = ar.maxSessionMinutes || (ar.maxSessionHours ? Math.round(ar.maxSessionHours * 60) : 360);
+  if (schedRecycleMinutes) schedRecycleMinutes.value = recMins;
+  updateRecycleHint(recMins);
+  if (schedPauseMins) schedPauseMins.value = ar.pauseMinutes || 30;
   if (schedBookmarkEnabled) schedBookmarkEnabled.checked = ar.resumeBookmark !== false;
   if (schedRecycleStatusBadge) {
     schedRecycleStatusBadge.textContent = ar.enabled ? 'Protected' : 'Off';
@@ -865,7 +885,8 @@ function renderScheduler(data) {
     } else {
       if (ar.enabled) {
         schedStatusBanner.className = 'sched-banner live';
-        schedStatusText.innerHTML = `<strong>24×7 Continuous Streaming (Auto-Recycle Enabled):</strong> Running non-stop with automatic ${ar.maxSessionHours || 8}h session rotation & ${ar.pauseMinutes || 60}m archive pause to build your channel's public video catalog.`;
+        const durLabel = (recMins % 60 === 0) ? `${recMins / 60}h` : `${recMins}m`;
+        schedStatusText.innerHTML = `<strong>24×7 Continuous Streaming (Auto-Recycle Enabled):</strong> Running non-stop with automatic ${durLabel} session rotation & ${ar.pauseMinutes || 30}m archive pause to build your channel's public video catalog.`;
       } else {
         schedStatusBanner.className = 'sched-banner info';
         schedStatusText.innerHTML = `<strong>24×7 Continuous Streaming Active:</strong> Stream runs uninterrupted. Note: Streams exceeding 12h are not archived by YouTube into channel videos. Enable Auto-Recycle to save past streams automatically.`;
@@ -932,8 +953,9 @@ async function saveSchedulerSettings() {
       windows,
       autoRecycle: {
         enabled: schedRecycleEnabled ? schedRecycleEnabled.checked : false,
-        maxSessionHours: parseFloat(schedRecycleHours?.value) || 8,
-        pauseMinutes: parseInt(schedPauseMins?.value, 10) || 60,
+        maxSessionMinutes: parseInt(schedRecycleMinutes?.value, 10) || 360,
+        maxSessionHours: +((parseInt(schedRecycleMinutes?.value, 10) || 360) / 60).toFixed(2),
+        pauseMinutes: parseInt(schedPauseMins?.value, 10) || 30,
         resumeBookmark: schedBookmarkEnabled ? schedBookmarkEnabled.checked : true,
       },
     };

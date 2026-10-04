@@ -279,6 +279,15 @@ describe('validateSettings — scheduler section', () => {
     });
     assert.ok(!valid);
   });
+
+  test('accepts valid autoRecycle settings with maxSessionMinutes', () => {
+    const { valid, errors } = validateSettings({
+      scheduler: {
+        autoRecycle: { enabled: true, maxSessionMinutes: 30, pauseMinutes: 10, resumeBookmark: true },
+      },
+    });
+    assert.ok(valid, errors.join(', '));
+  });
 });
 
 

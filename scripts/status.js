@@ -203,10 +203,13 @@ function render(data) {
 
   // Auto-Recycle & Scheduler settings
   const recycleEnabled = autoRecycle.enabled !== false;
-  const maxSessionHours = Number(autoRecycle.maxSessionHours || autoRecycle.intervalHours || 6);
+  const maxSessionMins = autoRecycle.maxSessionMinutes
+    ? Number(autoRecycle.maxSessionMinutes)
+    : Number(autoRecycle.maxSessionHours || 6) * 60;
   const pauseMinutes = Number(autoRecycle.pauseMinutes || 30);
-  const recycleSec = maxSessionHours * 3600;
+  const recycleSec = maxSessionMins * 60;
   const nextRecycleSec = status === 'RUNNING' && recycleEnabled ? Math.max(0, recycleSec - sessionSec) : 0;
+  const durLabel = (maxSessionMins % 60 === 0) ? `${maxSessionMins / 60}h` : `${maxSessionMins}m`;
 
   // Bitrate formatting (clean without duplicate unit)
   let bitrateStr = '0 kbps';
@@ -262,7 +265,7 @@ function render(data) {
   if (sched.recycleState?.isRecycling) {
     lines.push(`  • Auto-Recycle    : ${C.yellow}⏸ IN VOD FINALIZE PAUSE (Resuming in ${sched.recycleState.remainingMinutes}m)${C.reset}`);
   } else {
-    lines.push(`  • Auto-Recycle    : ${recycleEnabled ? `${C.green}ON${C.reset} (Every ${maxSessionHours}h • Pause: ${pauseMinutes}m)` : `${C.dim}OFF${C.reset}`}`);
+    lines.push(`  • Auto-Recycle    : ${recycleEnabled ? `${C.green}ON${C.reset} (Every ${durLabel} • Pause: ${pauseMinutes}m)` : `${C.dim}OFF${C.reset}`}`);
   }
 
   lines.push(

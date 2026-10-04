@@ -638,11 +638,11 @@
                   <div class="form-group">
                     <span class="form-label">Max Stream Duration</span>
                     <div style="display: flex; align-items: center; gap: 0.35rem;">
-                      <input type="number" id="sched-recycle-hours" min="2" max="11" step="1" value="8"
+                      <input type="number" id="sched-recycle-minutes" min="1" max="1440" step="1" value="360"
                         class="form-control">
-                      <span class="meta-tag">Hours</span>
+                      <span class="meta-tag">Minutes</span>
                     </div>
-                    <span class="kpi-sub">Restart before 12h limit</span>
+                    <span class="kpi-sub" id="sched-recycle-hint">360 mins = 6.0 hours (Restart before 12h limit)</span>
                   </div>
 
                   <div class="form-group">

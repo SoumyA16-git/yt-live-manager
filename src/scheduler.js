@@ -257,12 +257,13 @@ export async function tickScheduler(now = new Date()) {
     // Check autoRecycle max duration in continuous mode
     if (autoRecycle.enabled && state.status === 'RUNNING' && state.streamStartedAt) {
       const startedMs = new Date(state.streamStartedAt).getTime();
-      const elapsedHours = (now.getTime() - startedMs) / 3600000;
-      const limitHours = autoRecycle.maxSessionHours || 8;
+      const elapsedMins = (now.getTime() - startedMs) / 60000;
+      const limitMins = autoRecycle.maxSessionMinutes || (autoRecycle.maxSessionHours ? autoRecycle.maxSessionHours * 60 : 360);
 
-      if (elapsedHours >= limitHours) {
-        const pauseMins = autoRecycle.pauseMinutes || 60;
-        logger.info('scheduler.auto_recycle_triggered', `Stream reached ${elapsedHours.toFixed(2)}h (limit ${limitHours}h). Pausing for ${pauseMins}m to finalize YouTube VOD archive.`);
+      if (elapsedMins >= limitMins) {
+        const pauseMins = autoRecycle.pauseMinutes || 30;
+        const durLabel = (limitMins % 60 === 0) ? `${limitMins / 60}h` : `${limitMins}m`;
+        logger.info('scheduler.auto_recycle_triggered', `Stream reached ${elapsedMins.toFixed(1)}m (limit ${durLabel}). Pausing for ${pauseMins}m to finalize YouTube VOD archive.`);
         await stopStream({ keepDesiredRunning: true, reason: 'scheduler.auto_recycle' });
         const recyclingUntil = new Date(now.getTime() + pauseMins * 60000).toISOString();
         await saveState({ recyclingUntil, status: 'SCHEDULED' });
