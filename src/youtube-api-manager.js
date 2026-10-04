@@ -12,7 +12,7 @@
  * - Telemetry: tracks streamStatus (active/ready) and lifeCycleStatus (live/ready/testing/complete).
  */
 
-import { setSecret } from './lib/redact.js';
+import { redact, setSecret } from './lib/redact.js';
 import { logger } from './logger.js';
 
 // ─── Module State ─────────────────────────────────────────────────────────────
@@ -128,11 +128,71 @@ async function youtubeFetch(endpoint, options = {}) {
   const res = await fetch(url, { ...options, headers });
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
-    _lastApiError = `API error ${res.status} on ${endpoint}: ${errBody}`;
-    logger.error('youtube_api.request_failed', `YouTube API call failed [${res.status}]: ${endpoint}`);
-    const err = new Error(`YouTube API request failed [${res.status}]`);
+    let parsedJson = null;
+    try {
+      parsedJson = JSON.parse(errBody);
+    } catch {
+      parsedJson = null;
+    }
+
+    const gError = parsedJson?.error;
+    const errorCode = gError?.code || res.status;
+    const rawMessage = gError?.message || errBody || res.statusText;
+    const safeMessage = redact(String(rawMessage));
+    const firstDetail = Array.isArray(gError?.errors) && gError.errors[0] ? gError.errors[0] : null;
+    const errorReason = firstDetail?.reason || 'unknown';
+    const errorDomain = firstDetail?.domain || 'unknown';
+    const errorsList = Array.isArray(gError?.errors)
+      ? gError.errors.map(e => ({
+          reason: redact(String(e.reason || 'unknown')),
+          domain: redact(String(e.domain || 'unknown')),
+          message: redact(String(e.message || '')),
+        }))
+      : [{ reason: errorReason, domain: errorDomain, message: safeMessage }];
+
+    // Derive human-readable API operation from endpoint
+    const cleanEndpoint = redact(endpoint);
+    let operation = cleanEndpoint.split('?')[0];
+    if (operation.startsWith('liveStreams') && (!options.method || options.method === 'GET')) {
+      operation = 'liveStreams.list';
+    } else if (operation.startsWith('liveBroadcasts/transition')) {
+      operation = 'liveBroadcasts.transition';
+    } else if (operation.startsWith('liveBroadcasts/bind')) {
+      operation = 'liveBroadcasts.bind';
+    } else if (operation.startsWith('liveBroadcasts') && options.method === 'POST') {
+      operation = 'liveBroadcasts.insert';
+    } else if (operation.startsWith('liveBroadcasts') && (!options.method || options.method === 'GET')) {
+      operation = 'liveBroadcasts.list';
+    }
+
+    const logFields = {
+      operation,
+      endpoint: cleanEndpoint,
+      httpStatus: res.status,
+      errorCode,
+      errorMessage: safeMessage,
+      errorReason,
+      errorDomain,
+      errors: errorsList,
+    };
+
+    logger.error(
+      'youtube_api.request_failed',
+      `YouTube API call failed [${res.status}] on ${operation} (${cleanEndpoint}): reason=${errorReason}, domain=${errorDomain}, message=${safeMessage}`,
+      logFields
+    );
+
+    const formattedSummary = `YouTube API request failed [${res.status}]: operation=${operation}, reason=${errorReason}, domain=${errorDomain}, message="${safeMessage}"`;
+    _lastApiError = formattedSummary;
+
+    const err = new Error(formattedSummary);
     err.status = res.status;
-    err.details = errBody;
+    err.code = errorCode;
+    err.reason = errorReason;
+    err.domain = errorDomain;
+    err.operation = operation;
+    err.safeMessage = safeMessage;
+    err.details = safeMessage;
     throw err;
   }
 
