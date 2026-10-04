@@ -13,8 +13,10 @@ import { initLogger, logger } from './logger.js';
 import { loadSettings, getSettings } from './config-manager.js';
 import { loadState, getState } from './state-manager.js';
 import { loadUsage } from './usage-manager.js';
-import { cleanupStaleLockOnBoot } from './ffmpeg-manager.js';
-import { cleanOrphanIncoming } from './video-manager.js';
+import { cleanupStaleLockOnBoot, getLatestProgress } from './ffmpeg-manager.js';
+import { cleanOrphanIncoming, getVideo } from './video-manager.js';
+import { getBandwidthSummary } from './bandwidth-monitor.js';
+import { getSystemSnapshot } from './system-monitor.js';
 import { startStream, stopStream } from './stream-manager.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { requireAuth, requireCsrf } from './auth.js';
@@ -66,6 +68,74 @@ export async function createApp(envConfig = {}) {
   // Health endpoint (public)
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: Math.round(process.uptime()) });
+  });
+
+  // CLI / Localhost live status endpoint (restricted strictly to local loopback)
+  app.get('/api/internal/cli-status', async (req, res) => {
+    const remoteIp = req.socket?.remoteAddress || req.ip || '';
+    const isLoopback = (
+      remoteIp === '127.0.0.1' ||
+      remoteIp === '::1' ||
+      remoteIp === '::ffff:127.0.0.1'
+    ) && !req.headers['x-forwarded-for'];
+
+    if (!isLoopback) {
+      return res.status(403).json({ error: 'Access denied: CLI status is restricted to localhost loopback' });
+    }
+
+    try {
+      const state = getState();
+      const progress = getLatestProgress();
+      const settings = getSettings();
+      const [sysSnapshot, bwSummary] = await Promise.all([
+        getSystemSnapshot().catch(() => null),
+        getBandwidthSummary().catch(() => null),
+      ]);
+
+      let activeVideo = null;
+      if (state.activeVideoId) {
+        activeVideo = await getVideo(state.activeVideoId).catch(() => null);
+      }
+
+      const reasons = [];
+      let healthStatus = 'HEALTHY';
+      if (state.status === 'ERROR') {
+        healthStatus = 'UNHEALTHY';
+        reasons.push(state.lastError?.message || 'Stream encountered a fatal error');
+      } else if (state.status === 'BANDWIDTH_LIMIT_REACHED') {
+        healthStatus = 'UNHEALTHY';
+        reasons.push('Monthly bandwidth safety limit reached');
+      } else if (state.status === 'RECONNECTING') {
+        healthStatus = 'DEGRADED';
+        reasons.push(`Stream is reconnecting (failure count: ${state.consecutiveFailures})`);
+      } else if (state.status === 'RUNNING') {
+        if (progress && progress.speed > 0 && progress.speed < 0.95) {
+          healthStatus = 'DEGRADED';
+          reasons.push(`Encoding speed is low: ${progress.speed}x (target ≥ 0.95x)`);
+        }
+      } else {
+        healthStatus = state.desiredState === 'running' ? 'DEGRADED' : 'HEALTHY';
+      }
+
+      res.json({
+        state,
+        progress,
+        bandwidth: bwSummary,
+        system: sysSnapshot,
+        video: activeVideo ? {
+          id: activeVideo.id,
+          name: activeVideo.originalName || activeVideo.filename,
+          durationSec: Number(activeVideo.probe?.durationSec || activeVideo.probe?.duration || 0),
+          resolution: activeVideo.probe?.resolution || null,
+          fps: activeVideo.probe?.fps || null,
+        } : null,
+        autoRecycle: settings.scheduler?.autoRecycle || {},
+        healthVerdict: { status: healthStatus, reasons },
+        serverUptime: Math.round(process.uptime()),
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // Public Auth Router
