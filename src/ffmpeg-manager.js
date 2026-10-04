@@ -289,14 +289,15 @@ export async function cleanupStaleLockOnBoot() {
   }
 }
 
-// ─── Module State ─────────────────────────────────────────────────────────────
-
 let _currentChild = null;
 let _currentPid = null;
 let _expectedExit = false;
 let _latestProgress = null;
 const _stderrRing = []; // capped at 50 entries
 const RING_MAX = 50;
+
+let _exitCompletionPromise = null;
+let _resolveExitCompletion = null;
 
 // Watchdog timers & state
 let _startupTimer = null;
@@ -333,6 +334,13 @@ export async function spawnFfmpeg({
   onExit,
   onHealthy,
 }) {
+  // If a previous FFmpeg is still completing exit/cleanup, wait for it
+  if (_exitCompletionPromise) {
+    try {
+      await _exitCompletionPromise;
+    } catch { /* ignore */ }
+  }
+
   if (_currentChild) {
     throw Object.assign(new Error('FFmpeg is already running in this instance'), {
       code: 'E_ALREADY_RUNNING',
@@ -352,6 +360,11 @@ export async function spawnFfmpeg({
   // Masked command for logging (PRD §10, §20)
   const safeLogCmd = args.map(arg => redact(arg)).join(' ');
   logger.info('ffmpeg.spawn', `Spawning FFmpeg: ffmpeg ${safeLogCmd}`);
+
+  // Create the exit completion promise BEFORE spawning
+  _exitCompletionPromise = new Promise(resolve => {
+    _resolveExitCompletion = resolve;
+  });
 
   let child;
   try {
@@ -377,6 +390,8 @@ export async function spawnFfmpeg({
     try { child.kill('SIGKILL'); } catch { /* ignore */ }
     _currentChild = null;
     _currentPid = null;
+    _exitCompletionPromise = null;
+    _resolveExitCompletion = null;
     throw err;
   }
 
@@ -551,23 +566,53 @@ export async function spawnFfmpeg({
     clearWatchdogs();
     const wasExpected = _expectedExit;
     const pid = _currentPid;
+    const childRef = _currentChild;
 
-    _currentChild = null;
-    _currentPid = null;
-    _expectedExit = false;
+    try {
+      // 1. Destroy stdio pipe streams if open
+      try {
+        if (childRef?.stdin && !childRef.stdin.destroyed) childRef.stdin.destroy();
+        if (childRef?.stdout && !childRef.stdout.destroyed) childRef.stdout.destroy();
+        if (childRef?.stderr && !childRef.stderr.destroyed) childRef.stderr.destroy();
+      } catch { /* ignore */ }
 
-    await releaseLock();
+      // 2. Clear current child & PID references
+      _currentChild = null;
+      _currentPid = null;
+      _expectedExit = false;
 
-    const lastErrLine = _stderrRing.length > 0 ? _stderrRing[_stderrRing.length - 1].line : null;
-    logger.info('ffmpeg.exit', `FFmpeg process PID ${pid} exited with code ${code}, signal ${signal} (expected: ${wasExpected})`);
+      // 3. Release atomic lock file
+      await releaseLock();
 
-    if (typeof onExit === 'function') {
-      onExit({
-        code,
-        signal,
-        expected: wasExpected,
-        lastError: lastErrLine,
-      });
+      const lastErrLine = _stderrRing.length > 0 ? _stderrRing[_stderrRing.length - 1].line : null;
+      logger.info('ffmpeg.exit', `FFmpeg process PID ${pid} exited with code ${code}, signal ${signal} (expected: ${wasExpected})`);
+
+      // 4. Await asynchronous onExit callback completely
+      if (typeof onExit === 'function') {
+        try {
+          await onExit({
+            code,
+            signal,
+            expected: wasExpected,
+            lastError: lastErrLine,
+          });
+        } catch (exitErr) {
+          logger.error('ffmpeg.on_exit_error', `Error in onExit callback: ${exitErr.message}`);
+        }
+      }
+    } finally {
+      // 5. Ensure references cleared in case of errors
+      _currentChild = null;
+      _currentPid = null;
+      _expectedExit = false;
+
+      // 6. Resolve the exit completion promise so stopFfmpeg or new spawn can proceed
+      if (_resolveExitCompletion) {
+        const resolve = _resolveExitCompletion;
+        _resolveExitCompletion = null;
+        _exitCompletionPromise = null;
+        resolve({ code, signal, expected: wasExpected });
+      }
     }
   });
 
@@ -579,6 +624,7 @@ export async function spawnFfmpeg({
 /**
  * Stop currently running FFmpeg process.
  * Order: SIGTERM → wait stopGraceSeconds → SIGKILL.
+ * Guaranteed: returns only when process exited, lock released, and onExit completed.
  *
  * @param {object}  [opts]
  * @param {boolean} [opts.force=false]
@@ -586,9 +632,16 @@ export async function spawnFfmpeg({
  * @param {number}  [opts.graceSeconds=8]
  */
 export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceSeconds = 8 } = {}) {
-  const child = _currentChild;
-  if (!child) return { stopped: true };
+  // If no process is running, but previous cleanup is still in progress, wait for it
+  if (!_currentChild) {
+    if (_exitCompletionPromise) {
+      await _exitCompletionPromise;
+    }
+    return { stopped: true };
+  }
 
+  const child = _currentChild;
+  const exitPromise = _exitCompletionPromise;
   _expectedExit = true;
   clearWatchdogs();
 
@@ -596,6 +649,12 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
 
   if (force) {
     try { child.kill('SIGKILL'); } catch { /* ignore */ }
+    if (exitPromise) {
+      await Promise.race([
+        exitPromise,
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]);
+    }
     return { stopped: true };
   }
 
@@ -604,18 +663,38 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
     child.kill('SIGTERM');
   } catch (err) {
     try { child.kill('SIGKILL'); } catch { /* ignore */ }
+    if (exitPromise) {
+      await Promise.race([
+        exitPromise,
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]);
+    }
     return { stopped: true };
   }
 
-  // Wait for exit with timeout
-  const graceMs = graceSeconds * 1000;
-  const exitPromise = new Promise(resolve => child.once('exit', resolve));
-  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('TIMEOUT'), graceMs));
+  // Wait for complete exit cleanup with graceSeconds timeout
+  const graceMs = Math.max(1000, graceSeconds * 1000);
+  let timerId = null;
+  const timeoutPromise = new Promise(resolve => {
+    timerId = setTimeout(() => resolve('TIMEOUT'), graceMs);
+  });
 
-  const result = await Promise.race([exitPromise, timeoutPromise]);
+  const result = await Promise.race([
+    exitPromise || Promise.resolve('DONE'),
+    timeoutPromise
+  ]);
+
+  if (timerId) clearTimeout(timerId);
+
   if (result === 'TIMEOUT') {
     logger.warn('ffmpeg.sigterm_timeout', `FFmpeg PID ${child.pid} did not exit within ${graceSeconds}s; sending SIGKILL`);
     try { child.kill('SIGKILL'); } catch { /* ignore */ }
+    if (exitPromise) {
+      await Promise.race([
+        exitPromise,
+        new Promise(resolve => setTimeout(resolve, 5000))
+      ]);
+    }
   }
 
   return { stopped: true };
@@ -624,7 +703,7 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
 // ─── Getters ──────────────────────────────────────────────────────────────────
 
 export function isFfmpegRunning() {
-  return Boolean(_currentChild);
+  return Boolean(_currentChild || _exitCompletionPromise);
 }
 
 export function getFfmpegPid() {
@@ -637,6 +716,18 @@ export function getLatestProgress() {
 
 export function getRecentStderr() {
   return [..._stderrRing];
+}
+
+// ─── Test Helpers ─────────────────────────────────────────────────────────────
+
+export function _resetStateForTest() {
+  _currentChild = null;
+  _currentPid = null;
+  _expectedExit = false;
+  _latestProgress = null;
+  _exitCompletionPromise = null;
+  _resolveExitCompletion = null;
+  clearWatchdogs();
 }
 
 // ─── Test Helpers ─────────────────────────────────────────────────────────────
