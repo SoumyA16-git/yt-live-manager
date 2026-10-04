@@ -145,7 +145,7 @@ async function main() {
     console.log(`✓ A-horizontal uploaded: ${metaAH.id} (${statAH.size} bytes)`);
 
     // Verify Pair A is complete & in playlist
-    const freshVideos = await listVideos({ forceSync: true });
+    const freshVideos = await listVideos();
     const freshSettings = await loadSettings();
     const logicalA = buildLogicalVideos(freshVideos, freshSettings.stream?.playlist, null, freshSettings);
     assert.strictEqual(logicalA.length, 1, 'Library must contain exactly 1 logical video');
@@ -250,7 +250,7 @@ async function main() {
     const vertPidAfterB = getFfmpegPid();
     const horizPidAfterB = getSecondaryFfmpegPid();
     const settingsAfterB = await loadSettings();
-    const videosAfterB = await listVideos({ forceSync: true });
+    const videosAfterB = await listVideos();
     const logicalsAfterB = buildLogicalVideos(videosAfterB, settingsAfterB.stream?.playlist, null, settingsAfterB);
 
     const logicalB = logicalsAfterB.find(l => l.verticalVideoId === metaBV.id || l.horizontalVideoId === metaBH.id);
@@ -306,7 +306,7 @@ async function main() {
     const vertPidAfterC = getFfmpegPid();
     const horizPidAfterC = getSecondaryFfmpegPid();
     const settingsAfterC = await loadSettings();
-    const videosAfterC = await listVideos({ forceSync: true });
+    const videosAfterC = await listVideos();
     const logicalsAfterC = buildLogicalVideos(videosAfterC, settingsAfterC.stream?.playlist, null, settingsAfterC);
 
     const logicalC = logicalsAfterC.find(l => l.verticalVideoId === metaCV.id || l.horizontalVideoId === metaCH.id);
