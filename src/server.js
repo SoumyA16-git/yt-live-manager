@@ -51,7 +51,7 @@ export async function createApp(envConfig = {}) {
         defaultSrc: ["'self'"],
         scriptSrc:  ["'self'"],
         styleSrc:   ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        imgSrc:     ["'self'", 'data:'],
+        imgSrc:     ["'self'", 'data:', 'blob:', 'https://i.ytimg.com', 'https://*.ytimg.com', 'https://*.googleusercontent.com', 'https://*.ggpht.com'],
         connectSrc: ["'self'"],
         fontSrc:    ["'self'", "https://fonts.gstatic.com"],
         objectSrc:  ["'none'"],
@@ -61,8 +61,8 @@ export async function createApp(envConfig = {}) {
     referrerPolicy: { policy: 'no-referrer' },
   }));
 
-  // JSON Body Parser (64 KB cap per PRD §19.2, excluded for multipart uploads)
-  app.use(express.json({ limit: '64kb' }));
+  // JSON Body Parser (10 MB cap for custom thumbnail uploads and metadata)
+  app.use(express.json({ limit: '10mb' }));
 
   // API Cache-Control: no-store
   app.use('/api', (req, res, next) => {
