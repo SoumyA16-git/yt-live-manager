@@ -812,8 +812,11 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           // If YouTube Data API is configured, manage YouTube broadcast lifecycle autonomously
           if (apiConfigured) {
             logger.info('stream.youtube_lifecycle_start', 'Starting YouTube broadcast lifecycle management...');
+            const isDual = Boolean(gate.dualTarget && gate.horizontalMeta);
             _lifecyclePromise = manageBroadcastLifecycleOnStart({
               streamKey: secretKey,
+              secondaryStreamKey: isDual ? getHorizontalStreamKey() : null,
+              isDual,
               title: '',
             });
 
@@ -828,7 +831,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
                   youtubeBroadcastLive: false,
                 });
               } else if (youtubeResult && youtubeResult.success && youtubeResult.lifeCycleStatus === 'live') {
-                logger.info('stream.youtube_live_confirmed', `YouTube broadcast lifecycle confirmed: LIVE (broadcast ID: ${youtubeResult.broadcastId})`);
+                logger.info('stream.youtube_live_confirmed', `YouTube broadcast lifecycle confirmed: LIVE (primary: ${youtubeResult.primaryBroadcastId || youtubeResult.broadcastId}, secondary: ${youtubeResult.secondaryBroadcastId || 'N/A'})`);
                 await saveState({
                   youtubeStreamActive: true,
                   youtubeBroadcastLive: true,
@@ -836,6 +839,10 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
                   youtubeBroadcast: 'LIVE',
                   liveStreamId: youtubeResult.liveStreamId,
                   broadcastId: youtubeResult.broadcastId,
+                  primaryBroadcastId: youtubeResult.primaryBroadcastId || youtubeResult.broadcastId,
+                  secondaryBroadcastId: youtubeResult.secondaryBroadcastId || null,
+                  primaryBroadcastStatus: youtubeResult.primaryLifeCycleStatus || 'live',
+                  secondaryBroadcastStatus: youtubeResult.secondaryLifeCycleStatus || (isDual ? 'live' : 'inactive'),
                 });
               } else {
                 logger.warn('stream.youtube_lifecycle_incomplete', `YouTube lifecycle could not confirm LIVE: ${youtubeResult?.reason || 'Status incomplete'}`);
@@ -844,12 +851,21 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
                   youtubeBroadcastLive: false,
                   youtubeIngest: youtubeResult?.streamStatus === 'active' ? 'ACTIVE' : 'WAITING',
                   youtubeBroadcast: 'ERROR',
+                  primaryBroadcastId: youtubeResult?.primaryBroadcastId || null,
+                  secondaryBroadcastId: youtubeResult?.secondaryBroadcastId || null,
+                  primaryBroadcastStatus: youtubeResult?.primaryLifeCycleStatus || 'error',
+                  secondaryBroadcastStatus: youtubeResult?.secondaryLifeCycleStatus || 'error',
                   lastError: {
                     code: 'E_YOUTUBE_LIFECYCLE',
                     message: youtubeResult?.reason || 'YouTube broadcast failed to transition to LIVE',
                     at: new Date().toISOString(),
                   },
                 });
+
+                if (isDual) {
+                  logger.error('stream.youtube_dual_lifecycle_failed', `Dual YouTube broadcast lifecycle failed (${youtubeResult?.reason}). Stopping FFmpeg to prevent half-dual state.`);
+                  await stopFfmpeg({ force: true, reason: 'youtube_dual_lifecycle_failed', expected: false });
+                }
               }
             } catch (err) {
               logger.error('stream.youtube_lifecycle_error', `YouTube broadcast lifecycle error: ${err.message}`);
@@ -862,6 +878,9 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
                   at: new Date().toISOString(),
                 },
               });
+              if (isDual) {
+                await stopFfmpeg({ force: true, reason: 'youtube_dual_lifecycle_error', expected: false });
+              }
             } finally {
               _lifecyclePromise = null;
             }
@@ -899,6 +918,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             youtubeBroadcastLive: false,
             youtubeIngest: 'INACTIVE',
             youtubeBroadcast: 'INACTIVE',
+            primaryBroadcastStatus: 'inactive',
+            secondaryBroadcastStatus: 'inactive',
           });
 
           await appendHistory({
@@ -1400,23 +1421,39 @@ export async function triggerAutoRecycle() {
   logger.info('stream.auto_recycle_stopping', 'Stopping current FFmpeg session for scheduled auto-recycle');
   await stopStream({ keepDesiredRunning: true, reason: 'auto_recycle' });
 
-  // 7. End/complete the current YouTube broadcast through existing lifecycle behavior if required
+  // 7. End/complete both YouTube broadcasts through existing lifecycle behavior if required
   const curState = getState();
-  const prevBroadcastId = curState.broadcastId;
-  if (prevBroadcastId && isYouTubeApiConfigured()) {
-    try {
-      logger.info('stream.youtube_auto_recycle_completing', `Transitioning YouTube broadcast ${prevBroadcastId} to 'complete' for VOD archive finalization`);
-      await transitionBroadcast(prevBroadcastId, 'complete');
-      await saveState({
-        broadcastId: null,
-        youtubeBroadcast: 'INACTIVE',
-        youtubeBroadcastLive: false,
-        youtubeStreamActive: false,
-        youtubeIngest: 'INACTIVE',
-      });
-    } catch (ytErr) {
-      logger.warn('stream.youtube_auto_recycle_complete_fail', `Could not complete YouTube broadcast ${prevBroadcastId}: ${ytErr.message}`);
+  const prevPrimaryId = curState.primaryBroadcastId || curState.broadcastId;
+  const prevSecondaryId = curState.secondaryBroadcastId;
+
+  if (isYouTubeApiConfigured()) {
+    if (prevPrimaryId) {
+      try {
+        logger.info('stream.youtube_auto_recycle_completing', `Transitioning primary YouTube broadcast ${prevPrimaryId} to 'complete' for VOD archive finalization`);
+        await transitionBroadcast(prevPrimaryId, 'complete');
+      } catch (ytErr) {
+        logger.warn('stream.youtube_auto_recycle_complete_fail', `Could not complete primary YouTube broadcast ${prevPrimaryId}: ${ytErr.message}`);
+      }
     }
+    if (prevSecondaryId) {
+      try {
+        logger.info('stream.youtube_auto_recycle_completing_secondary', `Transitioning secondary YouTube broadcast ${prevSecondaryId} to 'complete' for VOD archive finalization`);
+        await transitionBroadcast(prevSecondaryId, 'complete');
+      } catch (ytErr) {
+        logger.warn('stream.youtube_auto_recycle_secondary_complete_fail', `Could not complete secondary YouTube broadcast ${prevSecondaryId}: ${ytErr.message}`);
+      }
+    }
+    await saveState({
+      broadcastId: null,
+      primaryBroadcastId: null,
+      secondaryBroadcastId: null,
+      primaryBroadcastStatus: 'inactive',
+      secondaryBroadcastStatus: 'inactive',
+      youtubeBroadcast: 'INACTIVE',
+      youtubeBroadcastLive: false,
+      youtubeStreamActive: false,
+      youtubeIngest: 'INACTIVE',
+    });
   }
 
   // 8. Enter recycle pause state

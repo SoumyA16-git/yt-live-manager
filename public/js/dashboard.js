@@ -345,7 +345,15 @@ function renderStatus(data) {
       deckYoutubeApiBadge.textContent = 'YouTube API: NOT CONFIGURED';
       deckYoutubeApiBadge.title = 'OAuth2 credentials (YOUTUBE_CLIENT_ID, SECRET, REFRESH_TOKEN) not set. Broadcast lifecycle cannot be verified or transitioned automatically.';
     } else {
-      if (yt.isBroadcastLive) {
+      if (isDual && yt.isDualLive) {
+        deckYoutubeApiBadge.className = 'reachability-pill healthy';
+        deckYoutubeApiBadge.textContent = 'Dual Broadcast: BOTH LIVE';
+        deckYoutubeApiBadge.title = `Vertical (${yt.primaryBroadcastId}) and Horizontal (${yt.secondaryBroadcastId}) are both confirmed LIVE via Data API.`;
+      } else if (isDual && (yt.primaryBroadcastId || yt.secondaryBroadcastId)) {
+        deckYoutubeApiBadge.className = 'reachability-pill starting';
+        deckYoutubeApiBadge.textContent = `Dual: V:${(yt.primaryBroadcastStatus || 'WAITING').toUpperCase()} • H:${(yt.secondaryBroadcastStatus || 'WAITING').toUpperCase()}`;
+        deckYoutubeApiBadge.title = `Vertical: ${yt.primaryBroadcastId || 'N/A'} (${yt.primaryBroadcastStatus}), Horizontal: ${yt.secondaryBroadcastId || 'N/A'} (${yt.secondaryBroadcastStatus})`;
+      } else if (yt.isBroadcastLive) {
         deckYoutubeApiBadge.className = 'reachability-pill healthy';
         deckYoutubeApiBadge.textContent = `Broadcast: LIVE (${yt.broadcastId || ''})`;
         deckYoutubeApiBadge.title = `YouTube broadcast ${yt.broadcastId || ''} is confirmed LIVE via Data API.`;
@@ -431,8 +439,18 @@ function renderStatus(data) {
       statusText.textContent = 'DUAL STREAM FAILED (HORIZONTAL DISCONNECTED)';
       statusDot.className = 'status-dot error';
     } else if (yt && yt.configured) {
-      if (yt.isBroadcastLive) {
-        statusText.textContent = isDual ? 'DUAL LIVE (YOUTUBE BROADCAST LIVE)' : 'YOUTUBE LIVE (BROADCAST LIVE)';
+      if (isDual) {
+        if (yt.isDualLive || (yt.primaryBroadcastStatus === 'live' && yt.secondaryBroadcastStatus === 'live')) {
+          statusText.textContent = 'DUAL LIVE (BOTH BROADCASTS LIVE)';
+          statusDot.className = 'status-dot live';
+        } else {
+          const pStatus = (yt.primaryBroadcastStatus || 'preparing').toUpperCase();
+          const sStatus = (yt.secondaryBroadcastStatus || 'preparing').toUpperCase();
+          statusText.textContent = `DUAL STARTING (VERTICAL: ${pStatus} • HORIZONTAL: ${sStatus})`;
+          statusDot.className = 'status-dot starting';
+        }
+      } else if (yt.isBroadcastLive) {
+        statusText.textContent = 'YOUTUBE LIVE (BROADCAST LIVE)';
         statusDot.className = 'status-dot live';
       } else {
         const streamState = yt.streamStatus === 'active' ? 'INGEST ACTIVE' : 'INGEST WAITING';

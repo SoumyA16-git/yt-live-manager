@@ -42,6 +42,10 @@ const STATE_DEFAULTS = {
   streamStartedAt:     null,
   currentSeekOffset:   0,
   resumeBookmark:      null,
+  primaryBroadcastId:  null,
+  secondaryBroadcastId: null,
+  primaryBroadcastStatus: 'unknown',
+  secondaryBroadcastStatus: 'unknown',
 };
 
 // ─── Module state ─────────────────────────────────────────────────────────────

@@ -30,6 +30,19 @@ let _currentBroadcastId = null;
 let _currentStreamStatus = 'unknown';
 let _currentHealthStatus = 'unknown';
 let _currentLifeCycleStatus = 'unknown';
+
+let _primaryStreamId = null;
+let _primaryBroadcastId = null;
+let _primaryStreamStatus = 'unknown';
+let _primaryHealthStatus = 'unknown';
+let _primaryLifeCycleStatus = 'unknown';
+
+let _secondaryStreamId = null;
+let _secondaryBroadcastId = null;
+let _secondaryStreamStatus = 'unknown';
+let _secondaryHealthStatus = 'unknown';
+let _secondaryLifeCycleStatus = 'unknown';
+
 let _lastCheckedAt = null;
 let _lastApiError = null;
 
@@ -564,21 +577,139 @@ export async function createAndBindBroadcast({
 // ─── Automated Broadcast Lifecycle Verification ───────────────────────────────
 
 /**
+ * Resolve existing usable broadcast or create fresh broadcast bound to streamId.
+ * Never reuses completed broadcasts.
+ *
+ * @param {object} opts
+ * @param {string} opts.streamId
+ * @param {string} [opts.title='']
+ * @param {object} [opts.metadata=null]
+ * @returns {Promise<object>} Broadcast resource
+ */
+export async function resolveOrCreateBroadcastForStream({
+  streamId,
+  title = '',
+  metadata = null,
+}) {
+  if (!streamId || !isYouTubeApiConfigured()) {
+    throw new Error('streamId and configured API required');
+  }
+
+  // 1. Check for existing broadcast bound to this streamId
+  const existing = await resolveBoundBroadcast(streamId);
+
+  // 2. If usable existing broadcast found (ready, testing, or live; NOT complete)
+  if (existing && !existing.isComplete && existing.lifeCycleStatus !== 'complete') {
+    logger.info('youtube_api.broadcast_reused', `Found existing active/ready broadcast ${existing.id} bound to stream ${streamId} (status: ${existing.lifeCycleStatus})`);
+    return existing;
+  }
+
+  // 3. Otherwise create fresh broadcast and bind to streamId
+  logger.info('youtube_api.creating_fresh_broadcast_for_stream', `No usable broadcast bound to stream ${streamId}; creating fresh broadcast...`);
+  const fresh = await createAndBindBroadcast({
+    streamId,
+    title,
+    metadata,
+    enableAutoStart: false,
+    enableAutoStop: true,
+    enableMonitorStream: false,
+  });
+  return fresh;
+}
+
+export async function resolveOrCreatePrimaryBroadcast({ streamId, title = '', metadata = null }) {
+  return resolveOrCreateBroadcastForStream({ streamId, title, metadata });
+}
+
+export async function resolveOrCreateSecondaryBroadcast({ streamId, title = '', metadata = null }) {
+  return resolveOrCreateBroadcastForStream({ streamId, title, metadata });
+}
+
+/**
+ * Helper to transition a broadcast through testing/live states.
+ */
+async function transitionBroadcastResourceToLive(broadcast, streamId, liveTimeoutSec = 30) {
+  if (!broadcast || broadcast.lifeCycleStatus === 'live') {
+    return { success: true, broadcast, lifeCycleStatus: 'live' };
+  }
+
+  let curBroadcast = broadcast;
+  let curStatus = curBroadcast.lifeCycleStatus;
+
+  // Auto-start wait if broadcast has enableAutoStart === true
+  if (curBroadcast.enableAutoStart) {
+    const autoStartMaxWait = Math.min(30, liveTimeoutSec) * 1000;
+    logger.info('youtube_api.waiting_autostart', `Broadcast ${curBroadcast.id} has enableAutoStart=true; awaiting auto-transition (up to ${autoStartMaxWait / 1000}s)...`);
+    const autoStartBegin = Date.now();
+    while (Date.now() - autoStartBegin < autoStartMaxWait) {
+      await new Promise(r => setTimeout(r, 2000));
+      const bCheck = await resolveBoundBroadcast(streamId);
+      if (bCheck && (!curBroadcast.id || bCheck.id === curBroadcast.id || (!bCheck.isComplete && bCheck.lifeCycleStatus !== 'complete'))) {
+        curBroadcast = bCheck;
+        curStatus = bCheck.lifeCycleStatus;
+      }
+      if (bCheck && bCheck.lifeCycleStatus === 'live') {
+        return { success: true, broadcast: bCheck, lifeCycleStatus: 'live' };
+      }
+    }
+  }
+
+  // Explicit Transition to LIVE if not already LIVE
+  if (curStatus !== 'live') {
+    if (curStatus === 'testing') {
+      try {
+        const tr = await transitionBroadcast(curBroadcast.id, 'live');
+        if (tr?.lifeCycleStatus === 'live') curStatus = 'live';
+      } catch (err) {
+        logger.warn('youtube_api.transition_warn', `Testing to live error for ${curBroadcast.id}: ${err.message}`);
+      }
+    } else if (curBroadcast.enableMonitorStream) {
+      try {
+        await transitionBroadcast(curBroadcast.id, 'testing');
+        const tr = await transitionBroadcast(curBroadcast.id, 'live');
+        if (tr?.lifeCycleStatus === 'live') curStatus = 'live';
+      } catch (err) {
+        logger.warn('youtube_api.transition_warn', `Monitor stream testing workflow error for ${curBroadcast.id}: ${err.message}`);
+      }
+    } else {
+      try {
+        const tr = await transitionBroadcast(curBroadcast.id, 'live');
+        if (tr?.lifeCycleStatus === 'live') curStatus = 'live';
+      } catch (err) {
+        if (err.message.includes('invalidTransition') || err.message.includes('redundantTransition') || err.message.includes('testing')) {
+          try {
+            await transitionBroadcast(curBroadcast.id, 'testing');
+            const tr = await transitionBroadcast(curBroadcast.id, 'live');
+            if (tr?.lifeCycleStatus === 'live') curStatus = 'live';
+          } catch (innerErr) {
+            logger.warn('youtube_api.transition_fallback_fail', `Fallback testing failed for ${curBroadcast.id}: ${innerErr.message}`);
+          }
+        }
+      }
+    }
+  }
+
+  return { success: curStatus === 'live', broadcast: curBroadcast, lifeCycleStatus: curStatus };
+}
+
+/**
  * Autonomous lifecycle transition after FFmpeg start:
- * 1. Wait for streamStatus to become 'active'.
- * 2. Resolve bound broadcast (or create new one if completed).
- * 3. If enableAutoStart is false (or hasn't transitioned), invoke transition('live').
- * 4. Verify lifeCycleStatus becomes 'live'.
+ * - Single Stream: manages primary stream & broadcast
+ * - Dual Stream: manages both primary (vertical 9:16) and secondary (horizontal 16:9) streams & broadcasts
  *
  * @param {object} opts
  * @param {string} opts.streamKey
- * @param {string} [opts.title]
+ * @param {string} [opts.secondaryStreamKey=null]
+ * @param {boolean} [opts.isDual=false]
+ * @param {string} [opts.title='']
  * @param {number} [opts.streamTimeoutSec=45]
  * @param {number} [opts.liveTimeoutSec=30]
  * @returns {Promise<{ success: boolean, liveStreamId: string, broadcastId: string, streamStatus: string, lifeCycleStatus: string }>}
  */
 export async function manageBroadcastLifecycleOnStart({
   streamKey,
+  secondaryStreamKey = null,
+  isDual = false,
   title = '',
   streamTimeoutSec = 45,
   liveTimeoutSec = 30,
@@ -592,12 +723,170 @@ export async function manageBroadcastLifecycleOnStart({
     };
   }
 
+  const isDualMode = Boolean(isDual && secondaryStreamKey);
+
+  if (isDualMode) {
+    // ══════════════════════════════════════════════════════════════════════
+    // DUAL LIVE BROADCAST LIFECYCLE (Vertical 9:16 + Horizontal 16:9)
+    // ══════════════════════════════════════════════════════════════════════
+    logger.info('youtube_api.dual_lifecycle_start', 'Starting dual YouTube live broadcast lifecycle management...');
+
+    // 1. Resolve PRIMARY and SECONDARY liveStreams
+    const primaryStream = await resolveLiveStreamByStreamKey(streamKey);
+    if (!primaryStream) {
+      logger.warn('youtube_api.dual_lifecycle_aborted', 'Could not resolve primary liveStream for primary stream key');
+      return { success: false, reason: 'PRIMARY_STREAM_KEY_NOT_MATCHED' };
+    }
+    _primaryStreamId = primaryStream.id;
+
+    const secondaryStream = await resolveLiveStreamByStreamKey(secondaryStreamKey);
+    if (!secondaryStream) {
+      logger.warn('youtube_api.dual_lifecycle_aborted', 'Could not resolve secondary liveStream for horizontal stream key');
+      return { success: false, reason: 'SECONDARY_STREAM_KEY_NOT_MATCHED' };
+    }
+    _secondaryStreamId = secondaryStream.id;
+
+    // 2. Poll until both PRIMARY and SECONDARY streams are active
+    logger.info('youtube_api.waiting_dual_streams_active', `Waiting for primary (${primaryStream.id}) and secondary (${secondaryStream.id}) streams to become active (up to ${streamTimeoutSec}s)...`);
+    const streamStart = Date.now();
+    let pActive = primaryStream.streamStatus === 'active';
+    let sActive = secondaryStream.streamStatus === 'active';
+
+    while ((!pActive || !sActive) && Date.now() - streamStart < streamTimeoutSec * 1000) {
+      await new Promise(r => setTimeout(r, 2000));
+      if (!pActive) {
+        const st = await getLiveStreamStatus(primaryStream.id);
+        _primaryStreamStatus = st.streamStatus;
+        _primaryHealthStatus = st.healthStatus;
+        if (st.streamStatus === 'active') pActive = true;
+      }
+      if (!sActive) {
+        const st = await getLiveStreamStatus(secondaryStream.id);
+        _secondaryStreamStatus = st.streamStatus;
+        _secondaryHealthStatus = st.healthStatus;
+        if (st.streamStatus === 'active') sActive = true;
+      }
+    }
+
+    _primaryStreamStatus = pActive ? 'active' : _primaryStreamStatus;
+    _secondaryStreamStatus = sActive ? 'active' : _secondaryStreamStatus;
+
+    if (!pActive || !sActive) {
+      const reason = !pActive && !sActive
+        ? 'BOTH_STREAMS_INACTIVE_TIMEOUT'
+        : !pActive
+          ? 'PRIMARY_STREAM_INACTIVE_TIMEOUT'
+          : 'SECONDARY_STREAM_INACTIVE_TIMEOUT';
+      logger.warn('youtube_api.dual_streams_timeout', `Dual ingest timeout: primaryActive=${pActive}, secondaryActive=${sActive}`);
+      return {
+        success: false,
+        reason,
+        primaryStreamStatus: _primaryStreamStatus,
+        secondaryStreamStatus: _secondaryStreamStatus,
+      };
+    }
+    logger.info('youtube_api.dual_streams_active', `Both primary (${primaryStream.id}) and secondary (${secondaryStream.id}) streams are ACTIVE!`);
+
+    // 3. Resolve or create PRIMARY and SECONDARY broadcasts with dynamic titles and metadata
+    const sessionDate = new Date();
+    const primaryTitle = title || generateBroadcastTitle(sessionDate);
+    const secondaryTitle = title || generateBroadcastTitle(sessionDate);
+
+    let primaryBroadcast = await resolveOrCreatePrimaryBroadcast({
+      streamId: primaryStream.id,
+      title: primaryTitle,
+    });
+    _primaryBroadcastId = primaryBroadcast.id;
+    _primaryLifeCycleStatus = primaryBroadcast.lifeCycleStatus || 'ready';
+
+    let secondaryBroadcast = await resolveOrCreateSecondaryBroadcast({
+      streamId: secondaryStream.id,
+      title: secondaryTitle,
+    });
+    _secondaryBroadcastId = secondaryBroadcast.id;
+    _secondaryLifeCycleStatus = secondaryBroadcast.lifeCycleStatus || 'ready';
+
+    // 4. Transition both broadcasts to LIVE
+    if (primaryBroadcast.lifeCycleStatus !== 'live') {
+      const trP = await transitionBroadcastResourceToLive(primaryBroadcast, primaryStream.id, liveTimeoutSec);
+      if (trP.broadcast) primaryBroadcast = trP.broadcast;
+      _primaryLifeCycleStatus = trP.lifeCycleStatus;
+    }
+
+    if (secondaryBroadcast.lifeCycleStatus !== 'live') {
+      const trS = await transitionBroadcastResourceToLive(secondaryBroadcast, secondaryStream.id, liveTimeoutSec);
+      if (trS.broadcast) secondaryBroadcast = trS.broadcast;
+      _secondaryLifeCycleStatus = trS.lifeCycleStatus;
+    }
+
+    // 5. Final poll to verify both broadcasts reach LIVE
+    const livePollStart = Date.now();
+    let pLive = _primaryLifeCycleStatus === 'live';
+    let sLive = _secondaryLifeCycleStatus === 'live';
+
+    while ((!pLive || !sLive) && Date.now() - livePollStart < liveTimeoutSec * 1000) {
+      await new Promise(r => setTimeout(r, 2000));
+      if (!pLive) {
+        const pb = await resolveBoundBroadcast(primaryStream.id);
+        if (pb) {
+          primaryBroadcast = pb;
+          _primaryLifeCycleStatus = pb.lifeCycleStatus;
+          if (pb.lifeCycleStatus === 'live') pLive = true;
+        }
+      }
+      if (!sLive) {
+        const sb = await resolveBoundBroadcast(secondaryStream.id);
+        if (sb) {
+          secondaryBroadcast = sb;
+          _secondaryLifeCycleStatus = sb.lifeCycleStatus;
+          if (sb.lifeCycleStatus === 'live') sLive = true;
+        }
+      }
+    }
+
+    const allLive = pLive && sLive;
+    _currentStreamId = _primaryStreamId;
+    _currentBroadcastId = _primaryBroadcastId;
+    _currentStreamStatus = _primaryStreamStatus;
+    _currentLifeCycleStatus = _primaryLifeCycleStatus;
+    _lastCheckedAt = new Date().toISOString();
+
+    if (allLive) {
+      logger.info('youtube_api.dual_lifecycle_success', `Dual Live fully verified: Primary broadcast ${primaryBroadcast.id} is LIVE and Secondary broadcast ${secondaryBroadcast.id} is LIVE!`);
+    } else {
+      logger.warn('youtube_api.dual_lifecycle_incomplete', `Dual Live incomplete: Primary status='${_primaryLifeCycleStatus}', Secondary status='${_secondaryLifeCycleStatus}'`);
+    }
+
+    return {
+      success: allLive,
+      isDual: true,
+      liveStreamId: primaryStream.id,
+      broadcastId: primaryBroadcast.id,
+      primaryStreamId: primaryStream.id,
+      secondaryStreamId: secondaryStream.id,
+      primaryBroadcastId: primaryBroadcast.id,
+      secondaryBroadcastId: secondaryBroadcast.id,
+      primaryStreamStatus: _primaryStreamStatus,
+      secondaryStreamStatus: _secondaryStreamStatus,
+      primaryLifeCycleStatus: _primaryLifeCycleStatus,
+      secondaryLifeCycleStatus: _secondaryLifeCycleStatus,
+      streamStatus: (_primaryStreamStatus === 'active' && _secondaryStreamStatus === 'active') ? 'active' : 'waiting',
+      lifeCycleStatus: allLive ? 'live' : 'preparing',
+      reason: allLive ? null : (!pLive && !sLive ? 'BOTH_BROADCASTS_NOT_LIVE' : (!pLive ? 'PRIMARY_BROADCAST_NOT_LIVE' : 'SECONDARY_BROADCAST_NOT_LIVE')),
+      error: allLive ? null : `Dual broadcast transition to live failed: primary=${_primaryLifeCycleStatus}, secondary=${_secondaryLifeCycleStatus}`,
+    };
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // SINGLE STREAM BROADCAST LIFECYCLE (Vertical or Standard)
+  // ══════════════════════════════════════════════════════════════════════
   // 1. Resolve liveStream by streamKey
   const stream = await resolveLiveStreamByStreamKey(streamKey);
   if (!stream) {
     logger.warn('youtube_api.lifecycle_aborted', 'Could not resolve liveStream for streamKey; proceeding in unmanaged mode');
     return { success: false, reason: 'STREAM_KEY_NOT_MATCHED' };
   }
+  _primaryStreamId = stream.id;
 
   // 2. Poll until streamStatus === 'active'
   logger.info('youtube_api.waiting_stream_active', `Waiting for YouTube ingest to mark stream ${stream.id} active (up to ${streamTimeoutSec}s)...`);
@@ -616,129 +905,45 @@ export async function manageBroadcastLifecycleOnStart({
   } else {
     logger.info('youtube_api.stream_active', `YouTube ingest stream ${stream.id} is ACTIVE!`);
   }
+  _primaryStreamStatus = streamStatus;
 
-  // 3. Resolve bound broadcast
-  let broadcast = await resolveBoundBroadcast(stream.id);
+  // 3. Resolve or create bound broadcast
+  let broadcast = await resolveOrCreatePrimaryBroadcast({
+    streamId: stream.id,
+    title,
+  });
+  _primaryBroadcastId = broadcast.id;
 
-  // If API error occurred while querying broadcast, do NOT create a new broadcast blindly!
-  if (!broadcast && _lastApiError) {
-    logger.warn('youtube_api.broadcast_lookup_error', `API error during broadcast resolution: ${_lastApiError}`);
-    return { success: false, streamStatus, reason: `API_ERROR: ${_lastApiError}` };
+  // 4. Transition to LIVE if needed
+  if (broadcast.lifeCycleStatus !== 'live') {
+    const tr = await transitionBroadcastResourceToLive(broadcast, stream.id, liveTimeoutSec);
+    if (tr.broadcast) broadcast = tr.broadcast;
+    _primaryLifeCycleStatus = tr.lifeCycleStatus;
+  } else {
+    _primaryLifeCycleStatus = 'live';
   }
 
-  // If no broadcast or already completed, create a new broadcast and bind to reusable stream
-  if (!broadcast || broadcast.lifeCycleStatus === 'complete' || broadcast.isComplete) {
-    logger.info('youtube_api.creating_fresh_broadcast', 'No active or ready broadcast bound; creating fresh broadcast...');
-    broadcast = await createAndBindBroadcast({
-      streamId: stream.id,
-      title,
-      enableAutoStart: false,
-      enableAutoStop: true,
-      enableMonitorStream: false,
-    });
-  }
-
-  // 4. If broadcast is already 'live', we're done
-  if (broadcast.lifeCycleStatus === 'live') {
-    logger.info('youtube_api.broadcast_live', `YouTube broadcast ${broadcast.id} is confirmed LIVE!`);
-    return {
-      success: true,
-      liveStreamId: stream.id,
-      broadcastId: broadcast.id,
-      streamStatus,
-      lifeCycleStatus: 'live',
-    };
-  }
-
-  // 5. Handle Transition (auto-start wait if broadcast has enableAutoStart === true)
-  if (broadcast.enableAutoStart) {
-    // Wait up to autoStartMaxWait for YouTube auto-start
-    const autoStartMaxWait = Math.min(30, liveTimeoutSec) * 1000;
-    logger.info('youtube_api.waiting_autostart', `Broadcast ${broadcast.id} has enableAutoStart=true; awaiting auto-transition (up to ${autoStartMaxWait / 1000}s)...`);
-    const autoStartBegin = Date.now();
-    while (Date.now() - autoStartBegin < autoStartMaxWait) {
-      await new Promise(r => setTimeout(r, 2000));
-      const bCheck = await resolveBoundBroadcast(stream.id);
-      if (bCheck && (!broadcast.id || bCheck.id === broadcast.id || (bCheck.lifeCycleStatus !== 'complete' && !bCheck.isComplete))) {
-        broadcast = bCheck;
-        _currentLifeCycleStatus = bCheck.lifeCycleStatus;
-      }
-      if (bCheck && bCheck.lifeCycleStatus === 'live') {
-        logger.info('youtube_api.autostart_succeeded', `Broadcast ${bCheck.id} auto-started to LIVE!`);
-        return {
-          success: true,
-          liveStreamId: stream.id,
-          broadcastId: bCheck.id,
-          streamStatus,
-          lifeCycleStatus: 'live',
-        };
-      }
-    }
-    logger.warn('youtube_api.autostart_fallback', `Broadcast ${broadcast.id} did not auto-transition within ${autoStartMaxWait / 1000}s; attempting explicit transition...`);
-  }
-
-  // 6. Explicit Transition to LIVE if not already LIVE
-  if (broadcast.lifeCycleStatus !== 'live' && _currentLifeCycleStatus !== 'live') {
-    if (broadcast.lifeCycleStatus === 'testing' || _currentLifeCycleStatus === 'testing') {
-      logger.info('youtube_api.transition_testing_to_live', `Broadcast ${broadcast.id} is in 'testing'; transitioning to 'live'`);
-      try {
-        const transitioned = await transitionBroadcast(broadcast.id, 'live');
-        if (transitioned.lifeCycleStatus === 'live') {
-          logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
-        }
-      } catch (err) {
-        logger.warn('youtube_api.transition_warn', `Transition from testing to live returned error: ${err.message}`);
-      }
-    } else if (broadcast.enableMonitorStream) {
-      // Existing broadcast created in YouTube Studio with monitorStream enabled:
-      // Must follow READY -> TESTING -> LIVE flow
-      logger.info('youtube_api.transition_with_monitor', `Broadcast ${broadcast.id} has monitorStream=true; transitioning through 'testing' to 'live'`);
-      try {
-        await transitionBroadcast(broadcast.id, 'testing');
-        const transitioned = await transitionBroadcast(broadcast.id, 'live');
-        if (transitioned.lifeCycleStatus === 'live') {
-          logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE via testing!`);
-        }
-      } catch (err) {
-        logger.warn('youtube_api.transition_warn', `Testing transition workflow returned error: ${err.message}; checking status...`);
-      }
-    } else {
-      // Unattended production flow: monitorStream is disabled (or false)
-      // Transition directly READY -> LIVE
-      try {
-        const transitioned = await transitionBroadcast(broadcast.id, 'live');
-        if (transitioned.lifeCycleStatus === 'live') {
-          logger.info('youtube_api.transition_verified', `Broadcast ${broadcast.id} explicitly transitioned to LIVE!`);
-        }
-      } catch (err) {
-        logger.warn('youtube_api.transition_warn', `Transition to live returned error: ${err.message}; checking testing fallback...`);
-        if (err.message.includes('invalidTransition') || err.message.includes('redundantTransition') || err.message.includes('testing')) {
-          try {
-            await transitionBroadcast(broadcast.id, 'testing');
-            await transitionBroadcast(broadcast.id, 'live');
-          } catch (innerErr) {
-            logger.warn('youtube_api.transition_testing_failed', `Fallback testing transition failed: ${innerErr.message}`);
-          }
-        }
-      }
-    }
-  }
-
-  // 7. Final poll for 'live' status
+  // 5. Final poll for 'live' status
   const livePollStart = Date.now();
-  let lifeCycleStatus = _currentLifeCycleStatus;
+  let lifeCycleStatus = _primaryLifeCycleStatus;
   while (lifeCycleStatus !== 'live' && Date.now() - livePollStart < liveTimeoutSec * 1000) {
     await new Promise(r => setTimeout(r, 2000));
     const bCheck = await resolveBoundBroadcast(stream.id);
     if (bCheck && (!broadcast.id || bCheck.id === broadcast.id || (bCheck.lifeCycleStatus !== 'complete' && !bCheck.isComplete))) {
       broadcast = bCheck;
       lifeCycleStatus = bCheck.lifeCycleStatus;
-      _currentLifeCycleStatus = lifeCycleStatus;
+      _primaryLifeCycleStatus = lifeCycleStatus;
     }
     if (lifeCycleStatus === 'live') break;
   }
 
   const isLive = lifeCycleStatus === 'live';
+  _currentStreamId = stream.id;
+  _currentBroadcastId = broadcast.id;
+  _currentStreamStatus = streamStatus;
+  _currentLifeCycleStatus = lifeCycleStatus;
+  _lastCheckedAt = new Date().toISOString();
+
   if (isLive) {
     logger.info('youtube_api.lifecycle_success', `Stream & Broadcast fully verified: Stream is ACTIVE and Broadcast is LIVE (${broadcast.id})`);
   } else {
@@ -747,8 +952,17 @@ export async function manageBroadcastLifecycleOnStart({
 
   return {
     success: isLive,
+    isDual: false,
     liveStreamId: stream.id,
     broadcastId: broadcast.id,
+    primaryBroadcastId: broadcast.id,
+    secondaryBroadcastId: null,
+    primaryStreamId: stream.id,
+    secondaryStreamId: null,
+    primaryStreamStatus: streamStatus,
+    secondaryStreamStatus: 'inactive',
+    primaryLifeCycleStatus: lifeCycleStatus,
+    secondaryLifeCycleStatus: 'inactive',
     streamStatus,
     lifeCycleStatus,
     reason: isLive ? null : `Broadcast failed to reach LIVE status (current: ${lifeCycleStatus})`,
@@ -760,12 +974,23 @@ export async function manageBroadcastLifecycleOnStart({
 export function getYouTubeLiveApiState() {
   return {
     configured: isYouTubeApiConfigured(),
-    liveStreamId: _currentStreamId,
-    broadcastId: _currentBroadcastId,
-    streamStatus: _currentStreamStatus,
-    healthStatus: _currentHealthStatus,
-    lifeCycleStatus: _currentLifeCycleStatus,
-    isBroadcastLive: _currentLifeCycleStatus === 'live',
+    liveStreamId: _primaryStreamId || _currentStreamId,
+    broadcastId: _primaryBroadcastId || _currentBroadcastId,
+    streamStatus: _primaryStreamStatus !== 'unknown' ? _primaryStreamStatus : _currentStreamStatus,
+    healthStatus: _primaryHealthStatus !== 'unknown' ? _primaryHealthStatus : _currentHealthStatus,
+    lifeCycleStatus: _primaryLifeCycleStatus !== 'unknown' ? _primaryLifeCycleStatus : _currentLifeCycleStatus,
+    isBroadcastLive: (_primaryLifeCycleStatus === 'live' || _currentLifeCycleStatus === 'live'),
+    primaryBroadcastId: _primaryBroadcastId || _currentBroadcastId,
+    secondaryBroadcastId: _secondaryBroadcastId,
+    primaryBroadcastStatus: _primaryLifeCycleStatus !== 'unknown' ? _primaryLifeCycleStatus : _currentLifeCycleStatus,
+    secondaryBroadcastStatus: _secondaryLifeCycleStatus,
+    primaryStreamId: _primaryStreamId || _currentStreamId,
+    secondaryStreamId: _secondaryStreamId,
+    primaryStreamStatus: _primaryStreamStatus !== 'unknown' ? _primaryStreamStatus : _currentStreamStatus,
+    secondaryStreamStatus: _secondaryStreamStatus,
+    primaryHealthStatus: _primaryHealthStatus,
+    secondaryHealthStatus: _secondaryHealthStatus,
+    isDualLive: Boolean(_primaryLifeCycleStatus === 'live' && _secondaryLifeCycleStatus === 'live'),
     lastCheckedAt: _lastCheckedAt,
     lastError: _lastApiError,
     metadataStatus: {
@@ -787,6 +1012,16 @@ export function _resetStateForTest() {
   _currentStreamStatus = 'unknown';
   _currentHealthStatus = 'unknown';
   _currentLifeCycleStatus = 'unknown';
+  _primaryStreamId = null;
+  _primaryBroadcastId = null;
+  _primaryStreamStatus = 'unknown';
+  _primaryHealthStatus = 'unknown';
+  _primaryLifeCycleStatus = 'unknown';
+  _secondaryStreamId = null;
+  _secondaryBroadcastId = null;
+  _secondaryStreamStatus = 'unknown';
+  _secondaryHealthStatus = 'unknown';
+  _secondaryLifeCycleStatus = 'unknown';
   _lastCheckedAt = null;
   _lastApiError = null;
   _categoryCache = null;
