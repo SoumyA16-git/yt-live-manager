@@ -156,19 +156,28 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.ok(args.includes('-safe'));
   });
 
-  test('Clamps seek offset to video durationSec if seek exceeds duration', () => {
+  test('Clamps seek offset to video durationSec if seek exceeds duration in transcode mode', () => {
     const metaWithDur = {
       filePath: '/var/videos/vid_test.mp4',
       probe: { durationSec: 100 },
     };
     // Seek offset 250s on a 100s video should clamp to 250 % 100 = 50s
-    const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'copy', null, null, 250);
+    const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'transcode', null, null, 250);
     const ssIdx = args.indexOf('-ss');
     assert.ok(ssIdx !== -1, 'Expected -ss flag');
     assert.equal(args[ssIdx + 1], '50.00');
   });
 
-  test('Clamps seek offset for both feeds in dual streaming mode', () => {
+  test('Does not pass -ss in copy mode to guarantee initial IDR keyframe for YouTube RTMP ingest', () => {
+    const metaWithDur = {
+      filePath: '/var/videos/vid_test.mp4',
+      probe: { durationSec: 100 },
+    };
+    const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'copy', null, null, 250);
+    assert.equal(args.includes('-ss'), false, 'Copy mode must not include -ss');
+  });
+
+  test('Clamps seek offset for both feeds in dual streaming mode during transcode', () => {
     const vMeta = {
       filePath: '/var/videos/v.mp4',
       probe: { durationSec: 100 },
@@ -180,7 +189,7 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     };
     const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/key2';
     // Vertical: 250 % 100 = 50.00, Horizontal: 250 % 80 = 10.00
-    const args = buildFfmpegArgs(dummySettings, vMeta, secretTarget, 'copy', dualTarget, hMeta, 250);
+    const args = buildFfmpegArgs(dummySettings, vMeta, secretTarget, 'transcode', dualTarget, hMeta, 250);
     const ssIndices = [];
     args.forEach((a, i) => { if (a === '-ss') ssIndices.push(i); });
     assert.equal(ssIndices.length, 2, 'Expected two -ss flags');

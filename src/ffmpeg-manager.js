@@ -58,7 +58,7 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     } else {
       const vDur = Number(videoMeta?.probe?.durationSec || videoMeta?.probe?.duration || 0);
       const safeVSeek = (vDur > 0 && effectiveSeek > 0) ? (effectiveSeek % vDur) : Math.max(0, effectiveSeek);
-      if (safeVSeek > 0) {
+      if (mode === 'transcode' && safeVSeek > 0) {
         args.push('-ss', safeVSeek.toFixed(2));
       }
       args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
@@ -73,7 +73,7 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       const hDur = Number(horizontalMeta?.probe?.durationSec || horizontalMeta?.probe?.duration || 0);
       const rawHSeek = Number(horizontalMeta?.seekOffset ?? effectiveSeek);
       const safeHSeek = (hDur > 0 && rawHSeek > 0) ? (rawHSeek % hDur) : Math.max(0, rawHSeek);
-      if (safeHSeek > 0) {
+      if (mode === 'transcode' && safeHSeek > 0) {
         args.push('-ss', safeHSeek.toFixed(2));
       }
       args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
@@ -109,7 +109,10 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
   } else {
     const vDur = Number(videoMeta?.probe?.durationSec || videoMeta?.probe?.duration || 0);
     const safeSeek = (vDur > 0 && effectiveSeek > 0) ? (effectiveSeek % vDur) : Math.max(0, effectiveSeek);
-    if (safeSeek > 0) {
+    // In copy and hybrid modes, passing -ss creates a stream that starts on a non-IDR packet,
+    // which YouTube's RTMP ingest strictly drops or fails to initialize.
+    // -ss is only safe when re-encoding (transcode mode) where libx264 generates a clean IDR keyframe at t=0.
+    if (mode === 'transcode' && safeSeek > 0) {
       args.push('-ss', safeSeek.toFixed(2));
     }
     args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
