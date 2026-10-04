@@ -273,9 +273,18 @@ const schedSlot2Stop = document.getElementById('sched-slot2-stop');
 const schedRecycleCard = document.getElementById('sched-recycle-card');
 const schedRecycleStatusBadge = document.getElementById('sched-recycle-status-badge');
 const schedRecycleEnabled = document.getElementById('sched-recycle-enabled');
+const schedResumeBookmark = document.getElementById('sched-resume-bookmark');
 const schedRecycleMinutes = document.getElementById('sched-recycle-minutes') || document.getElementById('sched-recycle-hours');
 const schedPauseMins = document.getElementById('sched-pause-mins');
+const deckAutoRecycleBadge = document.getElementById('deck-auto-recycle-badge');
 const btnSaveSchedule = document.getElementById('btn-save-schedule');
+
+if (deckAutoRecycleBadge) {
+  deckAutoRecycleBadge.addEventListener('click', () => {
+    const card = document.getElementById('sched-recycle-card');
+    if (card) card.scrollIntoView({ behavior: 'smooth' });
+  });
+}
 
 function updateRecycleHint(mins) {
   const hintEl = document.getElementById('sched-recycle-hint');
@@ -342,6 +351,33 @@ function renderStatus(data) {
         deckYoutubeApiBadge.textContent = 'YouTube API: Ready';
         deckYoutubeApiBadge.title = 'OAuth2 credentials configured and ready for automated broadcast management.';
       }
+    }
+  }
+
+  // Update Auto-Recycle Deck Badge
+  const arStatus = data.scheduler?.autoRecycleStatus || data.autoRecycleStatus;
+  const isArRecycling = Boolean(arStatus?.isRecycling || data.recyclingUntil || data.scheduler?.recycleState?.isRecycling);
+
+  if (deckAutoRecycleBadge) {
+    if (arStatus && arStatus.enabled) {
+      deckAutoRecycleBadge.style.display = 'inline-flex';
+      if (isArRecycling) {
+        deckAutoRecycleBadge.className = 'reachability-pill warning';
+        const rem = arStatus.nextStreamFormatted || (data.scheduler?.recycleState?.formatted) || '00:00:00';
+        deckAutoRecycleBadge.innerHTML = `AUTO-RECYCLE PAUSE · Next: ${rem}`;
+        deckAutoRecycleBadge.title = `Auto-recycle pause active. Next stream starts in: ${rem}`;
+      } else if (data.status === 'RUNNING') {
+        deckAutoRecycleBadge.className = 'reachability-pill healthy';
+        const rem = arStatus.nextRecycleFormatted || '00:00:00';
+        deckAutoRecycleBadge.innerHTML = `AUTO-RECYCLE · Next: ${rem}`;
+        deckAutoRecycleBadge.title = `Auto-recycle armed. Next recycle in: ${rem}`;
+      } else {
+        deckAutoRecycleBadge.className = 'reachability-pill';
+        deckAutoRecycleBadge.innerHTML = 'AUTO-RECYCLE: Armed';
+        deckAutoRecycleBadge.title = 'Auto-recycle enabled; will activate once stream is running.';
+      }
+    } else {
+      deckAutoRecycleBadge.style.display = 'none';
     }
   }
 
@@ -889,21 +925,33 @@ function renderScheduler(data) {
 
   // 4. Auto-Recycle Settings (VOD Archive Protection)
   const ar = data.autoRecycle || {};
+  const arStatus = data.autoRecycleStatus || {};
   if (schedRecycleEnabled) schedRecycleEnabled.checked = !!ar.enabled;
-  const recMins = ar.maxSessionMinutes || (ar.maxSessionHours ? Math.round(ar.maxSessionHours * 60) : 360);
+  const recMins = ar.maxSessionMinutes || (ar.maxSessionHours ? Math.round(ar.maxSessionHours * 60) : 480);
   if (schedRecycleMinutes) schedRecycleMinutes.value = recMins;
   updateRecycleHint(recMins);
-  if (schedPauseMins) schedPauseMins.value = ar.pauseMinutes || 30;
+  if (schedPauseMins) schedPauseMins.value = ar.pauseMinutes || 60;
+  if (schedResumeBookmark) schedResumeBookmark.checked = ar.resumeBookmark !== false;
+
   if (schedRecycleStatusBadge) {
-    schedRecycleStatusBadge.textContent = ar.enabled ? 'Protected' : 'Off';
-    schedRecycleStatusBadge.className = `badge-tag ${ar.enabled ? 'compatible' : 'disabled'}`;
+    if (arStatus.isRecycling) {
+      schedRecycleStatusBadge.textContent = `Pausing (${arStatus.nextStreamFormatted || 'Pause Active'})`;
+      schedRecycleStatusBadge.className = 'badge-tag warning';
+    } else if (ar.enabled && data.status === 'RUNNING') {
+      schedRecycleStatusBadge.textContent = `Active (${arStatus.nextRecycleFormatted || 'Rotating'})`;
+      schedRecycleStatusBadge.className = 'badge-tag compatible';
+    } else {
+      schedRecycleStatusBadge.textContent = ar.enabled ? 'Armed' : 'Off';
+      schedRecycleStatusBadge.className = `badge-tag ${ar.enabled ? 'compatible' : 'disabled'}`;
+    }
   }
 
   // 5. Dynamic Status Banner
   if (schedStatusBanner && schedStatusText) {
-    if (data.recycleState && data.recycleState.isRecycling) {
+    if (arStatus.isRecycling || (data.recycleState && data.recycleState.isRecycling)) {
       schedStatusBanner.className = 'sched-banner recycle';
-      schedStatusText.innerHTML = `<strong>VOD Finalize Pause in Progress:</strong> Stream paused for ${data.recycleState.remainingMinutes} min so YouTube can index & save previous broadcast as permanent VOD, then will resume automatically.`;
+      const rem = arStatus.nextStreamFormatted || `${data.recycleState?.remainingMinutes || 0}m`;
+      schedStatusText.innerHTML = `<strong>AUTO-RECYCLE PAUSE:</strong> Next stream in: <code>${rem}</code>. Stream paused to let YouTube finalize past broadcast as permanent VOD.`;
     } else if (data.mode === 'scheduled') {
       if (data.insideWindow) {
         schedStatusBanner.className = 'sched-banner live';
@@ -916,7 +964,8 @@ function renderScheduler(data) {
       if (ar.enabled) {
         schedStatusBanner.className = 'sched-banner live';
         const durLabel = (recMins % 60 === 0) ? `${recMins / 60}h` : `${recMins}m`;
-        schedStatusText.innerHTML = `<strong>24×7 Continuous Streaming (Auto-Recycle Enabled):</strong> Running non-stop with automatic ${durLabel} session rotation & ${ar.pauseMinutes || 30}m archive pause to build your channel's public video catalog.`;
+        const nextStr = (data.status === 'RUNNING' && arStatus.nextRecycleFormatted) ? ` · Next recycle in: <code>${arStatus.nextRecycleFormatted}</code>` : '';
+        schedStatusText.innerHTML = `<strong>AUTO-RECYCLE ACTIVE:</strong> Running non-stop with automatic ${durLabel} session rotation & ${ar.pauseMinutes || 60}m archive pause.${nextStr}`;
       } else {
         schedStatusBanner.className = 'sched-banner info';
         schedStatusText.innerHTML = `<strong>24×7 Continuous Streaming Active:</strong> Stream runs uninterrupted. Note: Streams exceeding 12h are not archived by YouTube into channel videos. Enable Auto-Recycle to save past streams automatically.`;
@@ -983,10 +1032,10 @@ async function saveSchedulerSettings() {
       windows,
       autoRecycle: {
         enabled: schedRecycleEnabled ? schedRecycleEnabled.checked : false,
-        maxSessionMinutes: parseInt(schedRecycleMinutes?.value, 10) || 360,
-        maxSessionHours: +((parseInt(schedRecycleMinutes?.value, 10) || 360) / 60).toFixed(2),
-        pauseMinutes: parseInt(schedPauseMins?.value, 10) || 30,
-        resumeBookmark: false,
+        maxSessionMinutes: parseInt(schedRecycleMinutes?.value, 10) || 480,
+        maxSessionHours: +((parseInt(schedRecycleMinutes?.value, 10) || 480) / 60).toFixed(2),
+        pauseMinutes: parseInt(schedPauseMins?.value, 10) || 60,
+        resumeBookmark: schedResumeBookmark ? schedResumeBookmark.checked : true,
       },
     };
 
@@ -1203,6 +1252,8 @@ function updateHardwareVisualizations(data) {
   }
 }
 
+let _cachedLogicalVideos = [];
+
 async function fetchVideos() {
   try {
     const data = await apiGet('/api/videos');
@@ -1210,9 +1261,10 @@ async function fetchVideos() {
       _currentActiveVideoId = data.activeVideoId;
     }
     _cachedVideos = data.videos || [];
+    _cachedLogicalVideos = data.logicalVideos || [];
     _currentPlaylist = Array.isArray(data.playlist) ? data.playlist : (_currentActiveVideoId ? [_currentActiveVideoId] : []);
     _currentPlaybackOrder = data.playbackOrder || 'sequential';
-    renderVideos(_cachedVideos, data.activeVideoId, _currentPlaylist, _currentPlaybackOrder);
+    renderVideos(_cachedVideos, data.activeVideoId, _currentPlaylist, _currentPlaybackOrder, _cachedLogicalVideos);
   } catch (err) {
     console.error('Fetch videos failed:', err);
   }
@@ -1220,22 +1272,15 @@ async function fetchVideos() {
 
 async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder) {
   const isLive = _currentStatus === 'RUNNING' || _currentStatus === 'STARTING';
-  let shouldRestart = false;
-
-  if (isLive) {
-    shouldRestart = confirm(
-      'Playlist updated.\n\nThe live stream is currently active on YouTube. Do you want to restart the stream now with the new playlist?'
-    );
-  }
 
   try {
-    const url = `/api/videos/playlist${shouldRestart ? '?restart=true' : ''}`;
+    const url = '/api/videos/playlist';
     const res = await apiPost(url, { playlist: newPlaylist, playbackOrder });
     _currentPlaylist = res.playlist || newPlaylist;
     _currentPlaybackOrder = res.playbackOrder || playbackOrder;
     await fetchVideos();
-    if (shouldRestart) {
-      await fetchStatus();
+    if (isLive) {
+      showToast('Playlist updated dynamically without stream restart.', 'success', 'Hot Sync Active');
     }
   } catch (err) {
     showToast(err.message, 'error', 'Playlist Update Failed');
@@ -1243,12 +1288,13 @@ async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder
   }
 }
 
-function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylist, playbackOrder = _currentPlaybackOrder) {
+function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylist, playbackOrder = _currentPlaybackOrder, logicalVideos = _cachedLogicalVideos) {
   videosList.innerHTML = '';
   const currentVideoId = activeIdFromApi || _currentActiveVideoId || _currentSettings?.stream?.videoId;
 
   if (videoCountBadge) {
-    videoCountBadge.textContent = `${videos.length} ${videos.length === 1 ? 'Video' : 'Videos'}`;
+    const displayCount = (logicalVideos && logicalVideos.length > 0) ? logicalVideos.length : videos.length;
+    videoCountBadge.textContent = `${displayCount} ${displayCount === 1 ? 'Logical Video' : 'Logical Videos'}`;
   }
 
   if (playlistSelectedCount) {
@@ -1260,7 +1306,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
     selPlaybackOrder.value = playbackOrder || 'sequential';
   }
 
-  if (videos.length === 0) {
+  if (videos.length === 0 && (!logicalVideos || logicalVideos.length === 0)) {
     videosList.innerHTML = `
       <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1.25rem 1rem;">
         <div>No videos currently indexed in library.</div>
@@ -1291,6 +1337,125 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
       });
     }
     activeVideoName.textContent = 'None selected';
+    return;
+  }
+
+  // If logical paired videos are available, render unified logical pairs
+  if (logicalVideos && logicalVideos.length > 0) {
+    const activeLogical = logicalVideos.find(l => l.isPlaying || l.id === currentVideoId || (l.verticalVideoId && l.verticalVideoId === currentVideoId));
+    if (activeLogical) {
+      activeVideoName.textContent = `Now Playing: ${activeLogical.label}`;
+    } else if (playlist.length === 0) {
+      activeVideoName.textContent = 'Active: None';
+    } else {
+      activeVideoName.textContent = `Looping ${playlist.length} Logical Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})`;
+    }
+
+    logicalVideos.forEach(l => {
+      const isSelected = playlist.includes(l.id) || (l.verticalVideoId && playlist.includes(l.verticalVideoId)) || (l.horizontalVideoId && playlist.includes(l.horizontalVideoId));
+      const orderIndex = playlist.indexOf(l.id) !== -1 ? playlist.indexOf(l.id) : (l.verticalVideoId ? playlist.indexOf(l.verticalVideoId) : -1);
+      const isPlaying = l.isPlaying || l.id === currentVideoId || (l.verticalVideoId && l.verticalVideoId === currentVideoId);
+
+      const item = document.createElement('div');
+      item.className = `video-item ${isSelected ? 'in-playlist' : ''} ${isPlaying ? 'active' : ''}`;
+
+      let statusBadge = '';
+      if (isPlaying) {
+        statusBadge = '<span class="badge-tag badge-active">PLAYING</span>';
+      } else if (l.isComplete) {
+        statusBadge = '<span class="badge-tag" style="background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); font-weight: 600;">READY</span>';
+      } else {
+        statusBadge = '<span class="badge-tag" style="background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); font-weight: 600;">PENDING PAIR</span>';
+      }
+
+      let chkAreaHtml = '';
+      if (isSelected) {
+        chkAreaHtml = `
+          <label class="video-chk-label" title="Deselect from loop playlist">
+            <input type="checkbox" class="video-select-chk" data-id="${l.id}" checked>
+          </label>
+          <span class="playlist-seq-badge" title="Position #${orderIndex + 1}">#${orderIndex + 1}</span>
+        `;
+      } else {
+        chkAreaHtml = `
+          <label class="video-chk-label" title="Select for loop playlist">
+            <input type="checkbox" class="video-select-chk" data-id="${l.id}">
+          </label>
+        `;
+      }
+
+      const vertInfo = l.vertical ? `9:16 (${l.vertical.probe?.width || 1080}x${l.vertical.probe?.height || 1920})` : '9:16 Missing';
+      const horizInfo = l.horizontal ? `16:9 (${l.horizontal.probe?.width || 1920}x${l.horizontal.probe?.height || 1080})` : '16:9 Missing';
+
+      item.innerHTML = `
+        <div class="video-item-leading">
+          ${chkAreaHtml}
+        </div>
+        <div class="video-item-content">
+          <div class="video-name" title="${l.label}">${l.label}</div>
+          <div class="video-meta">
+            <span class="meta-tag" style="color: ${l.vertical ? '#22c55e' : '#eab308'}; font-weight: 500;">Vertical: ${l.vertical ? '✓ ' + vertInfo : '✗ Pending'}</span>
+            <span class="meta-tag" style="color: ${l.horizontal ? '#22c55e' : '#eab308'}; font-weight: 500;">Horizontal: ${l.horizontal ? '✓ ' + horizInfo : '✗ Pending'}</span>
+            ${statusBadge}
+          </div>
+        </div>
+        <div class="video-actions">
+          ${isPlaying
+            ? '<span class="badge-tag badge-active">NOW PLAYING</span>'
+            : isSelected
+              ? `<span class="badge-tag badge-active">IN PLAYLIST (#${orderIndex + 1})</span>`
+              : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${l.id}" title="Play this logical video solo">
+                   <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                   Play Solo
+                 </button>`
+          }
+          <button class="btn btn-outline btn-sm btn-delete" data-id="${l.verticalVideoId || l.id}" title="Delete video">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+        </div>
+      `;
+
+      videosList.appendChild(item);
+    });
+
+    // Attach Checkbox Events
+    videosList.querySelectorAll('.video-select-chk').forEach(chk => {
+      chk.addEventListener('change', async () => {
+        const id = chk.getAttribute('data-id');
+        let updated = [..._currentPlaylist];
+        if (chk.checked) {
+          if (!updated.includes(id)) updated.push(id);
+        } else {
+          updated = updated.filter(x => x !== id);
+        }
+        await updatePlaylist(updated, _currentPlaybackOrder);
+      });
+    });
+
+    // Attach Play Solo Events
+    videosList.querySelectorAll('.btn-play-solo').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        await updatePlaylist([id], _currentPlaybackOrder);
+      });
+    });
+
+    // Attach Delete Events
+    videosList.querySelectorAll('.btn-delete').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.getAttribute('data-id');
+        if (confirm('Are you sure you want to delete this video?')) {
+          try {
+            await apiDelete(`/api/videos/${id}`);
+            showToast('Video deleted successfully', 'success');
+            await fetchVideos();
+          } catch (err) {
+            showToast(err.message, 'error', 'Delete Failed');
+          }
+        }
+      });
+    });
+
     return;
   }
 
@@ -2552,6 +2717,15 @@ function renderThumbnailPreview() {
   if (!metaThumbnailImg || !metaThumbnailPlaceholder) return;
   const url = _currentThumbnailState.customDataUrl || _currentThumbnailState.sourceUrl;
   if (url) {
+    metaThumbnailImg.onerror = () => {
+      metaThumbnailImg.style.display = 'none';
+      metaThumbnailPlaceholder.style.display = 'flex';
+      if (metaThumbnailInfo) metaThumbnailInfo.textContent = 'Thumbnail preview unavailable (synced from template)';
+    };
+    metaThumbnailImg.onload = () => {
+      metaThumbnailImg.style.display = 'block';
+      metaThumbnailPlaceholder.style.display = 'none';
+    };
     metaThumbnailImg.src = url;
     metaThumbnailImg.style.display = 'block';
     metaThumbnailPlaceholder.style.display = 'none';
@@ -2562,7 +2736,7 @@ function renderThumbnailPreview() {
   } else {
     metaThumbnailImg.src = '';
     metaThumbnailImg.style.display = 'none';
-    metaThumbnailPlaceholder.style.display = 'block';
+    metaThumbnailPlaceholder.style.display = 'flex';
     if (metaThumbnailInfo) metaThumbnailInfo.textContent = 'No thumbnail source active';
   }
 }

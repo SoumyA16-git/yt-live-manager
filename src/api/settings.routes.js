@@ -10,7 +10,7 @@ import {
   getHorizontalStreamKey,
 } from '../config-manager.js';
 import { validateSettings } from '../lib/validate.js';
-import { clearConfigGateError } from '../stream-manager.js';
+import { clearConfigGateError, recalculateAutoRecycleTimer } from '../stream-manager.js';
 import { verifyPassword } from '../auth.js';
 import { logger } from '../logger.js';
 
@@ -88,6 +88,7 @@ export function createSettingsRouter(envConfig) {
 
     try {
       const updated = await saveSettings(patch);
+      recalculateAutoRecycleTimer();
       await clearConfigGateError();
       res.json({
         success: true,

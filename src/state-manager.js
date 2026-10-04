@@ -32,6 +32,11 @@ const STATE_DEFAULTS = {
   lastError:           null,        // { code, message, at }
   lastSeenAt:          null,        // ISO timestamp — clock sanity anchor
   activeVideoId:       null,
+  currentLogicalVideoId: null,
+  currentVerticalVideoId: null,
+  currentHorizontalVideoId: null,
+  currentPlaybackState: 'IDLE',
+  currentVideoStartedAt: null,
   streamMode:          null,        // 'copy' | 'hybrid' | 'transcode'
   ffmpegPid:           null,        // runtime only — cleared on load
   streamStartedAt:     null,

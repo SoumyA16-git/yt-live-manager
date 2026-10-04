@@ -164,6 +164,185 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
   return args;
 }
 
+/**
+ * Build CLI arguments for persistent FFmpeg publisher process.
+ * Reads continuous MPEG-TS from pipe:0 and outputs FLV to YouTube RTMPS.
+ *
+ * @param {object} settings
+ * @param {string} secretTarget Full destination URL (rtmpsUrl + "/" + streamKey)
+ * @returns {string[]}
+ */
+export function buildPublisherArgs(settings, secretTarget) {
+  return [
+    '-hide_banner',
+    '-nostdin',
+    '-loglevel', 'warning',
+    '-nostats',
+    '-progress', 'pipe:1',
+    '-re',
+    '-fflags', '+genpts+igndts',
+    '-f', 'mpegts',
+    '-i', 'pipe:0',
+    '-c', 'copy',
+    '-flvflags', 'no_duration_filesize',
+    '-f', 'flv',
+    secretTarget,
+  ];
+}
+
+/**
+ * Build CLI arguments for segment feeder FFmpeg process.
+ * Reads source video file and emits standard MPEG-TS to pipe:1 (stdout).
+ *
+ * @param {object} settings
+ * @param {object} videoMeta
+ * @param {'copy'|'hybrid'|'transcode'} [mode='copy']
+ * @returns {string[]}
+ */
+export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
+  const streamCfg = settings.stream || {};
+  const videoPath = videoMeta?.filePath || videoMeta?.path || '';
+
+  const args = [
+    '-hide_banner',
+    '-nostdin',
+    '-loglevel', 'warning',
+    '-nostats',
+    '-re',
+  ];
+
+  if (videoMeta?.seekOffset && Number(videoMeta.seekOffset) > 0) {
+    args.push('-ss', String(Math.floor(videoMeta.seekOffset)));
+  }
+
+  args.push('-i', videoPath);
+
+  if (mode === 'copy') {
+    if (videoMeta && videoMeta.hasAudio === false) {
+      args.push(
+        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-map', '0:v:0',
+        '-map', '1:a:0',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ac', '2',
+        '-shortest',
+        '-bsf:v', 'h264_mp4toannexb',
+        '-f', 'mpegts',
+        'pipe:1'
+      );
+    } else {
+      args.push(
+        '-map', '0:v:0',
+        '-map', '0:a:0?',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ac', '2',
+        '-bsf:v', 'h264_mp4toannexb',
+        '-f', 'mpegts',
+        'pipe:1'
+      );
+    }
+  } else if (mode === 'hybrid') {
+    args.push('-map', '0:v:0');
+    if (videoMeta?.hasAudio) {
+      args.push(
+        '-map', '0:a:0?',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-ac', '2'
+      );
+    } else {
+      args.push(
+        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-map', '1:a:0',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-ac', '2',
+        '-shortest'
+      );
+    }
+    args.push('-bsf:v', 'h264_mp4toannexb', '-f', 'mpegts', 'pipe:1');
+  } else {
+    // Transcode mode
+    const isHoriz = (videoMeta?.probe?.width && videoMeta?.probe?.height && videoMeta.probe.width > videoMeta.probe.height) ||
+      videoMeta?.orientation === 'horizontal' || videoMeta?.probe?.orientation === 'horizontal';
+    const defaultRes = isHoriz ? '1920x1080' : '1080x1920';
+    const resolution = streamCfg.resolution || defaultRes;
+    const [w, h] = resolution.split('x');
+    const width = parseInt(w, 10) || (isHoriz ? 1920 : 1080);
+    const height = parseInt(h, 10) || (isHoriz ? 1080 : 1920);
+
+    const fps = streamCfg.fps ?? 30;
+    const keyframeSec = streamCfg.keyframeSeconds ?? 2;
+    const gop = Math.round(fps * keyframeSec);
+
+    const maxKbps = (streamCfg.videoBitrateMbps ?? 4) * 1000;
+    const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
+    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
+    const bufSizeKbps = videoKbps * 2;
+    const preset = streamCfg.x264Preset || 'veryfast';
+
+    const vf = [
+      `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+      'setsar=1',
+      `fps=${fps}`,
+      'format=yuv420p',
+    ].join(',');
+
+    args.push(
+      '-vf', vf,
+      '-c:v', 'libx264',
+      '-preset', preset,
+      '-profile:v', 'high',
+      '-level:v', '4.2',
+      '-b:v', `${videoKbps}k`,
+      '-minrate', `${videoKbps}k`,
+      '-maxrate', `${videoKbps}k`,
+      '-bufsize', `${bufSizeKbps}k`,
+      '-g', `${gop}`,
+      '-keyint_min', `${gop}`,
+      '-sc_threshold', '0',
+      '-x264-params', 'nal-hrd=cbr:force-cfr=1',
+      '-pix_fmt', 'yuv420p',
+      '-colorspace', 'bt709',
+      '-color_primaries', 'bt709',
+      '-color_trc', 'bt709'
+    );
+
+    if (!videoMeta || videoMeta.hasAudio === false) {
+      args.push(
+        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-map', '0:v:0',
+        '-map', '1:a:0',
+        '-shortest'
+      );
+    }
+
+    args.push(
+      '-c:a', 'aac',
+      '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+      '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+      '-ac', '2',
+      '-bsf:v', 'h264_mp4toannexb',
+      '-f', 'mpegts',
+      'pipe:1'
+    );
+  }
+
+  return args;
+}
+
+
 // ─── Lock File Management ─────────────────────────────────────────────────────
 
 const CMD_MARKER = 'yt-live-manager-ffmpeg';
@@ -243,6 +422,10 @@ let _primaryChild = null;
 let _secondaryChild = null;
 let _primaryPid = null;
 let _secondaryPid = null;
+let _primaryFeeder = null;
+let _secondaryFeeder = null;
+let _feederExitExpected = false;
+let _currentSegment = null;
 let _expectedExit = false;
 let _latestProgress = null;
 const _stderrRing = []; // capped at 50 entries
@@ -320,6 +503,7 @@ export async function spawnFfmpeg({
   args,
   secondaryArgs = null,
   settings,
+  pipeMode = false,
   onProgress,
   onExit,
   onHealthy,
@@ -366,13 +550,19 @@ export async function spawnFfmpeg({
     _resolveExitCompletion = resolve;
   });
 
+  const primaryStdio = pipeMode ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'];
   let primaryChild;
   try {
     primaryChild = spawn('ffmpeg', args, {
       shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: primaryStdio,
       detached: false,
     });
+    if (pipeMode && primaryChild.stdin) {
+      primaryChild.stdin.on('error', (err) => {
+        logger.debug('ffmpeg.primary_stdin_error', err.message);
+      });
+    }
   } catch (err) {
     if (err.code === 'ENOENT') {
       throw Object.assign(new Error('FFmpeg binary not found on system PATH'), { code: 'E_FFMPEG_MISSING' });
@@ -401,11 +591,17 @@ export async function spawnFfmpeg({
     const safeLogSecCmd = secondaryArgs.map(arg => redact(arg)).join(' ');
     logger.info('ffmpeg.spawn_secondary', `Spawning Secondary Horizontal FFmpeg: ffmpeg ${safeLogSecCmd}`);
     try {
+      const secondaryStdio = pipeMode ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'];
       _secondaryChild = spawn('ffmpeg', secondaryArgs, {
         shell: false,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: secondaryStdio,
         detached: false,
       });
+      if (pipeMode && _secondaryChild.stdin) {
+        _secondaryChild.stdin.on('error', (err) => {
+          logger.debug('ffmpeg.secondary_stdin_error', err.message);
+        });
+      }
       _secondaryPid = _secondaryChild.pid;
       logger.info('ffmpeg.spawned_secondary', `Secondary Horizontal FFmpeg process spawned with PID ${_secondaryChild.pid}`);
     } catch (err) {
@@ -708,6 +904,159 @@ export async function spawnFfmpeg({
 // ─── Process Stopping ─────────────────────────────────────────────────────────
 
 /**
+ * Feed a media segment into the running persistent publisher FFmpeg process(es).
+ * Connects feeder process stdout directly to publisher stdin via stream piping.
+ *
+ * @param {object} params
+ * @param {object} params.primaryVideo Vertical (or primary) video metadata
+ * @param {object} [params.secondaryVideo] Horizontal (or secondary) video metadata
+ * @param {object} params.settings Application settings
+ * @param {'copy'|'hybrid'|'transcode'} [params.mode='copy']
+ * @param {Function} [params.onFinished] Called when the primary feeder reaches end of video
+ * @param {Function} [params.onError] Called if a feeder process errors
+ * @returns {Promise<void>}
+ */
+export async function feedMediaSegment({
+  primaryVideo,
+  secondaryVideo = null,
+  settings,
+  mode = 'copy',
+  onFinished,
+  onError,
+}) {
+  if (!_primaryChild || !_primaryChild.stdin || _primaryChild.stdin.destroyed) {
+    throw new Error('Primary FFmpeg publisher is not running or stdin is closed');
+  }
+
+  // Stop previous feeder processes if still running
+  await stopFeeders();
+
+  _feederExitExpected = false;
+  _currentSegment = {
+    primaryVideoId: primaryVideo.id,
+    secondaryVideoId: secondaryVideo?.id || null,
+    startedAt: new Date().toISOString(),
+  };
+
+  const primaryArgs = buildFeederArgs(settings, primaryVideo, mode);
+  logger.info('playlist.feeder_start_primary', `Starting feeder for primary video ${primaryVideo.id} (${primaryVideo.filename || primaryVideo.originalName || ''})`);
+
+  let primaryFeeder;
+  try {
+    primaryFeeder = spawn('ffmpeg', primaryArgs, {
+      shell: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      detached: false,
+    });
+  } catch (err) {
+    logger.error('playlist.feeder_spawn_error', `Failed to spawn primary feeder: ${err.message}`);
+    if (typeof onError === 'function') onError(err);
+    return;
+  }
+
+  _primaryFeeder = primaryFeeder;
+
+  // Pipe feeder stdout into publisher stdin (end: false prevents publisher stdin from closing!)
+  primaryFeeder.stdout.pipe(_primaryChild.stdin, { end: false });
+
+  primaryFeeder.stdout.on('error', (err) => {
+    logger.debug('playlist.feeder_pipe_error', `Primary feeder stdout error: ${err.message}`);
+  });
+
+  const rlStderr = readline.createInterface({ input: primaryFeeder.stderr, terminal: false });
+  rlStderr.on('line', (line) => {
+    const redacted = redact(line.trim());
+    if (redacted) logger.debug('playlist.feeder_stderr_primary', redacted);
+  });
+
+  // Secondary feeder (horizontal) if dual streaming publisher is active
+  if (_secondaryChild && _secondaryChild.stdin && !_secondaryChild.stdin.destroyed && secondaryVideo) {
+    const secArgs = buildFeederArgs(settings, secondaryVideo, mode);
+    logger.info('playlist.feeder_start_secondary', `Starting feeder for secondary horizontal video ${secondaryVideo.id} (${secondaryVideo.filename || secondaryVideo.originalName || ''})`);
+
+    try {
+      const secondaryFeeder = spawn('ffmpeg', secArgs, {
+        shell: false,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        detached: false,
+      });
+      _secondaryFeeder = secondaryFeeder;
+      secondaryFeeder.stdout.pipe(_secondaryChild.stdin, { end: false });
+      secondaryFeeder.stdout.on('error', (err) => {
+        logger.debug('playlist.feeder_pipe_error', `Secondary feeder stdout error: ${err.message}`);
+      });
+      const rlSec = readline.createInterface({ input: secondaryFeeder.stderr, terminal: false });
+      rlSec.on('line', (line) => {
+        const redacted = redact(line.trim());
+        if (redacted) logger.debug('playlist.feeder_stderr_secondary', redacted);
+      });
+      secondaryFeeder.on('error', (err) => {
+        logger.warn('playlist.secondary_feeder_error', `Secondary feeder error: ${err.message}`);
+      });
+      secondaryFeeder.on('exit', (code) => {
+        logger.debug('playlist.secondary_feeder_exit', `Secondary feeder exited with code ${code}`);
+        _secondaryFeeder = null;
+      });
+    } catch (err) {
+      logger.error('playlist.secondary_feeder_spawn_error', `Failed to spawn secondary feeder: ${err.message}`);
+    }
+  }
+
+  primaryFeeder.on('error', (err) => {
+    logger.error('playlist.primary_feeder_error', `Primary feeder error: ${err.message}`);
+    if (!_feederExitExpected && typeof onError === 'function') {
+      onError(err);
+    }
+  });
+
+  primaryFeeder.on('exit', (code, signal) => {
+    _primaryFeeder = null;
+    logger.info('playlist.primary_feeder_exit', `Primary feeder exited with code ${code}, signal ${signal} (expected: ${_feederExitExpected})`);
+    if (_feederExitExpected) return;
+
+    if (code === 0) {
+      if (typeof onFinished === 'function') {
+        onFinished();
+      }
+    } else {
+      logger.warn('playlist.primary_feeder_failed', `Primary feeder exited abnormally with code ${code}`);
+      if (typeof onError === 'function') {
+        onError(new Error(`Feeder process exited with code ${code}`));
+      }
+    }
+  });
+}
+
+/**
+ * Stop any active segment feeder processes.
+ */
+export async function stopFeeders() {
+  _feederExitExpected = true;
+  if (_primaryFeeder) {
+    try {
+      _primaryFeeder.stdout?.unpipe();
+      _primaryFeeder.kill('SIGTERM');
+    } catch { /* ignore */ }
+    _primaryFeeder = null;
+  }
+  if (_secondaryFeeder) {
+    try {
+      _secondaryFeeder.stdout?.unpipe();
+      _secondaryFeeder.kill('SIGTERM');
+    } catch { /* ignore */ }
+    _secondaryFeeder = null;
+  }
+}
+
+export function isFeederRunning() {
+  return Boolean(_primaryFeeder || _secondaryFeeder);
+}
+
+export function getCurrentSegment() {
+  return _currentSegment ? { ..._currentSegment } : null;
+}
+
+/**
  * Stop currently running FFmpeg processes.
  * Order: SIGTERM → wait stopGraceSeconds → SIGKILL.
  * Guaranteed: returns only when processes exited, lock released, and onExit completed.
@@ -718,6 +1067,8 @@ export async function spawnFfmpeg({
  * @param {number}  [opts.graceSeconds=8]
  */
 export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceSeconds = 8 } = {}) {
+  await stopFeeders();
+
   if (!_primaryChild && !_secondaryChild) {
     if (_exitCompletionPromise) {
       await _exitCompletionPromise;
@@ -730,6 +1081,14 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
   const exitPromise = _exitCompletionPromise;
   _expectedExit = true;
   clearWatchdogs();
+
+  // Close publisher stdin pipes gracefully
+  if (primary?.stdin && !primary.stdin.destroyed) {
+    try { primary.stdin.end(); } catch { /* ignore */ }
+  }
+  if (secondary?.stdin && !secondary.stdin.destroyed) {
+    try { secondary.stdin.end(); } catch { /* ignore */ }
+  }
 
   logger.info('ffmpeg.stopping', `Stopping FFmpeg (primary PID: ${primary?.pid}, secondary PID: ${secondary?.pid}, reason: ${reason}, force: ${force})`);
 
@@ -821,6 +1180,10 @@ export function _setOutputStatusForTest(destination, status, error = null) {
 }
 
 export function _resetStateForTest() {
+  _primaryFeeder = null;
+  _secondaryFeeder = null;
+  _feederExitExpected = false;
+  _currentSegment = null;
   _primaryChild = null;
   _secondaryChild = null;
   _primaryPid = null;

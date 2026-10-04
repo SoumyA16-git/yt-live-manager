@@ -17,7 +17,7 @@ import { cleanupStaleLockOnBoot, getLatestProgress } from './ffmpeg-manager.js';
 import { cleanOrphanIncoming, getVideo } from './video-manager.js';
 import { getBandwidthSummary } from './bandwidth-monitor.js';
 import { getSystemSnapshot } from './system-monitor.js';
-import { startStream, stopStream, getCurrentSeekOffset } from './stream-manager.js';
+import { startStream, stopStream, getCurrentSeekOffset, initAutoRecycleOnBoot } from './stream-manager.js';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './scheduler.js';
 import { requireAuth, requireCsrf } from './auth.js';
 import { createAuthRouter } from './api/auth.routes.js';
@@ -221,6 +221,9 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
     // 5. Start in-process scheduler
     startScheduler();
 
+    // 5b. Recover auto-recycle pause on boot if active
+    await initAutoRecycleOnBoot();
+
     // Idle Garbage Collection (runs every 2 minutes if --expose-gc is enabled to trim memory)
     if (typeof global.gc === 'function') {
       setInterval(() => {
@@ -232,7 +235,9 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
     }
 
     // 6. Auto-resume stream if configured (PRD §8.5)
-    if (settings.stream?.autoResume && state.desiredState === 'running') {
+    // Only trigger boot auto-resume if not currently in an active or pending auto-recycle pause
+    const bootState = getState();
+    if (settings.stream?.autoResume && bootState.desiredState === 'running' && !bootState.recyclingUntil) {
       logger.info('app.auto_resume', 'Auto-resume enabled and desiredState is running; initiating stream start');
       startStream({ reason: 'boot_auto_resume' }).catch(err => {
         logger.error('app.auto_resume_failed', err.message);

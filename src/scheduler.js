@@ -11,7 +11,14 @@
 
 import { getSettings } from './config-manager.js';
 import { getState, saveState } from './state-manager.js';
-import { startStream, stopStream, transitionState } from './stream-manager.js';
+import {
+  startStream,
+  stopStream,
+  transitionState,
+  triggerAutoRecycle,
+  executeAutoResume,
+  getAutoRecycleStatus,
+} from './stream-manager.js';
 import { logger } from './logger.js';
 
 // ─── Window Evaluation Helpers ────────────────────────────────────────────────
@@ -172,21 +179,26 @@ export function getSchedulerStatus(now = new Date()) {
   const mode = settings.scheduler?.mode || 'continuous';
   const tz   = settings.scheduler?.timezone || 'Asia/Kolkata';
   const windows = settings.scheduler?.windows || [];
-  const autoRecycle = settings.scheduler?.autoRecycle || { enabled: false, maxSessionHours: 8, pauseMinutes: 60 };
+  const autoRecycle = settings.scheduler?.autoRecycle || { enabled: false, maxSessionHours: 8, pauseMinutes: 60, resumeBookmark: true };
 
   const currentLocal = getLocalTimeInZone(now, tz);
   const inside = isInsideWindow(now, windows, tz);
   const nextEvent = getNextScheduleEvent(now, windows, tz);
 
+  const autoRecycleStatus = getAutoRecycleStatus(now);
+
   let recycleState = null;
   if (state.recyclingUntil) {
     const untilMs = new Date(state.recyclingUntil).getTime();
     const remainingMins = Math.max(0, Math.ceil((untilMs - now.getTime()) / 60000));
+    const remainingSec = Math.max(0, Math.ceil((untilMs - now.getTime()) / 1000));
     recycleState = {
       isRecycling: true,
       until: state.recyclingUntil,
       remainingMinutes: remainingMins,
-      label: `VOD Finalize Pause (Resuming in ${remainingMins}m)`,
+      remainingSec,
+      formatted: autoRecycleStatus.nextStreamFormatted,
+      label: `AUTO-RECYCLE PAUSE: Next stream in ${autoRecycleStatus.nextStreamFormatted || `${remainingMins}m`}`,
     };
   }
 
@@ -207,6 +219,7 @@ export function getSchedulerStatus(now = new Date()) {
     insideWindow: inside,
     windows,
     autoRecycle,
+    autoRecycleStatus,
     recycleState,
     nextEvent,
     status: state.status,
@@ -230,7 +243,7 @@ export async function tickScheduler(now = new Date()) {
   const mode = settings.scheduler?.mode || 'continuous';
   const tz   = settings.scheduler?.timezone || 'Asia/Kolkata';
   const windows = settings.scheduler?.windows || [];
-  const autoRecycle = settings.scheduler?.autoRecycle || { enabled: false, maxSessionHours: 8, pauseMinutes: 60 };
+  const autoRecycle = settings.scheduler?.autoRecycle || { enabled: false, maxSessionHours: 8, pauseMinutes: 60, resumeBookmark: true };
 
   if (mode === 'manual') {
     return { mode: 'manual' };
@@ -241,39 +254,25 @@ export async function tickScheduler(now = new Date()) {
     const untilMs = new Date(state.recyclingUntil).getTime();
     if (now.getTime() < untilMs) {
       const remainingMins = Math.ceil((untilMs - now.getTime()) / 60000);
-      logger.debug('scheduler.recycling_wait', `In VOD recycle pause; resuming in ${remainingMins}m`);
+      logger.debug('scheduler.recycling_wait', `In auto-recycle pause; resuming in ${remainingMins}m`);
       return { mode, recycling: true, remainingMins };
     } else {
-      logger.info('scheduler.auto_recycle_pause_complete', 'VOD recycle pause completed; auto-resuming stream session');
-      await saveState({ recyclingUntil: null });
-      if (mode === 'continuous' || (mode === 'scheduled' && isInsideWindow(now, windows, tz))) {
-        logger.info('scheduler.auto_resume_requested', 'Auto-resume requested; invoking startStream');
-        const res = await startStream({ reason: 'scheduler.recycle_resume' });
-        if (!res.started) {
-          logger.error('scheduler.auto_resume_failed', `Auto-resume failed after recycle pause: ${res.message} (${res.code})`);
-        }
-      }
+      logger.info('scheduler.auto_recycle_pause_complete', 'Auto-recycle pause completed; triggering auto-resume');
+      await executeAutoResume();
       return { mode, recycling: false };
     }
   }
 
   if (mode === 'continuous') {
-    // Check autoRecycle max duration in continuous mode
+    // Check autoRecycle max duration in continuous mode as safety watchdog
     if (autoRecycle.enabled && state.status === 'RUNNING' && state.streamStartedAt) {
       const startedMs = new Date(state.streamStartedAt).getTime();
       const elapsedMins = (now.getTime() - startedMs) / 60000;
-      const limitMins = autoRecycle.maxSessionMinutes || (autoRecycle.maxSessionHours ? autoRecycle.maxSessionHours * 60 : 360);
+      const limitMins = autoRecycle.maxSessionMinutes || (autoRecycle.maxSessionHours ? autoRecycle.maxSessionHours * 60 : 480);
 
       if (elapsedMins >= limitMins) {
-        const pauseMins = autoRecycle.pauseMinutes || 30;
-        const durLabel = (limitMins % 60 === 0) ? `${limitMins / 60}h` : `${limitMins}m`;
-        logger.info('scheduler.auto_recycle_triggered', `Stream reached ${elapsedMins.toFixed(1)}m (limit ${durLabel}). Pausing for ${pauseMins}m to finalize YouTube VOD archive.`);
-        logger.info('stream.stop_requested', 'Stop requested for auto-recycle');
-        await stopStream({ keepDesiredRunning: true, reason: 'scheduler.auto_recycle' });
-        const recyclingUntil = new Date(now.getTime() + pauseMins * 60000).toISOString();
-        await saveState({ recyclingUntil });
-        await transitionState('SCHEDULED', 'scheduler.auto_recycle');
-        logger.info('scheduler.auto_recycle_pause_started', `VOD recycle pause active until ${recyclingUntil}`);
+        logger.info('scheduler.auto_recycle_triggered', `Watchdog detected session limit reached (${elapsedMins.toFixed(1)}m >= ${limitMins}m); invoking triggerAutoRecycle`);
+        await triggerAutoRecycle();
         return { mode: 'continuous', autoRecycleTriggered: true };
       }
     }

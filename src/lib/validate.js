@@ -235,12 +235,15 @@ function validateAutoRecycle(fPath, ar, errors) {
   if (!isObject(ar)) { errors.push(fieldErr(fPath, 'must be an object')); return; }
   if (ar.enabled !== undefined && typeof ar.enabled !== 'boolean')
     errors.push(fieldErr(`${fPath}.enabled`, 'must be a boolean'));
-  if (ar.maxSessionHours !== undefined && (typeof ar.maxSessionHours !== 'number' || ar.maxSessionHours < 0.01 || ar.maxSessionHours > 24))
-    errors.push(fieldErr(`${fPath}.maxSessionHours`, 'must be a number between 0.01 and 24'));
-  if (ar.maxSessionMinutes !== undefined && (typeof ar.maxSessionMinutes !== 'number' || ar.maxSessionMinutes < 1 || ar.maxSessionMinutes > 1440))
-    errors.push(fieldErr(`${fPath}.maxSessionMinutes`, 'must be a number between 1 and 1440'));
-  if (ar.pauseMinutes !== undefined && (typeof ar.pauseMinutes !== 'number' || ar.pauseMinutes < 1 || ar.pauseMinutes > 1440))
-    errors.push(fieldErr(`${fPath}.pauseMinutes`, 'must be an integer between 1 and 1440'));
+  const isTest = (process.env.NODE_ENV === 'test' || process.env.TEST_FAST_MODE === '1');
+  const minHours = isTest ? 0.0001 : 0.01;
+  const minMins  = isTest ? 0.001 : 1;
+  if (ar.maxSessionHours !== undefined && (typeof ar.maxSessionHours !== 'number' || ar.maxSessionHours < minHours || ar.maxSessionHours > 24))
+    errors.push(fieldErr(`${fPath}.maxSessionHours`, `must be a number between ${minHours} and 24`));
+  if (ar.maxSessionMinutes !== undefined && (typeof ar.maxSessionMinutes !== 'number' || ar.maxSessionMinutes < minMins || ar.maxSessionMinutes > 1440))
+    errors.push(fieldErr(`${fPath}.maxSessionMinutes`, `must be a number between ${minMins} and 1440`));
+  if (ar.pauseMinutes !== undefined && (typeof ar.pauseMinutes !== 'number' || ar.pauseMinutes < minMins || ar.pauseMinutes > 1440))
+    errors.push(fieldErr(`${fPath}.pauseMinutes`, `must be a number between ${minMins} and 1440`));
   if (ar.resumeBookmark !== undefined && typeof ar.resumeBookmark !== 'boolean')
     errors.push(fieldErr(`${fPath}.resumeBookmark`, 'must be a boolean'));
   for (const k of Object.keys(ar)) {

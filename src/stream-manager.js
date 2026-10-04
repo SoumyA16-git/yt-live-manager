@@ -17,16 +17,31 @@ import {
   spawnFfmpeg,
   stopFfmpeg,
   buildFfmpegArgs,
+  buildPublisherArgs,
+  buildFeederArgs,
+  feedMediaSegment,
+  stopFeeders,
   isFfmpegRunning,
+  getFfmpegPid,
   getLatestProgress,
 } from './ffmpeg-manager.js';
 import { getSettings, getStreamKey, getHorizontalStreamKey, isDualStreamEnabled } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
-import { getVideo, resolveVideoPath, listVideos, setActiveVideo, findPairedHorizontalVideo, findPairedComplementaryVideo } from './video-manager.js';
+import {
+  getVideo,
+  resolveVideoPath,
+  listVideos,
+  setActiveVideo,
+  findPairedHorizontalVideo,
+  findPairedComplementaryVideo,
+  buildLogicalVideos,
+  getFreshPlayablePlaylist,
+} from './video-manager.js';
 import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage } from './usage-manager.js';
 import { logger } from './logger.js';
-import { isYouTubeApiConfigured, manageBroadcastLifecycleOnStart } from './youtube-api-manager.js';
+import { isYouTubeApiConfigured, manageBroadcastLifecycleOnStart, transitionBroadcast } from './youtube-api-manager.js';
+import { isInsideWindow } from './scheduler.js';
 import PATHS from './lib/paths.js';
 
 export const streamEvents = new EventEmitter();
@@ -36,6 +51,8 @@ export const streamEvents = new EventEmitter();
 let _backoffTimer      = null;
 let _stabilityTimer    = null;
 let _slowRetryTimer    = null;
+let _autoRecycleTimer  = null; // dedicated timer for active stream session duration
+let _autoResumeTimer   = null; // dedicated timer for pause countdown auto-resume
 let _streamStartTime   = null;
 let _lastSpawnTime     = 0;
 const _spawnTimestamps = []; // for circuit breaker (> 30 in 10 min)
@@ -46,6 +63,13 @@ let _lifecyclePromise  = null; // tracks active YouTube broadcast lifecycle oper
 
 export function getCurrentLifecyclePromise() {
   return _lifecyclePromise;
+}
+
+export function getAutoRecycleTimers() {
+  return {
+    hasRecycleTimer: Boolean(_autoRecycleTimer),
+    hasResumeTimer: Boolean(_autoResumeTimer),
+  };
 }
 
 // ─── Helper: Backoff Calculation (PRD §9.2) ──────────────────────────────────
@@ -118,6 +142,15 @@ export async function evaluateStartGates(options = {}) {
   const settings = getSettings();
   const reason   = options.reason || '';
   const isManualStart = (reason === 'api_manual_start' || reason === 'manual_start');
+  const isAutoRecycleResume = (reason === 'auto_recycle_resume');
+
+  // 0. Auto-Recycle Pause Check
+  if (state.recyclingUntil) {
+    const untilMs = new Date(state.recyclingUntil).getTime();
+    if (Date.now() < untilMs && !isManualStart && !isAutoRecycleResume) {
+      return { allowed: false, code: 'E_RECYCLING_PAUSE', reason: 'Stream is in auto-recycle pause' };
+    }
+  }
 
   // 1. Master Kill Switch (DISABLED)
   if (state.disabled) {
@@ -286,14 +319,21 @@ export async function evaluateStartGates(options = {}) {
 
   // 7. Scheduler Mode Window Check
   if (settings.scheduler?.mode === 'scheduled') {
+    if (!isManualStart) {
+      const tz = settings.scheduler?.timezone || 'Asia/Kolkata';
+      const windows = settings.scheduler?.windows || [];
+      if (!isInsideWindow(new Date(), windows, tz)) {
+        return { allowed: false, code: 'E_SCHEDULED', reason: 'Outside scheduled streaming window' };
+      }
+    }
     // If scheduler says outside window, gate blocks
-    if (state.status === 'SCHEDULED' && state.desiredState !== 'running') {
+    if (state.status === 'SCHEDULED' && state.desiredState !== 'running' && !isManualStart) {
       return { allowed: false, code: 'E_SCHEDULED', reason: 'Outside scheduled streaming window' };
     }
   }
 
   // 8. Desired State
-  if (state.desiredState !== 'running') {
+  if (state.desiredState !== 'running' && !isManualStart) {
     return { allowed: false, code: 'E_DESIRED_STOPPED', reason: 'Desired state is stopped' };
   }
 
@@ -402,6 +442,124 @@ export async function transitionState(to, reason = '') {
   streamEvents.emit('state', { from: prev, to, reason });
 }
 
+// ─── Hot-Sync Segment Transition ─────────────────────────────────────────────
+
+let _transitionInProgress = false;
+
+/**
+ * Transition-aware logical video completion handler.
+ * Called when the current logical video reaches its end.
+ * Performs a fresh reload of the playlist, selects the next complete logical pair,
+ * and feeds it seamlessly into the still-open publisher pipe without interrupting
+ * the YouTube RTMPS connection.
+ *
+ * @param {'copy'|'hybrid'|'transcode'} [mode='copy']
+ */
+export async function handleSegmentFinished(mode = 'copy') {
+  if (!isFfmpegRunning()) return;
+  if (_transitionInProgress) return;
+  _transitionInProgress = true;
+
+  try {
+    const currentState = getState();
+    const finishedId = currentState.currentLogicalVideoId;
+    logger.info('playlist.current_video_finished', `Logical video finished playback: ${finishedId}`, {
+      logicalVideoId: finishedId,
+    });
+
+    // 1. Read the latest playlist configuration and video library state
+    const latestSettings = getSettings();
+    const allVideos = await listVideos();
+
+    // 2. Re-resolve vertical/horizontal pairing & remove invalid/missing items
+    const freshPlaylist = await getFreshPlayablePlaylist(latestSettings, allVideos);
+    logger.info('playlist.fresh_reload', `Fresh playlist reloaded at boundary with ${freshPlaylist.length} playable logical items`, {
+      itemCount: freshPlaylist.length,
+    });
+
+    if (freshPlaylist.length === 0) {
+      logger.error('playlist.no_playable_items', 'No playable logical items available in fresh playlist');
+      return;
+    }
+
+    // 3. Respect the existing playback order mode
+    const playbackOrder = latestSettings.stream?.playbackOrder || 'sequential';
+    let nextLogical = null;
+
+    if (playbackOrder === 'shuffle') {
+      if (freshPlaylist.length === 1) {
+        nextLogical = freshPlaylist[0];
+      } else {
+        const candidates = freshPlaylist.filter(item => item.id !== finishedId);
+        const pool = candidates.length > 0 ? candidates : freshPlaylist;
+        const randomIndex = Math.floor(Math.random() * pool.length);
+        nextLogical = pool[randomIndex];
+      }
+    } else {
+      // Sequential ordering: find current index and advance to next
+      const currentIndex = freshPlaylist.findIndex(item => item.id === finishedId);
+      const nextIndex = (currentIndex >= 0 && currentIndex + 1 < freshPlaylist.length) ? (currentIndex + 1) : 0;
+      nextLogical = freshPlaylist[nextIndex];
+    }
+
+    if (!nextLogical) {
+      nextLogical = freshPlaylist[0];
+    }
+
+    const isDual = isDualStreamEnabled() && Boolean(getHorizontalStreamKey());
+    const primaryVideo = nextLogical.vertical || nextLogical.horizontal;
+    const secondaryVideo = isDual ? nextLogical.horizontal : null;
+
+    if (!primaryVideo || (isDual && !secondaryVideo)) {
+      logger.warn('playlist.pair_missing', `Selected logical item ${nextLogical.id} missing complete pair; skipping to next`, {
+        logicalId: nextLogical.id,
+      });
+      setTimeout(() => handleSegmentFinished(mode), 50);
+      return;
+    }
+
+    logger.info('playlist.next_logical_video_selected', `Selected next logical video: ${nextLogical.id}`, {
+      logicalVideoId: nextLogical.id,
+      verticalVideoId: primaryVideo.id,
+      horizontalVideoId: secondaryVideo?.id || null,
+    });
+
+    logger.info('playlist.transition_started', `Transitioning live stream to logical video ${nextLogical.id}`);
+
+    await saveState({
+      currentLogicalVideoId: nextLogical.id,
+      currentVerticalVideoId: primaryVideo.id,
+      currentHorizontalVideoId: secondaryVideo?.id || null,
+      currentPlaybackState: 'PLAYING',
+      currentVideoStartedAt: new Date().toISOString(),
+      activeVideoId: nextLogical.id,
+    });
+
+    await feedMediaSegment({
+      primaryVideo,
+      secondaryVideo,
+      settings: latestSettings,
+      mode,
+      onFinished: async () => {
+        await handleSegmentFinished(mode);
+      },
+      onError: async (err) => {
+        logger.warn('playlist.next_video_failed', `Failed starting next segment for ${nextLogical.id}: ${err.message}; selecting next`, {
+          logicalVideoId: nextLogical.id,
+          error: err.message,
+        });
+        await handleSegmentFinished(mode);
+      },
+    });
+
+    logger.info('playlist.transition_completed', `Completed transition to logical video ${nextLogical.id}`);
+  } catch (err) {
+    logger.error('playlist.transition_error', `Error during playlist transition: ${err.message}`);
+  } finally {
+    _transitionInProgress = false;
+  }
+}
+
 // ─── Stream Starting & FFmpeg Execution ──────────────────────────────────────
 
 /**
@@ -439,6 +597,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
     // If manual start requested, auto-clear maintenance mode and recycle pause
     if (clearMaintenance || reason === 'api_manual_start' || reason === 'manual_start') {
+      clearAutoResumeTimer('manual_start');
+      clearAutoRecycleTimer('manual_start');
       const currentState = getState();
       if (currentState.maintenance?.active) {
         logger.info('stream.maintenance_auto_cleared', `Manual stream start (${reason}); auto-clearing maintenance mode`);
@@ -448,6 +608,12 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         logger.info('stream.recycle_pause_cleared', `Manual stream start (${reason}); clearing VOD recycle pause`);
         await saveState({ recyclingUntil: null });
       }
+      if (currentState.resumeBookmark) {
+        logger.info('stream.resume_bookmark_cleared', `Manual stream start (${reason}); clearing stale bookmark for fresh start`);
+        await saveState({ resumeBookmark: null });
+      }
+    } else if (reason === 'auto_recycle_resume') {
+      clearAutoResumeTimer('auto_recycle_resume');
     }
 
     // Set desired state to running
@@ -507,47 +673,81 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     }
 
     const destUrl = `${rtmpsUrl}/${secretKey.trim()}`;
+    const dualTarget = gate.dualTarget;
+    const isDual = Boolean(dualTarget && gate.horizontalMeta);
 
-    // Resolve orientation: ensure Shorts target (secretKey) always receives vertical video
-    const isPrimaryHorizontal = Boolean(
-      (gate.videoMeta?.probe?.width && gate.videoMeta?.probe?.height && gate.videoMeta.probe.width > gate.videoMeta.probe.height) ||
-      gate.videoMeta?.orientation === 'horizontal' ||
-      gate.videoMeta?.probe?.orientation === 'horizontal'
-    );
+    // Get fresh playable logical items
+    const allVideos = await listVideos();
+    const freshPlaylist = await getFreshPlayablePlaylist(settings, allVideos);
 
-    let vertMeta = gate.videoMeta;
-    let horizMeta = gate.horizontalMeta;
-
-    if (isPrimaryHorizontal && gate.horizontalMeta) {
-      vertMeta = gate.horizontalMeta;
-      horizMeta = gate.videoMeta;
+    // Check resume bookmark if resuming from auto-recycle
+    const currentState = getState();
+    let bookmarkSeek = 0;
+    if (reason === 'auto_recycle_resume' && currentState.resumeBookmark?.offsetSec) {
+      bookmarkSeek = Number(currentState.resumeBookmark.offsetSec) || 0;
+      logger.info('stream.resume_bookmark_applied', `Resuming auto-recycle session from bookmark at ${bookmarkSeek}s on video ${currentState.resumeBookmark.videoId}`);
     }
 
-    // Primary Vertical Stream (Shorts Feed) -> destUrl (secretKey)
-    // EXACT single-input/single-output command from known-good baseline 8b215d8
-    const args = buildFfmpegArgs(
-      settings,
-      vertMeta,
-      destUrl,
-      gate.mode
-    );
-
-    // Secondary Horizontal Stream (Normal Feed) -> dualTarget (if configured and paired)
-    let secondaryArgs = null;
-    if (gate.dualTarget && horizMeta) {
-      secondaryArgs = buildFfmpegArgs(
-        settings,
-        horizMeta,
-        gate.dualTarget,
-        gate.mode
+    let initialLogical = freshPlaylist.length > 0 ? freshPlaylist[0] : null;
+    if (bookmarkSeek > 0 && freshPlaylist.length > 0 && currentState.resumeBookmark?.videoId) {
+      const match = freshPlaylist.find(item =>
+        item.id === currentState.resumeBookmark.videoId ||
+        item.vertical?.id === currentState.resumeBookmark.videoId ||
+        item.horizontal?.id === currentState.resumeBookmark.videoId
       );
+      if (match) {
+        initialLogical = match;
+      }
     }
+
+    if (!initialLogical) {
+      initialLogical = {
+        id: gate.videoMeta.id,
+        verticalVideoId: gate.videoMeta.id,
+        horizontalVideoId: gate.horizontalMeta?.id || null,
+        vertical: gate.videoMeta,
+        horizontal: gate.horizontalMeta,
+      };
+    }
+
+    const initialPrimary = initialLogical.vertical || initialLogical.horizontal || gate.videoMeta;
+    const initialSecondary = isDual ? (initialLogical.horizontal || gate.horizontalMeta) : null;
+
+    if (bookmarkSeek > 0) {
+      if (initialPrimary) initialPrimary.seekOffset = bookmarkSeek;
+      if (initialSecondary) initialSecondary.seekOffset = bookmarkSeek;
+      _currentSessionStartOffset = bookmarkSeek;
+    }
+
+    // Build persistent publisher arguments (reads continuous MPEG-TS from pipe:0)
+    const publisherArgs = buildPublisherArgs(settings, destUrl);
+    let secPublisherArgs = null;
+    if (isDual && dualTarget) {
+      secPublisherArgs = buildPublisherArgs(settings, dualTarget);
+    }
+
+    // Set initial runtime state
+    await saveState({
+      currentLogicalVideoId: initialLogical.id,
+      currentVerticalVideoId: initialPrimary?.id || null,
+      currentHorizontalVideoId: initialSecondary?.id || null,
+      currentPlaybackState: 'PLAYING',
+      currentVideoStartedAt: new Date().toISOString(),
+      activeVideoId: initialLogical.id,
+    });
+
+    logger.info('playlist.next_logical_video_selected', `Selected initial logical video ${initialLogical.id}`, {
+      logicalVideoId: initialLogical.id,
+      verticalVideoId: initialPrimary?.id || null,
+      horizontalVideoId: initialSecondary?.id || null,
+    });
 
     try {
       const { pid } = await spawnFfmpeg({
-        args,
-        secondaryArgs,
+        args: publisherArgs,
+        secondaryArgs: secPublisherArgs,
         settings,
+        pipeMode: true,
         onProgress: (p) => {
           const overhead = settings.bandwidth?.overheadPercent ?? 10;
           recordProgressBytes(p.total_size, 1, overhead);
@@ -556,14 +756,15 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           _streamStartTime = Date.now();
           await transitionState('RUNNING', 'FFmpeg healthy output detected');
           logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid}`);
+          armAutoRecycleTimer();
 
           const apiConfigured = isYouTubeApiConfigured();
           await saveState({
             streamMode: gate.mode,
-            activeVideoId: gate.videoMeta.id,
+            activeVideoId: initialLogical.id,
             ffmpegPid: pid,
             streamStartedAt: new Date().toISOString(),
-            currentSeekOffset: 0,
+            currentSeekOffset: bookmarkSeek || 0,
             isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
             pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
             resumeBookmark: null,
@@ -577,7 +778,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           await appendHistory({
             event: 'start',
             mode: gate.mode,
-            videoId: gate.videoMeta.id,
+            videoId: initialLogical.id,
             pid,
             isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
           });
@@ -657,6 +858,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           }
         },
         onExit: async ({ code, signal, expected, lastError }) => {
+          await stopFeeders();
+          clearAutoRecycleTimer();
           if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
           if (_lifecyclePromise) { _lifecyclePromise = null; }
           await flushUsage({ force: true });
@@ -667,6 +870,10 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           await saveState({
             ffmpegPid: null,
             streamStartedAt: null,
+            currentPlaybackState: 'STOPPED',
+            currentLogicalVideoId: null,
+            currentVerticalVideoId: null,
+            currentHorizontalVideoId: null,
             isDualStream: false,
             pairedHorizontalVideoId: null,
             lastExit: { code, signal, at: new Date().toISOString() },
@@ -696,6 +903,23 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             await handleUnexpectedExit({ code, signal, lastError });
           }
         },
+      });
+
+      // Feed initial media segment into the publisher pipe
+      feedMediaSegment({
+        primaryVideo: initialPrimary,
+        secondaryVideo: initialSecondary,
+        settings,
+        mode: gate.mode,
+        onFinished: async () => {
+          await handleSegmentFinished(gate.mode);
+        },
+        onError: async (err) => {
+          logger.warn('playlist.next_video_failed', `Feeder error for ${initialLogical.id}: ${err.message}`);
+          await handleSegmentFinished(gate.mode);
+        },
+      }).catch(err => {
+        logger.error('playlist.feed_initial_error', `Error feeding initial media segment: ${err.message}`);
       });
 
       // Update restart counters
@@ -821,16 +1045,28 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
   if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
   if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
 
+  if (reason !== 'auto_recycle') {
+    clearAutoRecycleTimer('stream_stopped');
+    clearAutoResumeTimer('stream_stopped');
+  } else {
+    clearAutoRecycleTimer();
+  }
+
   const settings = getSettings();
   logger.info('stream.stop', `Stop requested (${reason}); stream will start from 00:00 on next run`);
   _currentSessionStartOffset = 0;
 
+  await stopFeeders();
   await saveState({
     ...(keepDesiredRunning ? {} : { desiredState: 'stopped' }),
     streamStartedAt: null,
+    currentPlaybackState: 'STOPPED',
+    currentLogicalVideoId: null,
+    currentVerticalVideoId: null,
+    currentHorizontalVideoId: null,
     isDualStream: false,
     pairedHorizontalVideoId: null,
-    resumeBookmark: null,
+    ...(reason === 'auto_recycle' ? {} : { resumeBookmark: null, recyclingUntil: null }),
     currentSeekOffset: 0,
   });
 
@@ -915,6 +1151,9 @@ async function handleUnexpectedExit({ code, signal, lastError }) {
  * Triggered by bandwidth-monitor when monthly limit is reached.
  */
 export async function triggerBandwidthSafetyStop() {
+  clearAutoRecycleTimer('bandwidth_safety_limit');
+  clearAutoResumeTimer('bandwidth_safety_limit');
+  await saveState({ recyclingUntil: null });
   logger.error('stream.bandwidth_lock_engaged', 'Bandwidth safety lock engaged; shutting down FFmpeg');
   await stopStream({ keepDesiredRunning: false, reason: 'bandwidth_safety_limit' });
   await transitionState('BANDWIDTH_LIMIT_REACHED', 'Monthly bandwidth safety limit reached');
@@ -923,11 +1162,14 @@ export async function triggerBandwidthSafetyStop() {
 // ─── Master Kill Switch & Maintenance ────────────────────────────────────────
 
 export async function setDisabled(disabled) {
-  await saveState({ disabled: Boolean(disabled) });
   if (disabled) {
+    clearAutoRecycleTimer('admin_disabled');
+    clearAutoResumeTimer('admin_disabled');
+    await saveState({ disabled: true, recyclingUntil: null });
     await stopStream({ keepDesiredRunning: false, reason: 'admin_disabled' });
     await transitionState('DISABLED', 'Streaming disabled by administrator');
   } else {
+    await saveState({ disabled: false });
     const st = getState();
     if (st.status === 'DISABLED') {
       await transitionState('STOPPED', 'Streaming re-enabled by administrator');
@@ -936,8 +1178,12 @@ export async function setDisabled(disabled) {
 }
 
 export async function setMaintenance(active, source = 'admin') {
+  if (active) {
+    clearAutoRecycleTimer(`maintenance_${source}`);
+    clearAutoResumeTimer(`maintenance_${source}`);
+  }
   const m = active ? { active: true, source, since: new Date().toISOString() } : null;
-  await saveState({ maintenance: m });
+  await saveState({ maintenance: m, ...(active ? { recyclingUntil: null } : {}) });
   if (active) {
     await stopStream({ keepDesiredRunning: false, reason: `maintenance_${source}` });
     await transitionState('MAINTENANCE', `Maintenance mode set by ${source}`);
@@ -974,4 +1220,369 @@ export async function clearConfigGateError() {
 
 export function getCurrentSeekOffset() {
   return _currentSessionStartOffset || 0;
+}
+
+// ─── Auto-Recycle Scheduler Orchestration ────────────────────────────────────
+
+function formatHms(ms) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+export function clearAutoRecycleTimer(reason = '') {
+  if (_autoRecycleTimer) {
+    clearTimeout(_autoRecycleTimer);
+    _autoRecycleTimer = null;
+    if (reason) {
+      logger.info('stream.auto_recycle_cancelled', { reason });
+    }
+  }
+}
+
+export function clearAutoResumeTimer(reason = '') {
+  if (_autoResumeTimer) {
+    clearTimeout(_autoResumeTimer);
+    _autoResumeTimer = null;
+    if (reason) {
+      logger.info('stream.auto_recycle_cancelled', { reason });
+    }
+  }
+}
+
+export function armAutoRecycleTimer() {
+  clearAutoRecycleTimer();
+  const settings = getSettings();
+  const ar = settings.scheduler?.autoRecycle;
+
+  if (!ar || !ar.enabled) {
+    return;
+  }
+
+  const curState = getState();
+  if (curState.status !== 'RUNNING' || !_streamStartTime) {
+    return;
+  }
+
+  const maxSessionMs = ar.maxSessionMinutes
+    ? (ar.maxSessionMinutes * 60 * 1000)
+    : ((ar.maxSessionHours || 8) * 60 * 60 * 1000);
+
+  const elapsedMs = Math.max(0, Date.now() - _streamStartTime);
+  const remainingMs = Math.max(0, maxSessionMs - elapsedMs);
+  const recycleAt = new Date(Date.now() + remainingMs).toISOString();
+
+  logger.info('stream.auto_recycle_armed', {
+    sessionStart: new Date(_streamStartTime).toISOString(),
+    maxSessionHours: ar.maxSessionHours ?? 8,
+    maxSessionMinutes: ar.maxSessionMinutes ?? null,
+    recycleAt,
+    remainingMs,
+  });
+
+  if (remainingMs === 0) {
+    triggerAutoRecycle().catch(err => {
+      logger.error('stream.auto_recycle_trigger_error', err.message);
+    });
+  } else {
+    _autoRecycleTimer = setTimeout(async () => {
+      _autoRecycleTimer = null;
+      await triggerAutoRecycle();
+    }, remainingMs);
+    if (typeof _autoRecycleTimer?.unref === 'function') {
+      _autoRecycleTimer.unref();
+    }
+  }
+}
+
+export function recalculateAutoRecycleTimer() {
+  const state = getState();
+  const settings = getSettings();
+  const ar = settings.scheduler?.autoRecycle;
+
+  if (isFfmpegRunning() && state.status === 'RUNNING' && _streamStartTime) {
+    if (!ar || !ar.enabled) {
+      clearAutoRecycleTimer('auto_recycle_disabled_in_settings');
+      return;
+    }
+
+    const maxSessionMs = ar.maxSessionMinutes
+      ? (ar.maxSessionMinutes * 60 * 1000)
+      : ((ar.maxSessionHours || 8) * 60 * 60 * 1000);
+
+    const elapsedMs = Math.max(0, Date.now() - _streamStartTime);
+    if (elapsedMs >= maxSessionMs) {
+      logger.info('stream.auto_recycle_recalculated_immediate', {
+        elapsedMs,
+        maxSessionMs,
+        msg: 'New maxSession limit already reached by active session; triggering recycle now',
+      });
+      clearAutoRecycleTimer();
+      triggerAutoRecycle().catch(err => {
+        logger.error('stream.auto_recycle_trigger_error', err.message);
+      });
+    } else {
+      armAutoRecycleTimer();
+    }
+  } else if (!isFfmpegRunning()) {
+    clearAutoRecycleTimer();
+  }
+}
+
+export async function triggerAutoRecycle() {
+  clearAutoRecycleTimer();
+
+  const settings = getSettings();
+  const ar = settings.scheduler?.autoRecycle || {};
+  const state = getState();
+
+  // 1. Confirm autoRecycle is still enabled
+  if (!ar.enabled) {
+    logger.info('stream.auto_recycle_cancelled', { reason: 'auto_recycle_not_enabled' });
+    return;
+  }
+  // 2. Confirm desiredState is still running
+  if (state.desiredState !== 'running') {
+    logger.info('stream.auto_recycle_cancelled', { reason: 'desired_state_not_running' });
+    return;
+  }
+  // 3. Confirm stream is currently RUNNING
+  if (state.status !== 'RUNNING') {
+    logger.info('stream.auto_recycle_cancelled', { reason: 'stream_not_running', status: state.status });
+    return;
+  }
+
+  // 4. Mark this as an EXPECTED recycle
+  logger.info('stream.auto_recycle_triggered', {
+    sessionStart: _streamStartTime ? new Date(_streamStartTime).toISOString() : null,
+    triggeredAt: new Date().toISOString(),
+  });
+
+  // 5. Compute/save resume bookmark if resumeBookmark is enabled
+  const allowBookmark = ar.resumeBookmark !== false;
+  if (allowBookmark) {
+    const sessionElapsedSec = _streamStartTime ? Math.round((Date.now() - _streamStartTime) / 1000) : 0;
+    try {
+      const bookmark = await computeResumeBookmark(sessionElapsedSec);
+      if (bookmark) {
+        await saveState({ resumeBookmark: bookmark });
+        logger.info('stream.resume_bookmark_saved', `Saved auto-recycle playback bookmark at ${bookmark.offsetSec}s (video: ${bookmark.videoId})`);
+      }
+    } catch (bmErr) {
+      logger.warn('stream.auto_recycle_bookmark_error', `Could not compute bookmark: ${bmErr.message}`);
+    }
+  } else {
+    await saveState({ resumeBookmark: null });
+  }
+
+  // 6. Stop current FFmpeg cleanly as EXPECTED stop
+  logger.info('stream.auto_recycle_stopping', 'Stopping current FFmpeg session for scheduled auto-recycle');
+  await stopStream({ keepDesiredRunning: true, reason: 'auto_recycle' });
+
+  // 7. End/complete the current YouTube broadcast through existing lifecycle behavior if required
+  const curState = getState();
+  const prevBroadcastId = curState.broadcastId;
+  if (prevBroadcastId && isYouTubeApiConfigured()) {
+    try {
+      logger.info('stream.youtube_auto_recycle_completing', `Transitioning YouTube broadcast ${prevBroadcastId} to 'complete' for VOD archive finalization`);
+      await transitionBroadcast(prevBroadcastId, 'complete');
+      await saveState({
+        broadcastId: null,
+        youtubeBroadcast: 'INACTIVE',
+        youtubeBroadcastLive: false,
+        youtubeStreamActive: false,
+        youtubeIngest: 'INACTIVE',
+      });
+    } catch (ytErr) {
+      logger.warn('stream.youtube_auto_recycle_complete_fail', `Could not complete YouTube broadcast ${prevBroadcastId}: ${ytErr.message}`);
+    }
+  }
+
+  // 8. Enter recycle pause state
+  const pauseMinutes = ar.pauseMinutes ?? 60;
+  const pauseMs = pauseMinutes * 60 * 1000;
+  const recyclingUntil = new Date(Date.now() + pauseMs).toISOString();
+
+  await saveState({ recyclingUntil });
+  await transitionState('SCHEDULED', 'auto_recycle_pause');
+
+  logger.info('stream.auto_recycle_pause_started', {
+    recyclingUntil,
+    pauseMinutes,
+  });
+
+  // 9. Schedule automatic resume after pause
+  scheduleAutoResume(pauseMs);
+}
+
+export function scheduleAutoResume(delayMs) {
+  clearAutoResumeTimer();
+
+  const resumeAt = new Date(Date.now() + delayMs).toISOString();
+  logger.info('stream.auto_recycle_resume_scheduled', {
+    delayMs,
+    resumeAt,
+  });
+
+  _autoResumeTimer = setTimeout(async () => {
+    _autoResumeTimer = null;
+    await executeAutoResume();
+  }, Math.max(0, delayMs));
+  if (typeof _autoResumeTimer?.unref === 'function') {
+    _autoResumeTimer.unref();
+  }
+}
+
+export async function executeAutoResume() {
+  clearAutoResumeTimer();
+
+  const settings = getSettings();
+  const state = getState();
+  const ar = settings.scheduler?.autoRecycle;
+
+  // 1. Re-check higher priority gates:
+  if (state.disabled) {
+    logger.warn('stream.auto_recycle_blocked', { reason: 'streaming_disabled_by_admin' });
+    await saveState({ recyclingUntil: null });
+    return;
+  }
+  if (state.maintenance?.active) {
+    logger.warn('stream.auto_recycle_blocked', { reason: 'maintenance_mode_active' });
+    await saveState({ recyclingUntil: null });
+    return;
+  }
+  if (state.bandwidthLock?.active) {
+    logger.warn('stream.auto_recycle_blocked', { reason: 'bandwidth_safety_limit_locked' });
+    await saveState({ recyclingUntil: null });
+    return;
+  }
+  if (state.desiredState !== 'running') {
+    logger.info('stream.auto_recycle_cancelled', { reason: 'desired_state_not_running' });
+    await saveState({ recyclingUntil: null });
+    return;
+  }
+  if (!ar?.enabled) {
+    logger.info('stream.auto_recycle_cancelled', { reason: 'auto_recycle_disabled_during_pause' });
+    await saveState({ recyclingUntil: null });
+    return;
+  }
+  if (settings.scheduler?.mode === 'scheduled') {
+    const tz = settings.scheduler?.timezone || 'Asia/Kolkata';
+    const windows = settings.scheduler?.windows || [];
+    if (!isInsideWindow(new Date(), windows, tz)) {
+      logger.info('stream.auto_recycle_blocked', { reason: 'outside_scheduled_window' });
+      await saveState({ recyclingUntil: null });
+      return;
+    }
+  }
+
+  // 2. Clear recyclingUntil
+  await saveState({ recyclingUntil: null });
+
+  // 3. Start NEW stream session using existing startStream
+  logger.info('stream.auto_recycle_resume', { reason: 'scheduled_auto_recycle' });
+  const result = await startStream({ reason: 'auto_recycle_resume' });
+  if (!result.started) {
+    logger.error('stream.auto_recycle_blocked', {
+      reason: 'start_failed',
+      code: result.code,
+      message: result.message,
+    });
+  }
+}
+
+export async function initAutoRecycleOnBoot() {
+  const state = getState();
+  const settings = getSettings();
+  const ar = settings.scheduler?.autoRecycle;
+
+  if (!state.recyclingUntil) {
+    return;
+  }
+
+  if (state.desiredState !== 'running' || !ar?.enabled) {
+    logger.info('stream.auto_recycle_boot_cleared', {
+      reason: state.desiredState !== 'running' ? 'desired_not_running' : 'auto_recycle_disabled',
+    });
+    await saveState({ recyclingUntil: null });
+    return;
+  }
+
+  const untilMs = new Date(state.recyclingUntil).getTime();
+  const nowMs = Date.now();
+
+  if (nowMs < untilMs) {
+    const remainingMs = untilMs - nowMs;
+    logger.info('stream.auto_recycle_pause_restored', `Restoring auto-recycle pause on boot (${Math.ceil(remainingMs / 60000)}m remaining)`);
+    scheduleAutoResume(remainingMs);
+  } else {
+    logger.info('stream.auto_recycle_pause_expired_on_boot', 'Auto-recycle pause already expired while offline; auto-resuming stream session');
+    await saveState({ recyclingUntil: null });
+    scheduleAutoResume(0);
+  }
+}
+
+export function getAutoRecycleStatus(now = new Date()) {
+  const settings = getSettings();
+  const state = getState();
+  const ar = settings.scheduler?.autoRecycle || { enabled: false, maxSessionHours: 8, pauseMinutes: 60, resumeBookmark: true };
+
+  const isEnabled = Boolean(ar.enabled);
+  const isRecycling = Boolean(state.recyclingUntil && new Date(state.recyclingUntil).getTime() > now.getTime());
+
+  let nextRecycleRemainingMs = null;
+  let nextRecycleFormatted = null;
+  let nextRecycleAt = null;
+
+  if (isEnabled && isFfmpegRunning() && state.status === 'RUNNING' && _streamStartTime) {
+    const maxSessionMs = ar.maxSessionMinutes
+      ? (ar.maxSessionMinutes * 60 * 1000)
+      : ((ar.maxSessionHours || 8) * 60 * 60 * 1000);
+    const elapsedMs = Math.max(0, now.getTime() - _streamStartTime);
+    nextRecycleRemainingMs = Math.max(0, maxSessionMs - elapsedMs);
+    nextRecycleFormatted = formatHms(nextRecycleRemainingMs);
+    nextRecycleAt = new Date(_streamStartTime + maxSessionMs).toISOString();
+  }
+
+  let nextStreamRemainingMs = null;
+  let nextStreamFormatted = null;
+  if (state.recyclingUntil) {
+    const untilMs = new Date(state.recyclingUntil).getTime();
+    nextStreamRemainingMs = Math.max(0, untilMs - now.getTime());
+    nextStreamFormatted = formatHms(nextStreamRemainingMs);
+  }
+
+  let label = 'AUTO-RECYCLE: OFF';
+  let displayMode = 'disabled';
+
+  if (isRecycling) {
+    displayMode = 'recycling';
+    label = `AUTO-RECYCLE PAUSE\nNext stream in:\n${nextStreamFormatted || '00:00:00'}`;
+  } else if (isEnabled && state.status === 'RUNNING') {
+    displayMode = 'normal';
+    label = `AUTO-RECYCLE\nNext recycle in:\n${nextRecycleFormatted || '00:00:00'}`;
+  } else if (isEnabled) {
+    displayMode = 'armed';
+    label = 'AUTO-RECYCLE: Armed';
+  }
+
+  return {
+    enabled: isEnabled,
+    isRecycling,
+    maxSessionHours: ar.maxSessionHours ?? 8,
+    maxSessionMinutes: ar.maxSessionMinutes ?? null,
+    pauseMinutes: ar.pauseMinutes ?? 60,
+    resumeBookmark: ar.resumeBookmark !== false,
+    sessionStartTime: _streamStartTime ? new Date(_streamStartTime).toISOString() : null,
+    nextRecycleAt,
+    nextRecycleRemainingMs,
+    nextRecycleFormatted,
+    recyclingUntil: state.recyclingUntil || null,
+    nextStreamRemainingMs,
+    nextStreamFormatted,
+    label,
+    displayMode,
+  };
 }

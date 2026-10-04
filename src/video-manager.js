@@ -18,12 +18,19 @@ import { pipeline } from 'node:stream/promises';
 import { readJSON, writeJSON } from './lib/atomic-json.js';
 import { validateVideoId } from './lib/validate.js';
 import { probeMedia, evaluateCompatibility } from './ffprobe-manager.js';
-import { getSettings, saveSettings } from './config-manager.js';
+import { getSettings, saveSettings, isDualStreamEnabled, getHorizontalStreamKey } from './config-manager.js';
 import { getState, saveState } from './state-manager.js';
 import { logger } from './logger.js';
 import PATHS from './lib/paths.js';
 
 const SCHEMA_VERSION = 1;
+
+let _playlistMutex = Promise.resolve();
+export function withPlaylistLock(fn) {
+  const next = _playlistMutex.then(fn, fn);
+  _playlistMutex = next.catch(() => {});
+  return next;
+}
 
 // ─── Path & ID Helpers ────────────────────────────────────────────────────────
 
@@ -86,9 +93,10 @@ export function getBaseVideoName(name) {
 export function findPairedHorizontalVideo(verticalVideo, allVideos = []) {
   if (!verticalVideo) return null;
 
-  // Filter for horizontal video candidates (width > height)
+  // Filter for horizontal video candidates (width > height), excluding videos already paired to someone else
   const horizontalVideos = allVideos.filter(v => {
     if (v.id === verticalVideo.id) return false;
+    if (v.pairedVideoId && v.pairedVideoId !== verticalVideo.id) return false;
     const w = v.probe?.width || 0;
     const h = v.probe?.height || 0;
     return w > h;
@@ -121,8 +129,8 @@ export function findPairedHorizontalVideo(verticalVideo, allVideos = []) {
     if (prefixMatch) return prefixMatch;
   }
 
-  // 4. If there is only ONE horizontal video in the entire library, auto-pair with it
-  if (horizontalVideos.length === 1) {
+  // 4. If there is only ONE horizontal video in the entire library and unassigned, auto-pair with it
+  if (horizontalVideos.length === 1 && !horizontalVideos[0].pairedVideoId) {
     return horizontalVideos[0];
   }
 
@@ -139,9 +147,10 @@ export function findPairedHorizontalVideo(verticalVideo, allVideos = []) {
 export function findPairedVerticalVideo(horizontalVideo, allVideos = []) {
   if (!horizontalVideo) return null;
 
-  // Filter for vertical video candidates (height >= width or orientation vertical)
+  // Filter for vertical video candidates (height >= width or orientation vertical), excluding videos already paired to someone else
   const verticalVideos = allVideos.filter(v => {
     if (v.id === horizontalVideo.id) return false;
+    if (v.pairedVideoId && v.pairedVideoId !== horizontalVideo.id) return false;
     const w = v.probe?.width || 0;
     const h = v.probe?.height || 0;
     return h >= w || v.probe?.orientation === 'vertical' || v.orientation === 'vertical';
@@ -174,8 +183,8 @@ export function findPairedVerticalVideo(horizontalVideo, allVideos = []) {
     if (prefixMatch) return prefixMatch;
   }
 
-  // 4. If there is only ONE vertical video in the entire library, auto-pair with it
-  if (verticalVideos.length === 1) {
+  // 4. If there is only ONE vertical video in the entire library and unassigned, auto-pair with it
+  if (verticalVideos.length === 1 && !verticalVideos[0].pairedVideoId) {
     return verticalVideos[0];
   }
 
@@ -196,6 +205,309 @@ export function findPairedComplementaryVideo(video, allVideos = []) {
   const isHoriz = w > h || video.probe?.orientation === 'horizontal' || video.orientation === 'horizontal';
   return isHoriz ? findPairedVerticalVideo(video, allVideos) : findPairedHorizontalVideo(video, allVideos);
 }
+
+/**
+ * Check if dual streaming is currently active and configured with horizontal key.
+ *
+ * @param {object} [settings]
+ * @returns {boolean}
+ */
+export function isDualActive(settings = null) {
+  const currentSettings = settings || getSettings();
+  const dualConfigured = currentSettings?.youtube?.dualStreamEnabled !== false;
+  const horizontalKey = (currentSettings?.youtube?.horizontalStreamKey ?? getHorizontalStreamKey())?.trim();
+  return Boolean(dualConfigured && horizontalKey);
+}
+
+/**
+ * Build consolidated logical playlist videos from video library.
+ * Each logical video encapsulates both vertical (9:16) and horizontal (16:9) versions.
+ *
+ * @param {Array<object>} allVideos
+ * @param {Array<string>} [playlist=[]]
+ * @param {string|null} [currentActiveId=null]
+ * @param {object|null} [settings=null]
+ * @returns {Array<object>} Logical video objects
+ */
+export function buildLogicalVideos(allVideos = [], playlist = [], currentActiveId = null, settings = null) {
+  const dualEnabled = isDualActive(settings);
+  const visited = new Set();
+  const logicalVideos = [];
+
+  const fileExists = (v) => {
+    if (!v) return false;
+    try {
+      const ext = path.extname(v.filename || `${v.id}.mp4`);
+      const p = resolveVideoPath(v.id, ext);
+      return fsSync.existsSync(p);
+    } catch {
+      return false;
+    }
+  };
+
+  for (const v of allVideos) {
+    if (visited.has(v.id)) continue;
+
+    const w = v.probe?.width || 0;
+    const h = v.probe?.height || 0;
+    const isHoriz = w > h || v.probe?.orientation === 'horizontal' || v.orientation === 'horizontal';
+
+    let vert = isHoriz ? null : v;
+    let horiz = isHoriz ? v : null;
+
+    const comp = findPairedComplementaryVideo(v, allVideos);
+    if (comp) {
+      if (isHoriz) {
+        vert = comp;
+      } else {
+        horiz = comp;
+      }
+      visited.add(comp.id);
+    }
+    visited.add(v.id);
+
+    const vertExists = fileExists(vert);
+    const horizExists = fileExists(horiz);
+    const isComplete = dualEnabled ? Boolean(vert && horiz && vertExists && horizExists) : Boolean((vert && vertExists) || (horiz && horizExists));
+
+    const canonicalId = (vert && vert.id) ? vert.id : (horiz && horiz.id ? horiz.id : v.id);
+    const rawLabel = (vert && (vert.label || vert.originalName)) || (horiz && (horiz.label || horiz.originalName)) || v.label || v.originalName;
+    const cleanLabel = getBaseVideoName(rawLabel) || rawLabel.replace(/\.[^/.]+$/, '');
+    const displayLabel = cleanLabel ? (cleanLabel.charAt(0).toUpperCase() + cleanLabel.slice(1)) : canonicalId;
+
+    const inPlaylist = (vert && playlist.includes(vert.id)) || (horiz && playlist.includes(horiz.id)) || playlist.includes(canonicalId);
+    const isPlaying = (vert && vert.id === currentActiveId) || (horiz && horiz.id === currentActiveId) || canonicalId === currentActiveId;
+
+    let status = 'READY';
+    if (isPlaying) {
+      status = 'PLAYING';
+    } else if (!isComplete) {
+      status = 'PENDING_PAIR';
+    } else {
+      status = 'READY';
+    }
+
+    logicalVideos.push({
+      id: canonicalId,
+      label: displayLabel,
+      verticalVideoId: vert?.id || null,
+      horizontalVideoId: horiz?.id || null,
+      vertical: vert ? {
+        id: vert.id,
+        label: vert.label,
+        originalName: vert.originalName,
+        filename: vert.filename,
+        filePath: vert.filePath || resolveVideoPath(vert.id, path.extname(vert.filename || `${vert.id}.mp4`)),
+        sizeBytes: vert.sizeBytes,
+        probe: vert.probe,
+        compatibility: vert.compatibility,
+        exists: vertExists,
+      } : null,
+      horizontal: horiz ? {
+        id: horiz.id,
+        label: horiz.label,
+        originalName: horiz.originalName,
+        filename: horiz.filename,
+        filePath: horiz.filePath || resolveVideoPath(horiz.id, path.extname(horiz.filename || `${horiz.id}.mp4`)),
+        sizeBytes: horiz.sizeBytes,
+        probe: horiz.probe,
+        compatibility: horiz.compatibility,
+        exists: horizExists,
+      } : null,
+      isComplete,
+      inPlaylist,
+      isPlaying,
+      status,
+    });
+  }
+
+  return logicalVideos;
+}
+
+/**
+ * Retrieve fresh, validated playable playlist of logical videos.
+ * Guarantees that only complete, verified pairs are returned.
+ *
+ * @param {object} [settings]
+ * @param {Array<object>} [allVideos]
+ * @returns {Promise<Array<object>>}
+ */
+export async function getFreshPlayablePlaylist(settings = null, allVideos = null) {
+  const currentSettings = settings || getSettings();
+  const currentPlaylist = Array.isArray(currentSettings.stream?.playlist) ? currentSettings.stream.playlist : [];
+  const videos = allVideos || await listVideos();
+  const dualEnabled = isDualActive(currentSettings);
+
+  const logicals = buildLogicalVideos(videos, currentPlaylist, null, currentSettings);
+  const logicalMap = new Map();
+  for (const l of logicals) {
+    logicalMap.set(l.id, l);
+    if (l.verticalVideoId) logicalMap.set(l.verticalVideoId, l);
+    if (l.horizontalVideoId) logicalMap.set(l.horizontalVideoId, l);
+  }
+
+  const playable = [];
+  const seenLogicalIds = new Set();
+
+  for (const pId of currentPlaylist) {
+    const item = logicalMap.get(pId);
+    if (!item) {
+      logger.warn('playlist.video_missing', `Configured playlist item ${pId} not found in library`);
+      continue;
+    }
+    if (seenLogicalIds.has(item.id)) continue;
+
+    if (dualEnabled) {
+      if (!item.vertical || !item.horizontal) {
+        logger.warn('playlist.pair_missing', `Playlist item ${item.id} (${item.label}) is missing paired stream companion; skipping`, {
+          logicalId: item.id,
+          hasVertical: Boolean(item.vertical),
+          hasHorizontal: Boolean(item.horizontal),
+        });
+        continue;
+      }
+      if (!item.vertical.exists || !item.horizontal.exists) {
+        logger.warn('playlist.video_missing', `Playlist item ${item.id} has missing media files on disk; skipping`, {
+          logicalId: item.id,
+          verticalExists: Boolean(item.vertical?.exists),
+          horizontalExists: Boolean(item.horizontal?.exists),
+        });
+        continue;
+      }
+    } else {
+      const activeMember = item.vertical || item.horizontal;
+      if (!activeMember || !activeMember.exists) {
+        logger.warn('playlist.video_missing', `Playlist item ${item.id} file is missing on disk; skipping`);
+        continue;
+      }
+    }
+
+    seenLogicalIds.add(item.id);
+    playable.push(item);
+  }
+
+  // Fallback: if playlist was empty but single active video exists
+  if (playable.length === 0 && currentSettings.stream?.videoId) {
+    const item = logicalMap.get(currentSettings.stream.videoId);
+    if (item && (!dualEnabled || (item.vertical && item.horizontal && item.vertical.exists && item.horizontal.exists))) {
+      playable.push(item);
+    }
+  }
+
+  return playable;
+}
+
+/**
+ * Evaluate if a newly uploaded video completes a paired logical video.
+ * If both vertical and horizontal versions exist and validate on disk:
+ * - Links the pair in metadata.
+ * - Atomically appends the logical item to settings.stream.playlist if not present.
+ * - Emits structured logs (playlist.pair_ready, playlist.hot_sync).
+ *
+ * @param {string} videoId Newly uploaded video ID
+ * @returns {Promise<{ paired: boolean, isComplete: boolean, logicalId?: string, verticalId?: string, horizontalId?: string }>}
+ */
+export async function finalizePairIfComplete(videoId) {
+  return withPlaylistLock(async () => {
+    const allVideos = await listVideos();
+    const uploaded = allVideos.find(v => v.id === videoId);
+    if (!uploaded) return { paired: false, isComplete: false };
+
+    const dualEnabled = isDualActive();
+
+    // If dual streaming is disabled, any single video is immediately complete
+    if (!dualEnabled) {
+      const ext = path.extname(uploaded.filename || `${uploaded.id}.mp4`);
+      const filePath = resolveVideoPath(uploaded.id, ext);
+      if (fsSync.existsSync(filePath)) {
+        logger.info('playlist.pair_ready', `Single video ${uploaded.id} is ready for playback`);
+        return { paired: false, isComplete: true, logicalId: uploaded.id };
+      }
+      return { paired: false, isComplete: false };
+    }
+
+    // Dual stream mode: search for complementary pair
+    const comp = findPairedComplementaryVideo(uploaded, allVideos);
+    if (!comp) {
+      logger.info('playlist.pair_pending', `Video ${uploaded.id} (${uploaded.originalName}) is uploaded but awaiting complementary pair`, {
+        videoId: uploaded.id,
+        orientation: (uploaded.probe?.width > uploaded.probe?.height) ? 'horizontal' : 'vertical',
+      });
+      return { paired: false, isComplete: false, videoId };
+    }
+
+    // Both exist: validate both physical files
+    const upExt = path.extname(uploaded.filename || `${uploaded.id}.mp4`);
+    const compExt = path.extname(comp.filename || `${comp.id}.mp4`);
+    const upPath = resolveVideoPath(uploaded.id, upExt);
+    const compPath = resolveVideoPath(comp.id, compExt);
+
+    if (!fsSync.existsSync(upPath) || !fsSync.existsSync(compPath)) {
+      logger.warn('playlist.pair_validation_failed', `Files missing on disk for pair ${uploaded.id} + ${comp.id}`);
+      return { paired: false, isComplete: false, error: 'Files missing on disk' };
+    }
+
+    // Verify probe validity
+    if (!uploaded.probe?.hasVideo || !comp.probe?.hasVideo) {
+      logger.warn('playlist.pair_validation_failed', `Invalid video streams for pair ${uploaded.id} + ${comp.id}`);
+      return { paired: false, isComplete: false, error: 'Invalid video stream probe' };
+    }
+
+    // Mutually link pairedVideoId in videos.json
+    uploaded.pairedVideoId = comp.id;
+    comp.pairedVideoId = uploaded.id;
+
+    const isUploadedHoriz = (uploaded.probe?.width > uploaded.probe?.height);
+    const vert = isUploadedHoriz ? comp : uploaded;
+    const horiz = isUploadedHoriz ? uploaded : comp;
+
+    const updatedVideos = allVideos.map(v => {
+      if (v.id === uploaded.id) return { ...v, pairedVideoId: comp.id };
+      if (v.id === comp.id) return { ...v, pairedVideoId: uploaded.id };
+      return v;
+    });
+    await saveVideosIndex(updatedVideos);
+
+    // Atomically persist to stream playlist
+    const currentSettings = getSettings();
+    let playlist = Array.isArray(currentSettings.stream?.playlist) ? [...currentSettings.stream.playlist] : [];
+    const primaryId = vert.id;
+
+    // Check if either primaryId or comp.id is in playlist
+    const alreadyInPlaylist = playlist.includes(primaryId) || playlist.includes(comp.id);
+    if (!alreadyInPlaylist) {
+      playlist.push(primaryId);
+      await saveSettings({
+        stream: {
+          playlist,
+          videoId: currentSettings.stream?.videoId || primaryId,
+        },
+      });
+      logger.info('playlist.hot_sync', `Atomically synced complete pair ${primaryId} into live playlist (total items: ${playlist.length})`, {
+        logicalId: primaryId,
+        verticalVideoId: vert.id,
+        horizontalVideoId: horiz.id,
+        playlistCount: playlist.length,
+      });
+    }
+
+    logger.info('playlist.pair_ready', `Pair validated and finalized: ${vert.id} (vertical) + ${horiz.id} (horizontal)`, {
+      logicalId: primaryId,
+      verticalVideoId: vert.id,
+      horizontalVideoId: horiz.id,
+      status: 'READY',
+    });
+
+    return {
+      paired: true,
+      isComplete: true,
+      logicalId: primaryId,
+      verticalId: vert.id,
+      horizontalId: horiz.id,
+    };
+  });
+}
+
 
 // ─── Module State ────────────────────────────────────────────────────────────
 
@@ -626,11 +938,15 @@ export async function processUpload(fileStream, fileInfo) {
   const updatedVideos = [videoMeta, ...existingVideos.filter(v => v.id !== id)];
   await saveVideosIndex(updatedVideos);
 
-  // If no active video or playlist configured, auto-select this new video
+  // Call finalizePairIfComplete to atomically evaluate and link pairs
+  const pairResult = await finalizePairIfComplete(id);
+
+  // If dual streaming is disabled and no active video/playlist configured, auto-select this new video
   const currentSettings = getSettings();
+  const dualEnabled = isDualActive(currentSettings);
   const currentPlaylist = currentSettings?.stream?.playlist;
   const currentActive = currentSettings?.stream?.videoId;
-  if (!currentActive || !Array.isArray(currentPlaylist) || currentPlaylist.length === 0) {
+  if (!dualEnabled && (!currentActive || !Array.isArray(currentPlaylist) || currentPlaylist.length === 0)) {
     await setActiveVideo(id);
   }
 
@@ -638,10 +954,18 @@ export async function processUpload(fileStream, fileInfo) {
     id,
     status: compatibility.status,
     sizeBytes,
+    isPaired: Boolean(pairResult.paired),
+    isComplete: Boolean(pairResult.isComplete),
   });
 
-  return videoMeta;
+  return {
+    ...videoMeta,
+    isPaired: Boolean(pairResult.paired),
+    isComplete: Boolean(pairResult.isComplete),
+    logicalId: pairResult.logicalId || id,
+  };
 }
+
 
 /**
  * Register an externally converted video (e.g. from YouTube yt-dlp pipeline) into the library.
@@ -722,8 +1046,12 @@ export async function deleteVideo(id) {
 
   const state = getState();
   const settings = getSettings();
-  const isCurrentlyStreaming = state.status === 'RUNNING' || state.status === 'STARTING';
-  const isInActiveStream = (state.activeVideoId === id) || (Array.isArray(settings.stream?.playlist) && settings.stream.playlist.includes(id));
+  const isCurrentlyStreaming = state.status === 'RUNNING' || state.status === 'STARTING' || state.currentPlaybackState === 'PLAYING';
+  const isInActiveStream = (state.activeVideoId === id) ||
+    (state.currentVerticalVideoId === id) ||
+    (state.currentHorizontalVideoId === id) ||
+    (state.currentLogicalVideoId === id);
+
   if (isInActiveStream && isCurrentlyStreaming) {
     throw Object.assign(new Error('Cannot delete video while it is being actively streamed'), {
       code: 'E_VIDEO_IN_USE',
@@ -805,41 +1133,47 @@ export async function setActiveVideo(id) {
  * @returns {Promise<{ playlist: string[], playbackOrder: string }>}
  */
 export async function setPlaylist(playlistIds, playbackOrder = 'sequential') {
-  if (!Array.isArray(playlistIds)) {
-    throw Object.assign(new Error('Playlist must be an array of video IDs'), { code: 'E_INVALID_PLAYLIST' });
-  }
-
-  const validOrder = ['sequential', 'shuffle'].includes(playbackOrder) ? playbackOrder : 'sequential';
-  const existingVideos = await listVideos();
-  const existingMap = new Map(existingVideos.map(v => [v.id, v]));
-
-  // Validate all video IDs exist and preserve order without duplicates
-  const validatedIds = [];
-  for (const id of playlistIds) {
-    if (existingMap.has(id) && !validatedIds.includes(id)) {
-      validatedIds.push(id);
+  return withPlaylistLock(async () => {
+    if (!Array.isArray(playlistIds)) {
+      throw Object.assign(new Error('Playlist must be an array of video IDs'), { code: 'E_INVALID_PLAYLIST' });
     }
-  }
 
-  const primaryVideoId = validatedIds[0] || '';
+    const validOrder = ['sequential', 'shuffle'].includes(playbackOrder) ? playbackOrder : 'sequential';
+    const existingVideos = await listVideos();
+    const existingMap = new Map(existingVideos.map(v => [v.id, v]));
 
-  await saveSettings({
-    stream: {
-      videoId: primaryVideoId,
+    // Validate all video IDs exist and preserve order without duplicates
+    const validatedIds = [];
+    for (const id of playlistIds) {
+      if (existingMap.has(id) && !validatedIds.includes(id)) {
+        validatedIds.push(id);
+      }
+    }
+
+    const primaryVideoId = validatedIds[0] || '';
+
+    await saveSettings({
+      stream: {
+        videoId: primaryVideoId,
+        playlist: validatedIds,
+        playbackOrder: validOrder,
+      },
+    });
+
+    await saveState({ activeVideoId: primaryVideoId || null });
+
+    logger.info('video.playlist_updated', `Updated stream playlist (${validatedIds.length} videos, order: ${validOrder})`, {
       playlist: validatedIds,
       playbackOrder: validOrder,
-    },
+    });
+    logger.info('playlist.hot_sync', `Hot playlist configuration updated (${validatedIds.length} items)`, {
+      itemCount: validatedIds.length,
+    });
+
+    return { playlist: validatedIds, playbackOrder: validOrder };
   });
-
-  await saveState({ activeVideoId: primaryVideoId || null });
-
-  logger.info('video.playlist_updated', `Updated stream playlist (${validatedIds.length} videos, order: ${validOrder})`, {
-    playlist: validatedIds,
-    playbackOrder: validOrder,
-  });
-
-  return { playlist: validatedIds, playbackOrder: validOrder };
 }
+
 
 // ─── Re-validate (PRD §5.1) ──────────────────────────────────────────────────
 

@@ -15,6 +15,7 @@ import {
   revalidateVideo,
   processUpload,
   syncDiskVideos,
+  buildLogicalVideos,
 } from '../video-manager.js';
 import { getState } from '../state-manager.js';
 import { stopStream, startStream } from '../stream-manager.js';
@@ -40,7 +41,8 @@ export function createVideosRouter() {
       const activeVideoId = streamSettings.videoId || getState().activeVideoId || null;
       const playlist = Array.isArray(streamSettings.playlist) ? streamSettings.playlist : (activeVideoId ? [activeVideoId] : []);
       const playbackOrder = streamSettings.playbackOrder || 'sequential';
-      res.json({ videos, activeVideoId, playlist, playbackOrder });
+      const logicalVideos = buildLogicalVideos(videos, playlist, activeVideoId);
+      res.json({ videos, logicalVideos, activeVideoId, playlist, playbackOrder });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -74,22 +76,19 @@ export function createVideosRouter() {
       const state = getState();
       const isLive = state.status === 'RUNNING' || state.status === 'STARTING';
 
-      if (isLive && !shouldRestart) {
-        return res.status(409).json({
-          error: 'Stream is currently live. Pass ?restart=true to update playlist with immediate restart.',
-          code: 'E_STREAM_LIVE',
-        });
-      }
-
       const updated = await setPlaylist(playlist || [], playbackOrder || 'sequential');
 
-      if (isLive && shouldRestart) {
-        logger.info('video.playlist_restart', `Gracefully restarting stream onto new playlist (${updated.playlist.length} videos)`);
-        await stopStream({ keepDesiredRunning: true, reason: 'playlist_change_restart' });
-        await startStream({ reason: 'playlist_change_restart' });
+      if (isLive) {
+        if (shouldRestart) {
+          logger.info('video.playlist_restart', `Gracefully restarting stream onto new playlist (${updated.playlist.length} videos)`);
+          await stopStream({ keepDesiredRunning: true, reason: 'playlist_change_restart' });
+          await startStream({ reason: 'playlist_change_restart' });
+        } else {
+          logger.info('playlist.hot_sync', `Live stream playlist updated dynamically (${updated.playlist.length} items); next transition will reflect fresh playlist`);
+        }
       }
 
-      res.json({ success: true, ...updated });
+      res.json({ success: true, hotSync: isLive && !shouldRestart, ...updated });
     } catch (err) {
       const status = err.code === 'E_INVALID_PLAYLIST' ? 400 : 500;
       res.status(status).json({ error: err.message, code: err.code });

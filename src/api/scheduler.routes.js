@@ -6,6 +6,7 @@ import { Router } from 'express';
 import { getSchedulerStatus, tickScheduler } from '../scheduler.js';
 import { saveSettings } from '../config-manager.js';
 import { validateSettings } from '../lib/validate.js';
+import { recalculateAutoRecycleTimer } from '../stream-manager.js';
 import { logger } from '../logger.js';
 
 export function createSchedulerRouter() {
@@ -36,6 +37,7 @@ export function createSchedulerRouter() {
 
     try {
       await saveSettings({ scheduler: patch });
+      recalculateAutoRecycleTimer();
       await tickScheduler(new Date());
       const updatedStatus = getSchedulerStatus(new Date());
       res.json({ success: true, scheduler: updatedStatus });
