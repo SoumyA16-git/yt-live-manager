@@ -25,7 +25,7 @@ import {
   getFfmpegPid,
   getLatestProgress,
 } from './ffmpeg-manager.js';
-import { getSettings, getStreamKey, getHorizontalStreamKey, isDualStreamEnabled } from './config-manager.js';
+import { getSettings, loadSettings, getStreamKey, getHorizontalStreamKey, isDualStreamEnabled } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
 import {
   getVideo,
@@ -485,8 +485,8 @@ export async function handleSegmentFinished(mode = 'copy') {
       logicalVideoId: finishedId,
     });
 
-    // 1. Read the latest playlist configuration and video library state
-    const latestSettings = getSettings();
+    // 1. Read the latest playlist configuration from persistent storage and video library state
+    const latestSettings = await loadSettings();
     const allVideos = await listVideos();
 
     // 2. Re-resolve vertical/horizontal pairing & remove invalid/missing items
