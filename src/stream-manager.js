@@ -553,6 +553,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           activeVideoId: gate.videoMeta.id,
           ffmpegPid: pid,
           streamStartedAt: new Date().toISOString(),
+          currentSeekOffset: _currentSessionStartOffset || 0,
           isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
           pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
           resumeBookmark: null,
@@ -906,4 +907,8 @@ export async function clearConfigGateError() {
       }, 1000);
     }
   }
+}
+
+export function getCurrentSeekOffset() {
+  return _currentSessionStartOffset || 0;
 }

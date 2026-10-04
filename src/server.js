@@ -17,8 +17,8 @@ import { cleanupStaleLockOnBoot, getLatestProgress } from './ffmpeg-manager.js';
 import { cleanOrphanIncoming, getVideo } from './video-manager.js';
 import { getBandwidthSummary } from './bandwidth-monitor.js';
 import { getSystemSnapshot } from './system-monitor.js';
-import { startStream, stopStream } from './stream-manager.js';
-import { startScheduler, stopScheduler } from './scheduler.js';
+import { startStream, stopStream, getCurrentSeekOffset } from './stream-manager.js';
+import { startScheduler, stopScheduler, getSchedulerStatus } from './scheduler.js';
 import { requireAuth, requireCsrf } from './auth.js';
 import { createAuthRouter } from './api/auth.routes.js';
 import { createStreamRouter } from './api/stream.routes.js';
@@ -117,8 +117,14 @@ export async function createApp(envConfig = {}) {
         healthStatus = state.desiredState === 'running' ? 'DEGRADED' : 'HEALTHY';
       }
 
+      const schedulerStatus = getSchedulerStatus();
+      const currentSeekOffset = getCurrentSeekOffset();
+
       res.json({
-        state,
+        state: {
+          ...state,
+          currentSeekOffset,
+        },
         progress,
         bandwidth: bwSummary,
         system: sysSnapshot,
@@ -129,7 +135,8 @@ export async function createApp(envConfig = {}) {
           resolution: activeVideo.probe?.resolution || null,
           fps: activeVideo.probe?.fps || null,
         } : null,
-        autoRecycle: settings.scheduler?.autoRecycle || {},
+        scheduler: schedulerStatus,
+        autoRecycle: schedulerStatus?.autoRecycle || settings.scheduler?.autoRecycle || {},
         healthVerdict: { status: healthStatus, reasons },
         serverUptime: Math.round(process.uptime()),
       });

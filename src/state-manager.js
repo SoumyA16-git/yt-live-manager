@@ -35,6 +35,8 @@ const STATE_DEFAULTS = {
   streamMode:          null,        // 'copy' | 'hybrid' | 'transcode'
   ffmpegPid:           null,        // runtime only — cleared on load
   streamStartedAt:     null,
+  currentSeekOffset:   0,
+  resumeBookmark:      null,
 };
 
 // ─── Module state ─────────────────────────────────────────────────────────────

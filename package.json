@@ -11,7 +11,8 @@
     "test:integration": "node --test --test-reporter=spec test/integration/*.test.js",
     "hash-password": "node scripts/hash-password.js",
     "migrate": "node scripts/migrate.js",
-    "status": "node scripts/status.js"
+    "status": "node scripts/status.js",
+    "seek": "node scripts/seek.js"
   },
   "dependencies": {
     "busboy": "^1.6.0",

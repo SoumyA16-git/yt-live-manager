@@ -2,13 +2,13 @@
 /**
  * scripts/status.js — Real-Time Live Terminal Dashboard for yt-live-manager
  *
- * Fetches real-time dynamic streaming metrics directly from the live engine:
+ * Displays live dynamic streaming telemetry:
  * - Live encoding FPS, Speed, Bitrate, and YouTube egress data size
- * - Live playback timeline (HH:MM:SS / HH:MM:SS) with visual progress bar
+ * - Live playback timeline (HH:MM:SS / HH:MM:SS) with visual progress bar and seek offset
  * - Live FFmpeg PID, active video metadata, and dual stream state
  * - Live bandwidth quota tracking and safety lock status
  * - Live system resources (CPU %, RAM, Disk space, Node memory)
- * - Auto-recycle countdown timer
+ * - Auto-recycle countdown timer and VOD pause state
  *
  * Usage:
  *   npm run status            # Snapshot view
@@ -36,7 +36,6 @@ const C = {
   blue:    '\x1b[34m',
   magenta: '\x1b[35m',
   white:   '\x1b[37m',
-  bgBlue:  '\x1b[44m',
 };
 
 function formatDuration(sec) {
@@ -128,7 +127,7 @@ function readDiskFallback() {
       resolution: activeVideo.probe?.resolution || null,
       fps: activeVideo.probe?.fps || null,
     } : null,
-    autoRecycle: settings.scheduler?.autoRecycle || {},
+    scheduler: { autoRecycle: settings.scheduler?.autoRecycle || {} },
     permError,
     isFallback: true,
   };
@@ -156,7 +155,8 @@ function render(data) {
   const progress = data.progress || null;
   const bw = data.bandwidth || {};
   const vid = data.video || null;
-  const recycle = data.autoRecycle || {};
+  const sched = data.scheduler || {};
+  const autoRecycle = sched.autoRecycle || data.autoRecycle || {};
   const sys = getSystemMetrics();
   const verdict = data.healthVerdict || { status: 'HEALTHY', reasons: [] };
 
@@ -182,26 +182,40 @@ function render(data) {
     if (sMs > 0) sessionSec = Math.max(0, (Date.now() - sMs) / 1000);
   }
 
-  // Playback position calculation
+  // Playback timeline calculation: StartOffset + Session Progress
   const vidDur = Number(vid?.durationSec || 0);
-  let currentOffset = 0;
+  const startOffset = Number(state.currentSeekOffset || 0);
+  let sessionProgressSec = 0;
   if (progress && typeof progress.outTimeSec === 'number' && progress.outTimeSec > 0) {
-    currentOffset = vidDur > 0 ? (progress.outTimeSec % vidDur) : progress.outTimeSec;
+    sessionProgressSec = progress.outTimeSec;
   } else if (sessionSec > 0) {
-    currentOffset = vidDur > 0 ? (sessionSec % vidDur) : sessionSec;
-  } else if (state.resumeBookmark?.offsetSec) {
-    currentOffset = state.resumeBookmark.offsetSec;
+    sessionProgressSec = sessionSec;
   }
+
+  const totalPlaybackSec = startOffset + sessionProgressSec;
+  const currentOffset = vidDur > 0 ? (totalPlaybackSec % vidDur) : totalPlaybackSec;
+  const playbackPct = vidDur > 0 ? ((currentOffset / vidDur) * 100).toFixed(1) : '0.0';
 
   // Bandwidth Quota
   const usedBw = bw.usedBytes || 0;
-  const limitBw = (bw.limitBytes || 900 * 1024 * 1024 * 1024);
+  const limitBw = bw.limitBytes || (900 * 1024 * 1024 * 1024);
   const bwPct = limitBw > 0 ? ((usedBw / limitBw) * 100).toFixed(1) : '0.0';
 
-  // Auto Recycle timer
-  const recycleEnabled = recycle.enabled !== false;
-  const recycleHours = recycle.intervalHours || 11.5;
-  const nextRecycleSec = status === 'RUNNING' && recycleEnabled ? Math.max(0, (recycleHours * 3600) - sessionSec) : 0;
+  // Auto-Recycle & Scheduler settings
+  const recycleEnabled = autoRecycle.enabled !== false;
+  const maxSessionHours = Number(autoRecycle.maxSessionHours || autoRecycle.intervalHours || 6);
+  const pauseMinutes = Number(autoRecycle.pauseMinutes || 30);
+  const recycleSec = maxSessionHours * 3600;
+  const nextRecycleSec = status === 'RUNNING' && recycleEnabled ? Math.max(0, recycleSec - sessionSec) : 0;
+
+  // Bitrate formatting (clean without duplicate unit)
+  let bitrateStr = '0 kbps';
+  if (progress?.bitrate) {
+    const num = parseFloat(progress.bitrate);
+    bitrateStr = isNaN(num) ? progress.bitrate : `${Math.round(num)} kbps`;
+  } else if (status === 'RUNNING') {
+    bitrateStr = '~2500 kbps';
+  }
 
   const nowStr = new Date().toLocaleTimeString();
 
@@ -220,13 +234,20 @@ function render(data) {
     `${C.bold}${C.blue}  [🎬 LIVE VIDEO & PLAYBACK]${C.reset}`,
     `  • Playing Video   : ${vid ? `${C.bold}${vid.name}${C.reset} ${C.dim}(${vid.id})${C.reset}` : C.dim + 'No video running' + C.reset}`,
     `  • Resolution / FPS: ${vid ? `${vid.resolution || '1080x1920'} @ ${vid.fps || 30}fps` : C.dim + 'N/A' + C.reset}`,
-    `  • Timeline        : ${C.bold}${C.cyan}${formatDuration(currentOffset)}${C.reset} / ${formatDuration(vidDur)}`,
+    `  • Timeline        : ${C.bold}${C.cyan}${formatDuration(currentOffset)}${C.reset} / ${formatDuration(vidDur)} (${C.bold}${playbackPct}%${C.reset})`,
     `  • Playback Bar    : ${renderProgressBar(currentOffset, vidDur, 32)}`,
+  ];
+
+  if (startOffset > 0) {
+    lines.push(`  • Resume Bookmark : Resumed from offset ${formatDuration(startOffset)}`);
+  }
+
+  lines.push(
     '',
     `${C.bold}${C.green}  [⚡ REAL-TIME ENCODING TELEMETRY]${C.reset}`,
     `  • Encoding Speed  : ${progress?.speed ? `${C.bold}${progress.speed >= 0.98 ? C.green : C.yellow}${progress.speed.toFixed(2)}x${C.reset} (Target: 1.00x)` : (status === 'RUNNING' ? '1.00x (Optimal)' : C.dim + 'Idle' + C.reset)}`,
     `  • Encoding FPS    : ${progress?.fps ? `${C.bold}${progress.fps.toFixed(1)} fps${C.reset}` : (status === 'RUNNING' ? '30.0 fps' : C.dim + '0 fps' + C.reset)}`,
-    `  • Output Bitrate  : ${progress?.bitrate ? `${C.bold}${progress.bitrate} kbps${C.reset}` : (status === 'RUNNING' ? '~2500 kbps' : C.dim + '0 kbps' + C.reset)}`,
+    `  • Output Bitrate  : ${C.bold}${bitrateStr}${C.reset}`,
     `  • YouTube Egress  : ${progress?.total_size ? `${C.bold}${formatBytes(progress.total_size)}${C.reset} sent this session` : (status === 'RUNNING' ? formatBytes(sessionSec * 312500) : C.dim + '0.00 MB' + C.reset)}`,
     `  • Dropped Frames  : ${progress?.drop_frames !== undefined ? `${progress.drop_frames} frames` : '0 frames (0.0%)'}`,
     '',
@@ -235,16 +256,31 @@ function render(data) {
     `  • Quota Progress  : ${renderProgressBar(usedBw, limitBw, 32)}`,
     `  • Safety Limit    : ${state.bandwidthLock?.active ? `${C.red}LOCKED (Exceeded)${C.reset}` : `${C.green}OK (Unlocked)${C.reset}`}`,
     '',
-    `${C.bold}${C.yellow}  [⏰ AUTO-RECYCLE & SCHEDULER]${C.reset}`,
-    `  • Auto-Recycle    : ${recycleEnabled ? `${C.green}ON${C.reset} (Every ${recycleHours}h)` : `${C.dim}OFF${C.reset}`}`,
-    `  • Next Cycle In   : ${status === 'RUNNING' && recycleEnabled ? `${C.bold}${C.yellow}${formatDuration(nextRecycleSec)}${C.reset}` : C.dim + 'N/A' + C.reset}`,
-    `  • Resume Bookmark : ${recycle.resumeBookmark !== false ? `${C.green}ENABLED${C.reset} (Seamless resume)` : `${C.yellow}DISABLED${C.reset}`}`,
+    `${C.bold}${C.yellow}  [⏰ AUTO-RECYCLE & SCHEDULER]${C.reset}`
+  );
+
+  if (sched.recycleState?.isRecycling) {
+    lines.push(`  • Auto-Recycle    : ${C.yellow}⏸ IN VOD FINALIZE PAUSE (Resuming in ${sched.recycleState.remainingMinutes}m)${C.reset}`);
+  } else {
+    lines.push(`  • Auto-Recycle    : ${recycleEnabled ? `${C.green}ON${C.reset} (Every ${maxSessionHours}h • Pause: ${pauseMinutes}m)` : `${C.dim}OFF${C.reset}`}`);
+  }
+
+  lines.push(
+    `  • Next Cycle In   : ${status === 'RUNNING' && recycleEnabled ? `${C.bold}${C.yellow}${formatDuration(nextRecycleSec)}${C.reset} (Pauses for ${pauseMinutes}m to finalize VOD)` : C.dim + 'N/A' + C.reset}`,
+    `  • Resume Bookmark : ${autoRecycle.resumeBookmark !== false ? `${C.green}ENABLED (Seamless resume)${C.reset}` : `${C.yellow}DISABLED${C.reset}`}`
+  );
+
+  if (sched.windows && sched.windows.length > 0) {
+    lines.push(`  • Operating Window: ${sched.insideWindow ? `${C.green}ACTIVE (Inside Window)${C.reset}` : `${C.yellow}PAUSED (Outside Window)${C.reset}`}`);
+  }
+
+  lines.push(
     '',
     `${C.bold}${C.white}  [💻 SYSTEM RESOURCES]${C.reset}`,
     `  • System RAM      : ${C.bold}${sys.usedRamMB} MB${C.reset} / ${sys.totalRamMB} MB (${sys.ramPct}% used)`,
     `  • System Load     : ${sys.loadAvg} (${sys.cpus} CPU cores)`,
-    '',
-  ];
+    ''
+  );
 
   if (verdict.reasons && verdict.reasons.length > 0) {
     lines.push(`  ${C.yellow}Notice: ${verdict.reasons.join('; ')}${C.reset}`);
