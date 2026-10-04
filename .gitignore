@@ -8,6 +8,8 @@ backups/
 # Environment / secrets
 .env
 .env.*
+*.token
+*.oauth.json
 /etc/yt-live-manager/
 
 # Node
