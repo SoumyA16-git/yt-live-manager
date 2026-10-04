@@ -62,9 +62,9 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     const isHorizontalConcat = Boolean(horizontalMeta?.isConcat);
     const horizPath = horizontalMeta?.filePath || horizontalMeta?.path || '';
     if (isHorizontalConcat) {
-      args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcatHorizontal);
+      args.push('-re', '-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcatHorizontal);
     } else {
-      args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
+      args.push('-re', '-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
     }
 
     // Output 0: YouTube Shorts Feed (Vertical 9:16)
@@ -72,6 +72,8 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       '-map', '0:v:0',
       '-map', '0:a?',
       '-c', 'copy',
+      '-avoid_negative_ts', 'make_zero',
+      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       secretTarget
@@ -82,6 +84,8 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       '-map', '1:v:0',
       '-map', '1:a?',
       '-c', 'copy',
+      '-avoid_negative_ts', 'make_zero',
+      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       dualTarget
@@ -106,6 +110,8 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     // Pure Copy Mode (PRD §4.4)
     args.push(
       '-c', 'copy',
+      '-avoid_negative_ts', 'make_zero',
+      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       secretTarget
@@ -137,6 +143,8 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     }
 
     args.push(
+      '-avoid_negative_ts', 'make_zero',
+      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       secretTarget
@@ -196,6 +204,8 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
       '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
       '-ac', '2',
+      '-avoid_negative_ts', 'make_zero',
+      '-max_muxing_queue_size', '1024',
       '-flvflags', 'no_duration_filesize',
       '-f', 'flv',
       secretTarget

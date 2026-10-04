@@ -126,6 +126,11 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.ok(args.includes('/var/videos/vid_12345678.mp4'));
     assert.ok(args.includes('/var/videos/vid_87654321.mp4'));
 
+    // Verify -re is present for both inputs (count >= 2)
+    const reIndices = [];
+    args.forEach((a, idx) => { if (a === '-re') reIndices.push(idx); });
+    assert.ok(reIndices.length >= 2, '-re must be present for both input 0 and input 1');
+
     // Verify maps for output 0 (vertical shorts)
     assert.ok(args.includes('-map'));
     assert.ok(args.includes('0:v:0'));
@@ -143,6 +148,10 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     // Verify both target URLs present
     assert.ok(args.includes(secretTarget));
     assert.ok(args.includes(dualTarget));
+
+    // Verify avoid_negative_ts and max_muxing_queue_size
+    assert.ok(args.includes('-avoid_negative_ts'));
+    assert.ok(args.includes('-max_muxing_queue_size'));
   });
 
   test('Dual Streaming Mode args structure with multi-video concat', () => {
@@ -154,6 +163,10 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.ok(args.includes(secretTarget));
     assert.ok(args.includes(dualTarget));
     assert.ok(args.includes('-safe'));
+
+    const reIndices = [];
+    args.forEach((a, idx) => { if (a === '-re') reIndices.push(idx); });
+    assert.ok(reIndices.length >= 2, '-re must be present for both concat inputs');
   });
 
   test('Always starts cleanly from 0s without -ss seeking flags', () => {
@@ -163,7 +176,8 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     };
     const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'copy');
     assert.equal(args.includes('-ss'), false, 'Should not contain -ss flag');
-    assert.equal(args.includes('-avoid_negative_ts'), false, 'Should not contain -avoid_negative_ts flag');
+    assert.ok(args.includes('-avoid_negative_ts'), 'Should contain -avoid_negative_ts flag');
+    assert.equal(args[args.indexOf('-avoid_negative_ts') + 1], 'make_zero');
     assert.ok(args.includes('-fflags'));
     assert.ok(args.includes('+genpts'));
   });
@@ -180,7 +194,8 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/key2';
     const args = buildFfmpegArgs(dummySettings, vMeta, secretTarget, 'copy', dualTarget, hMeta);
     assert.equal(args.includes('-ss'), false, 'Dual streaming should not contain -ss flag');
-    assert.equal(args.includes('-avoid_negative_ts'), false, 'Should not contain -avoid_negative_ts flag');
+    assert.ok(args.includes('-avoid_negative_ts'), 'Should contain -avoid_negative_ts flag');
+    assert.equal(args[args.indexOf('-avoid_negative_ts') + 1], 'make_zero');
     assert.ok(args.includes(secretTarget));
     assert.ok(args.includes(dualTarget));
   });

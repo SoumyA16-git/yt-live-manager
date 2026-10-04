@@ -11,7 +11,7 @@
 
 import { getSettings } from './config-manager.js';
 import { getState, saveState } from './state-manager.js';
-import { startStream, stopStream } from './stream-manager.js';
+import { startStream, stopStream, transitionState } from './stream-manager.js';
 import { logger } from './logger.js';
 
 // ─── Window Evaluation Helpers ────────────────────────────────────────────────
@@ -266,7 +266,8 @@ export async function tickScheduler(now = new Date()) {
         logger.info('scheduler.auto_recycle_triggered', `Stream reached ${elapsedMins.toFixed(1)}m (limit ${durLabel}). Pausing for ${pauseMins}m to finalize YouTube VOD archive.`);
         await stopStream({ keepDesiredRunning: true, reason: 'scheduler.auto_recycle' });
         const recyclingUntil = new Date(now.getTime() + pauseMins * 60000).toISOString();
-        await saveState({ recyclingUntil, status: 'SCHEDULED' });
+        await saveState({ recyclingUntil });
+        await transitionState('SCHEDULED', 'scheduler.auto_recycle');
         return { mode: 'continuous', autoRecycleTriggered: true };
       }
     }

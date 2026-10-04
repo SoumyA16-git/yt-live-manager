@@ -377,7 +377,7 @@ export async function evaluateStartGates(options = {}) {
 
 // ─── State Machine Transitions ────────────────────────────────────────────────
 
-async function transitionState(to, reason = '') {
+export async function transitionState(to, reason = '') {
   const prev = getState().status;
   if (prev === to) return;
 
@@ -404,12 +404,16 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
   if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
   if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
 
-  // If manual start requested, auto-clear maintenance mode
+  // If manual start requested, auto-clear maintenance mode and recycle pause
   if (clearMaintenance || reason === 'api_manual_start' || reason === 'manual_start') {
     const currentState = getState();
     if (currentState.maintenance?.active) {
       logger.info('stream.maintenance_auto_cleared', `Manual stream start (${reason}); auto-clearing maintenance mode`);
       await setMaintenance(false, 'manual_start');
+    }
+    if (currentState.recyclingUntil) {
+      logger.info('stream.recycle_pause_cleared', `Manual stream start (${reason}); clearing VOD recycle pause`);
+      await saveState({ recyclingUntil: null });
     }
   }
 
@@ -527,6 +531,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
         await saveState({
           ffmpegPid: null,
+          streamStartedAt: null,
           isDualStream: false,
           pairedHorizontalVideoId: null,
           lastExit: { code, signal, at: new Date().toISOString() },
@@ -680,6 +685,7 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
 
   await saveState({
     ...(keepDesiredRunning ? {} : { desiredState: 'stopped' }),
+    streamStartedAt: null,
     isDualStream: false,
     pairedHorizontalVideoId: null,
     resumeBookmark: null,
