@@ -109,6 +109,8 @@ const telemetrySpeedBadge = document.getElementById('telemetry-speed-badge');
 const speedStatusPill     = document.getElementById('speed-status-pill');
 const speedStatusText     = document.getElementById('speed-status-text');
 const speedGaugeFill      = document.getElementById('speed-gauge-fill');
+const gaugePointerGroup   = document.getElementById('gauge-pointer-group');
+const gaugePointerNeedle  = document.getElementById('gauge-pointer-needle');
 const speedReadoutNum     = document.getElementById('speed-readout-num');
 const speedValKbps        = document.getElementById('speed-val-kbps');
 const speedValHourly      = document.getElementById('speed-val-hourly');
@@ -387,14 +389,20 @@ function renderBandwidthSpeedMeter(data) {
   const currentMbps = isRunning ? (currentKbps / 1000) : 0;
   _lastCurrentMbps = currentMbps;
 
-  // 1. Arc Gauge Calculation: 0 to 10 Mbps scale
-  // Arc stroke length is ~267px
+  // 1. MUI x-charts Arc Gauge Calculation: 0 to 10 Mbps scale (-110° to +110°)
+  // Arc stroke length is ~288px
   const maxScaleMbps = 10.0;
   const ratio = Math.max(0, Math.min(1.0, currentMbps / maxScaleMbps));
-  const offset = 267 * (1 - ratio);
+  const offset = 288 * (1 - ratio);
   speedGaugeFill.style.strokeDashoffset = offset.toFixed(1);
 
-  // 2. Readouts & Badges
+  // 2. MUI GaugePointer Angle Calculation (-110° to +110°)
+  const valueAngleDeg = -110 + ratio * 220;
+  if (gaugePointerNeedle) {
+    gaugePointerNeedle.style.transform = `rotate(${valueAngleDeg.toFixed(1)}deg)`;
+  }
+
+  // 3. Readouts & Badges
   const mbpsFormatted = currentMbps > 0 ? currentMbps.toFixed(2) : '0.00';
   speedReadoutNum.textContent = mbpsFormatted;
 

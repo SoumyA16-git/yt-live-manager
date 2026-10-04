@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/style.css?v=20261004_v12">
+  <link rel="stylesheet" href="/css/style.css?v=20261004_v13">
 </head>
 <body>
   <!-- Offline Disconnect Banner -->
@@ -190,9 +190,9 @@
 
             <!-- Gauge + Stats Layout -->
             <div class="speed-meter-content">
-              <!-- Left: Semi-Circular Speedometer Gauge -->
+              <!-- Left: MUI x-charts Composition Speedometer Gauge -->
               <div class="speed-gauge-wrap">
-                <svg class="speed-gauge-svg" viewBox="0 0 240 145" preserveAspectRatio="xMidYMid meet">
+                <svg class="speed-gauge-svg" viewBox="0 0 220 180" preserveAspectRatio="xMidYMid meet">
                   <defs>
                     <linearGradient id="speed-arc-grad" x1="0%" y1="0%" x2="100%" y2="0%">
                       <stop offset="0%" stop-color="#3b82f6" />
@@ -203,39 +203,54 @@
                       <feGaussianBlur stdDeviation="3" result="blur" />
                       <feComposite in="SourceGraphic" in2="blur" operator="over" />
                     </filter>
+                    <filter id="pointer-glow" x="-30%" y="-30%" width="160%" height="160%">
+                      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#ef4444" flood-opacity="0.6"/>
+                    </filter>
                   </defs>
 
-                  <!-- Background Arc Track -->
+                  <!-- MUI GaugeReferenceArc (-110° to 110°, R=75, cx=110, cy=105) -->
                   <path class="speed-gauge-track"
-                        d="M 35 125 A 85 85 0 0 1 205 125"
+                        d="M 39.52 130.65 A 75 75 0 1 1 180.48 130.65"
                         fill="none"
                         stroke="#222227"
-                        stroke-width="14"
+                        stroke-width="12"
                         stroke-linecap="round" />
 
-                  <!-- Active Live Fill Arc -->
+                  <!-- MUI GaugeValueArc (dynamic value fill) -->
                   <path id="speed-gauge-fill"
                         class="speed-gauge-fill"
-                        d="M 35 125 A 85 85 0 0 1 205 125"
+                        d="M 39.52 130.65 A 75 75 0 1 1 180.48 130.65"
                         fill="none"
                         stroke="url(#speed-arc-grad)"
-                        stroke-width="14"
+                        stroke-width="12"
                         stroke-linecap="round"
-                        stroke-dasharray="267"
-                        stroke-dashoffset="267"
+                        stroke-dasharray="288"
+                        stroke-dashoffset="288"
                         filter="url(#speed-glow)" />
 
-                  <!-- Scale Markings -->
-                  <text x="32" y="142" class="gauge-scale-label">0M</text>
-                  <text x="68" y="55" class="gauge-scale-label">2.5M</text>
-                  <text x="120" y="32" class="gauge-scale-label">5.0M</text>
-                  <text x="172" y="55" class="gauge-scale-label">7.5M</text>
-                  <text x="208" y="142" class="gauge-scale-label">10M+</text>
+                  <!-- Scale Markings (-110° to +110°) -->
+                  <text x="24" y="144" class="gauge-scale-label">0M</text>
+                  <text x="35" y="62" class="gauge-scale-label">2.5M</text>
+                  <text x="110" y="18" class="gauge-scale-label">5.0M</text>
+                  <text x="185" y="62" class="gauge-scale-label">7.5M</text>
+                  <text x="196" y="144" class="gauge-scale-label">10M+</text>
+
+                  <!-- MUI GaugePointer (<GaugePointer />) with target needle & center pivot -->
+                  <g id="gauge-pointer-group" class="gauge-pointer-group" filter="url(#pointer-glow)">
+                    <path id="gauge-pointer-needle"
+                          class="gauge-pointer-needle"
+                          d="M 110 105 L 110 37"
+                          stroke="#ef4444"
+                          stroke-width="3"
+                          stroke-linecap="round" />
+                    <circle cx="110" cy="105" r="5" fill="#ef4444" />
+                    <circle cx="110" cy="105" r="2" fill="#ffffff" />
+                  </g>
 
                   <!-- Center Live Digital Speed Readout -->
                   <g class="gauge-center-text">
-                    <text id="speed-readout-num" x="120" y="105" text-anchor="middle" class="gauge-number">0.00</text>
-                    <text x="120" y="123" text-anchor="middle" class="gauge-unit">Mbps Live Egress</text>
+                    <text id="speed-readout-num" x="110" y="142" text-anchor="middle" class="gauge-number">0.00</text>
+                    <text x="110" y="159" text-anchor="middle" class="gauge-unit">Mbps Live Egress</text>
                   </g>
                 </svg>
               </div>
@@ -958,6 +973,6 @@
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261004_v12"></script>
+  <script type="module" src="/js/dashboard.js?v=20261004_v13"></script>
 </body>
 </html>
