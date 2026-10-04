@@ -172,46 +172,20 @@ export async function evaluateStartGates(options = {}) {
     return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
   }
 
-  const autoRecycleCfg = settings.scheduler?.autoRecycle || {};
-  const allowBookmark = autoRecycleCfg.resumeBookmark !== false;
-  if (isManualStart && state.resumeBookmark) {
-    logger.info('stream.resume_bookmark_cleared', 'Manual start initiated; clearing stale bookmark for fresh start');
-    await saveState({ resumeBookmark: null });
-  }
-  const bookmark = (!isManualStart && allowBookmark && state.resumeBookmark) ? state.resumeBookmark : null;
-
   let videoMeta;
   let orderedMetas = [];
+  _currentSessionStartOffset = 0;
 
   if (playlistMetas.length === 1) {
     videoMeta = playlistMetas[0];
     videoMeta.isConcat = false;
+    videoMeta.seekOffset = 0;
     const vDur = Number(videoMeta.probe?.durationSec || videoMeta.probe?.duration || 0);
     _lastCycleOrder = [{ id: videoMeta.id, duration: vDur }];
-    if (bookmark && bookmark.offsetSec > 0 && bookmark.videoId === videoMeta.id) {
-      const safeOffset = vDur > 0 ? (bookmark.offsetSec % vDur) : 0;
-      videoMeta.seekOffset = safeOffset;
-      _currentSessionStartOffset = safeOffset;
-      logger.info('stream.resume_bookmark_applied', `Resuming single video ${videoMeta.id} from bookmark: ${safeOffset.toFixed(1)}s (saved: ${bookmark.offsetSec}s)`);
-    } else {
-      _currentSessionStartOffset = 0;
-    }
   } else {
     // Multi-video playlist
     orderedMetas = [...playlistMetas];
     const playbackOrder = settings.stream?.playbackOrder || 'sequential';
-
-    let bookmarkedMeta = null;
-    let resumeSeek = 0;
-    if (bookmark && bookmark.offsetSec > 0 && bookmark.videoId) {
-      const bIdx = orderedMetas.findIndex(m => m.id === bookmark.videoId);
-      if (bIdx !== -1) {
-        bookmarkedMeta = orderedMetas[bIdx];
-        const bDur = Number(bookmarkedMeta.probe?.durationSec || bookmarkedMeta.probe?.duration || 0);
-        resumeSeek = bDur > 0 ? (bookmark.offsetSec % bDur) : 0;
-        orderedMetas.splice(bIdx, 1);
-      }
-    }
 
     if (playbackOrder === 'shuffle') {
       for (let i = orderedMetas.length - 1; i > 0; i--) {
@@ -220,31 +194,12 @@ export async function evaluateStartGates(options = {}) {
       }
     }
 
-    if (bookmarkedMeta) {
-      orderedMetas.unshift(bookmarkedMeta);
-      _currentSessionStartOffset = resumeSeek;
-      logger.info('stream.resume_bookmark_applied', `Resuming playlist video ${bookmarkedMeta.id} from bookmark: ${resumeSeek.toFixed(1)}s (saved: ${bookmark.offsetSec}s)`);
-    } else {
-      _currentSessionStartOffset = 0;
-    }
-
     _lastCycleOrder = orderedMetas.map(m => ({ id: m.id, duration: Number(m.probe?.durationSec || m.probe?.duration || 0) }));
 
     const concatLines = ['ffconcat version 1.0'];
-    if (bookmarkedMeta && resumeSeek > 0) {
-      const normFirst = bookmarkedMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
-      concatLines.push(`file '${normFirst}'`);
-      concatLines.push(`inpoint ${resumeSeek.toFixed(2)}`);
-      for (let i = 1; i < orderedMetas.length; i++) {
-        const norm = orderedMetas[i].filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
-        concatLines.push(`file '${norm}'`);
-      }
-      concatLines.push(`file '${normFirst}'`);
-    } else {
-      for (const meta of orderedMetas) {
-        const normalized = meta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
-        concatLines.push(`file '${normalized}'`);
-      }
+    for (const meta of orderedMetas) {
+      const normalized = meta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
+      concatLines.push(`file '${normalized}'`);
     }
 
     await fs.mkdir(path.dirname(PATHS.loopConcat), { recursive: true });
@@ -349,14 +304,11 @@ export async function evaluateStartGates(options = {}) {
         const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
         try {
           await fs.access(resolvedHPath);
-          const hDur = Number(pairedH.probe?.durationSec || pairedH.probe?.duration || 0);
-          const vSeek = Number(videoMeta.seekOffset || 0);
-          const hSeek = hDur > 0 ? (vSeek % hDur) : vSeek;
           horizontalMeta = {
             ...pairedH,
             filePath: resolvedHPath,
             isConcat: false,
-            seekOffset: hSeek,
+            seekOffset: 0,
           };
           dualTarget = `${rtmpsUrl}/${horizontalKey.trim()}`;
           logger.info('stream.dual_stream_paired', `Dual streaming enabled: Paired vertical ${playlistMetas[0].id} with horizontal ${pairedH.id}`);
@@ -391,24 +343,10 @@ export async function evaluateStartGates(options = {}) {
       if (allPaired && horizontalMap.size === playlistMetas.length) {
         // Build loop_horizontal.ffconcat in same order as orderedMetas
         const concatLines = ['ffconcat version 1.0'];
-        const firstH = horizontalMap.get(orderedMetas[0].id);
-        const normFirstH = firstH.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
-
-        if (bookmark && bookmark.offsetSec > 0 && bookmark.videoId === orderedMetas[0].id) {
-          concatLines.push(`file '${normFirstH}'`);
-          concatLines.push(`inpoint ${bookmark.offsetSec.toFixed(2)}`);
-          for (let i = 1; i < orderedMetas.length; i++) {
-            const hMeta = horizontalMap.get(orderedMetas[i].id);
-            const normH = hMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
-            concatLines.push(`file '${normH}'`);
-          }
-          concatLines.push(`file '${normFirstH}'`);
-        } else {
-          for (const meta of orderedMetas) {
-            const hMeta = horizontalMap.get(meta.id);
-            const normH = hMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
-            concatLines.push(`file '${normH}'`);
-          }
+        for (const meta of orderedMetas) {
+          const hMeta = horizontalMap.get(meta.id);
+          const normH = hMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'");
+          concatLines.push(`file '${normH}'`);
         }
 
         await fs.mkdir(path.dirname(PATHS.loopConcatHorizontal), { recursive: true });
@@ -539,8 +477,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     destUrl,
     gate.mode,
     gate.dualTarget,
-    gate.horizontalMeta,
-    gate.videoMeta?.seekOffset || 0
+    gate.horizontalMeta
   );
 
   try {
@@ -559,7 +496,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           activeVideoId: gate.videoMeta.id,
           ffmpegPid: pid,
           streamStartedAt: new Date().toISOString(),
-          currentSeekOffset: _currentSessionStartOffset || 0,
+          currentSeekOffset: 0,
           isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
           pairedHorizontalVideoId: gate.horizontalMeta?.id || null,
           resumeBookmark: null,
@@ -738,37 +675,15 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
   if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
 
   const settings = getSettings();
-  const allowBookmark = settings.scheduler?.autoRecycle?.resumeBookmark !== false;
-  let resumeBookmark = undefined;
-
-  const shouldSaveBookmark = allowBookmark && (
-    reason.includes('recycle') ||
-    reason.includes('scheduler')
-  );
-
-  if (shouldSaveBookmark) {
-    const p = getLatestProgress();
-    const st = getState();
-    const startMs = st.streamStartedAt ? new Date(st.streamStartedAt).getTime() : 0;
-    const sessionElapsedSec = (p && p.outTimeSec > 0)
-      ? p.outTimeSec
-      : (startMs > 0 ? (Date.now() - startMs) / 1000 : 0);
-
-    resumeBookmark = await computeResumeBookmark(sessionElapsedSec);
-    if (resumeBookmark) {
-      logger.info('stream.resume_bookmark_saved', `Saved playback bookmark at ${resumeBookmark.offsetSec}s (video: ${resumeBookmark.videoId}, reason: ${reason})`);
-    }
-  } else {
-    logger.info('stream.resume_bookmark_cleared', `Stop requested (${reason}); clearing resume bookmark for clean start`);
-    resumeBookmark = null;
-    _currentSessionStartOffset = 0;
-  }
+  logger.info('stream.stop', `Stop requested (${reason}); stream will start from 00:00 on next run`);
+  _currentSessionStartOffset = 0;
 
   await saveState({
     ...(keepDesiredRunning ? {} : { desiredState: 'stopped' }),
     isDualStream: false,
     pairedHorizontalVideoId: null,
-    ...(resumeBookmark !== undefined ? { resumeBookmark } : {}),
+    resumeBookmark: null,
+    currentSeekOffset: 0,
   });
 
   const graceSec = settings.stream?.stopGraceSeconds ?? 8;

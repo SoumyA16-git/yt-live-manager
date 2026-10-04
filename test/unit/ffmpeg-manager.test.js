@@ -156,21 +156,19 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.ok(args.includes('-safe'));
   });
 
-  test('Clamps seek offset to video durationSec and includes avoid_negative_ts make_zero', () => {
+  test('Always starts cleanly from 0s without -ss seeking flags', () => {
     const metaWithDur = {
       filePath: '/var/videos/vid_test.mp4',
       probe: { durationSec: 100 },
     };
-    // Seek offset 250s on a 100s video should clamp to 250 % 100 = 50s
-    const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'copy', null, null, 250);
-    const ssIdx = args.indexOf('-ss');
-    assert.ok(ssIdx !== -1, 'Expected -ss flag');
-    assert.equal(args[ssIdx + 1], '50.00');
-    assert.ok(args.includes('-avoid_negative_ts'));
-    assert.ok(args.includes('make_zero'));
+    const args = buildFfmpegArgs(dummySettings, metaWithDur, secretTarget, 'copy');
+    assert.equal(args.includes('-ss'), false, 'Should not contain -ss flag');
+    assert.equal(args.includes('-avoid_negative_ts'), false, 'Should not contain -avoid_negative_ts flag');
+    assert.ok(args.includes('-fflags'));
+    assert.ok(args.includes('+genpts'));
   });
 
-  test('Clamps seek offset for both feeds in dual streaming mode', () => {
+  test('Always starts cleanly from 0s in dual streaming mode without -ss flags', () => {
     const vMeta = {
       filePath: '/var/videos/v.mp4',
       probe: { durationSec: 100 },
@@ -178,17 +176,12 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     const hMeta = {
       filePath: '/var/videos/h.mp4',
       probe: { durationSec: 80 },
-      seekOffset: 250,
     };
     const dualTarget = 'rtmps://a.rtmps.youtube.com:443/live2/key2';
-    // Vertical: 250 % 100 = 50.00, Horizontal: 250 % 80 = 10.00
-    const args = buildFfmpegArgs(dummySettings, vMeta, secretTarget, 'copy', dualTarget, hMeta, 250);
-    const ssIndices = [];
-    args.forEach((a, i) => { if (a === '-ss') ssIndices.push(i); });
-    assert.equal(ssIndices.length, 2, 'Expected two -ss flags');
-    assert.equal(args[ssIndices[0] + 1], '50.00');
-    assert.equal(args[ssIndices[1] + 1], '10.00');
-    assert.ok(args.includes('-avoid_negative_ts'));
-    assert.ok(args.includes('make_zero'));
+    const args = buildFfmpegArgs(dummySettings, vMeta, secretTarget, 'copy', dualTarget, hMeta);
+    assert.equal(args.includes('-ss'), false, 'Dual streaming should not contain -ss flag');
+    assert.equal(args.includes('-avoid_negative_ts'), false, 'Should not contain -avoid_negative_ts flag');
+    assert.ok(args.includes(secretTarget));
+    assert.ok(args.includes(dualTarget));
   });
 });

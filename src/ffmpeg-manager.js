@@ -33,10 +33,9 @@ import PATHS from './lib/paths.js';
  * @param {object|null} [horizontalMeta=null] Optional matching horizontal video metadata
  * @returns {string[]} Argument array (safe for child_process.spawn with shell: false)
  */
-export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy', dualTarget = null, horizontalMeta = null, seekOffset = 0) {
+export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy', dualTarget = null, horizontalMeta = null) {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
-  const effectiveSeek = Number(seekOffset || videoMeta?.seekOffset || 0);
 
   const args = [
     '-hide_banner',
@@ -56,12 +55,7 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     if (isConcat) {
       args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
     } else {
-      const vDur = Number(videoMeta?.probe?.durationSec || videoMeta?.probe?.duration || 0);
-      const safeVSeek = (vDur > 0 && effectiveSeek > 0) ? (effectiveSeek % vDur) : Math.max(0, effectiveSeek);
-      if (safeVSeek > 0) {
-        args.push('-ss', safeVSeek.toFixed(2));
-      }
-      args.push('-stream_loop', '-1', '-avoid_negative_ts', 'make_zero', '-fflags', '+genpts', '-i', videoPath);
+      args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
     }
 
     // Input 1: Horizontal 16:9 Video (file or concat)
@@ -70,13 +64,7 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     if (isHorizontalConcat) {
       args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcatHorizontal);
     } else {
-      const hDur = Number(horizontalMeta?.probe?.durationSec || horizontalMeta?.probe?.duration || 0);
-      const rawHSeek = Number(horizontalMeta?.seekOffset ?? effectiveSeek);
-      const safeHSeek = (hDur > 0 && rawHSeek > 0) ? (rawHSeek % hDur) : Math.max(0, rawHSeek);
-      if (safeHSeek > 0) {
-        args.push('-ss', safeHSeek.toFixed(2));
-      }
-      args.push('-stream_loop', '-1', '-avoid_negative_ts', 'make_zero', '-fflags', '+genpts', '-i', horizPath);
+      args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', horizPath);
     }
 
     // Output 0: YouTube Shorts Feed (Vertical 9:16)
@@ -107,12 +95,7 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
   if (isConcat) {
     args.push('-stream_loop', '-1', '-f', 'concat', '-safe', '0', '-i', PATHS.loopConcat);
   } else {
-    const vDur = Number(videoMeta?.probe?.durationSec || videoMeta?.probe?.duration || 0);
-    const safeSeek = (vDur > 0 && effectiveSeek > 0) ? (effectiveSeek % vDur) : Math.max(0, effectiveSeek);
-    if (safeSeek > 0) {
-      args.push('-ss', safeSeek.toFixed(2));
-    }
-    args.push('-stream_loop', '-1', '-avoid_negative_ts', 'make_zero', '-fflags', '+genpts', '-i', videoPath);
+    args.push('-stream_loop', '-1', '-fflags', '+genpts', '-i', videoPath);
   }
 
   const fps = streamCfg.fps ?? 30;

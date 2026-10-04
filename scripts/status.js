@@ -241,10 +241,6 @@ function render(data) {
     `  • Playback Bar    : ${renderProgressBar(currentOffset, vidDur, 32)}`,
   ];
 
-  if (startOffset > 0) {
-    lines.push(`  • Resume Bookmark : Resumed from offset ${formatDuration(startOffset)}`);
-  }
-
   lines.push(
     '',
     `${C.bold}${C.green}  [⚡ REAL-TIME ENCODING TELEMETRY]${C.reset}`,
@@ -269,8 +265,7 @@ function render(data) {
   }
 
   lines.push(
-    `  • Next Cycle In   : ${status === 'RUNNING' && recycleEnabled ? `${C.bold}${C.yellow}${formatDuration(nextRecycleSec)}${C.reset} (Pauses for ${pauseMinutes}m to finalize VOD)` : C.dim + 'N/A' + C.reset}`,
-    `  • Resume Bookmark : ${autoRecycle.resumeBookmark !== false ? `${C.green}ENABLED (Seamless resume)${C.reset}` : `${C.yellow}DISABLED${C.reset}`}`
+    `  • Next Cycle In   : ${status === 'RUNNING' && recycleEnabled ? `${C.bold}${C.yellow}${formatDuration(nextRecycleSec)}${C.reset} (Pauses for ${pauseMinutes}m to finalize VOD)` : C.dim + 'N/A' + C.reset}`
   );
 
   if (sched.windows && sched.windows.length > 0) {
