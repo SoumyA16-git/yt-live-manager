@@ -400,6 +400,7 @@ export async function transitionState(to, reason = '') {
  * @param {string} [opts.reason='manual_start']
  */
 export async function startStream({ reason = 'manual_start', clearMaintenance = false } = {}) {
+  logger.info('stream.start_requested', `Stream start requested (reason: ${reason})`);
   // Clear any pending timers
   if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
   if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
@@ -495,6 +496,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       onHealthy: async () => {
         _streamStartTime = Date.now();
         await transitionState('RUNNING', 'FFmpeg healthy output detected');
+        logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid}`);
         await saveState({
           streamMode: gate.mode,
           activeVideoId: gate.videoMeta.id,

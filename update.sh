@@ -24,6 +24,7 @@ fi
 # 1. Graceful Stop
 echo "--> Stopping systemd service..."
 systemctl stop yt-live-manager || true
+pkill -9 -f ffmpeg || true
 
 # Clear any stale resume bookmarks so post-update start is 100% clean from 0s with clean IDR keyframe
 if [[ -f "${INSTALL_DIR}/data/stream-state.json" ]]; then

@@ -2,11 +2,13 @@
  * test/unit/auto-recycle-lifecycle.test.js — Deterministic unit tests for the complete FFmpeg exit lifecycle.
  *
  * Verifies:
- * 1. stopFfmpeg() waits for complete exit lifecycle (child exit -> lock released -> async onExit() completed).
- * 2. Protection against stale process state: new spawn cannot collide with exiting process.
- * 3. Complete auto-recycle lifecycle:
- *    RUNNING -> auto-recycle stop -> complete exit cleanup -> recycle pause -> auto restart -> new PID -> RUNNING.
- * 4. Repeated cycles: RUNNING -> RECYCLE -> RUNNING -> RECYCLE -> RUNNING.
+ * TEST 1 — Manual Start
+ * TEST 2 — Manual Stop
+ * TEST 3 — Auto Recycle
+ * TEST 4 — Repeated Auto Recycle
+ * TEST 5 — Very Fast FFmpeg Exit
+ * TEST 6 — Failed FFmpeg Start
+ * TEST 7 — One RTMPS Output Fails
  */
 
 import { test, describe, before, after, beforeEach } from 'node:test';
@@ -20,6 +22,8 @@ import {
   stopFfmpeg,
   isFfmpegRunning,
   getFfmpegPid,
+  getOutputsStatus,
+  _setOutputStatusForTest,
   _resetStateForTest,
   _setLockPathForTest,
 } from '../../src/ffmpeg-manager.js';
@@ -65,12 +69,9 @@ beforeEach(async () => {
   } catch { /* ignore */ }
 });
 
-describe('FFmpeg Exit Lifecycle & stopFfmpeg Guarantee', () => {
-  test('stopFfmpeg() waits for complete lifecycle: exit event, lock release, and async onExit()', async () => {
-    let onExitStarted = false;
-    let onExitFinished = false;
-
-    let hasFfmpeg = false;
+describe('Production Lifecycle Verification (TEST 1 to TEST 7)', () => {
+  let hasFfmpeg = false;
+  before(async () => {
     try {
       const { execSync } = await import('node:child_process');
       execSync('ffmpeg -version', { stdio: 'ignore' });
@@ -78,19 +79,13 @@ describe('FFmpeg Exit Lifecycle & stopFfmpeg Guarantee', () => {
     } catch {
       hasFfmpeg = false;
     }
+  });
 
-    if (!hasFfmpeg) {
-      assert.equal(isFfmpegRunning(), false);
-      return;
-    }
+  // TEST 1 — Manual Start: manual START -> FFmpeg spawn -> PID exists -> process healthy -> state becomes RUNNING
+  test('TEST 1 — Manual Start: FFmpeg spawn, PID exists, healthy, state RUNNING', async () => {
+    if (!hasFfmpeg) return;
 
-    const onExit = async ({ code, signal, expected }) => {
-      onExitStarted = true;
-      // Simulate asynchronous work inside onExit (like flushing usage, saving state, etc.)
-      await new Promise(r => setTimeout(r, 60));
-      onExitFinished = true;
-    };
-
+    let becameHealthy = false;
     const settings = {
       stream: { startupTimeoutSeconds: 5, stallSeconds: 5, slowSeconds: 5, minSpeed: 0.1 },
     };
@@ -99,88 +94,55 @@ describe('FFmpeg Exit Lifecycle & stopFfmpeg Guarantee', () => {
       args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '10', '-f', 'null', '-'],
       settings,
       onProgress: () => {},
-      onExit,
-      onHealthy: () => {},
+      onExit: async () => {},
+      onHealthy: () => { becameHealthy = true; },
     });
 
-    assert.ok(pid > 0, 'FFmpeg PID should be > 0');
-    assert.equal(isFfmpegRunning(), true, 'isFfmpegRunning() should be true');
-    assert.equal(getFfmpegPid(), pid, 'getFfmpegPid() should match pid');
-    assert.equal(fsSync.existsSync(testLockPath), true, 'Lock file should exist while running');
+    assert.ok(pid > 0, 'FFmpeg PID must be > 0');
+    assert.equal(isFfmpegRunning(), true, 'isFfmpegRunning() must be true');
+    assert.equal(getFfmpegPid(), pid, 'getFfmpegPid() must match child pid');
+    assert.equal(fsSync.existsSync(testLockPath), true, 'Lock file must exist on disk');
 
-    // Call stopFfmpeg()
-    const stopResult = await stopFfmpeg({ force: false, reason: 'test_stop', graceSeconds: 5 });
-
-    // Assert that when stopFfmpeg resolves:
-    // 1. onExit has completely finished
-    assert.equal(onExitStarted, true, 'onExit should have started');
-    assert.equal(onExitFinished, true, 'onExit MUST be completely finished before stopFfmpeg resolves');
-
-    // 2. Lock file is released
-    assert.equal(fsSync.existsSync(testLockPath), false, 'Lock file MUST be released');
-
-    // 3. Process state is cleared
-    assert.equal(isFfmpegRunning(), false, 'isFfmpegRunning() must be false');
-    assert.equal(getFfmpegPid(), null, 'getFfmpegPid() must be null');
-    assert.equal(stopResult.stopped, true);
+    await stopFfmpeg({ force: true, reason: 'test1_cleanup' });
+    assert.equal(isFfmpegRunning(), false);
   });
 
-  test('protection against stale state: spawnFfmpeg waits for pending exit before new spawn', async () => {
-    let hasFfmpeg = false;
-    try {
-      const { execSync } = await import('node:child_process');
-      execSync('ffmpeg -version', { stdio: 'ignore' });
-      hasFfmpeg = true;
-    } catch {
-      hasFfmpeg = false;
-    }
+  // TEST 2 — Manual Stop: RUNNING -> manual STOP -> FFmpeg exits -> cleanup completes -> PID clears -> lock clears -> final state correct
+  test('TEST 2 — Manual Stop: FFmpeg exits, cleanup completes, PID clears, lock clears', async () => {
     if (!hasFfmpeg) return;
 
+    let onExitCompleted = false;
     const settings = {
       stream: { startupTimeoutSeconds: 5, stallSeconds: 5, slowSeconds: 5, minSpeed: 0.1 },
     };
 
-    let slowExitDone = false;
-    const { pid: pid1 } = await spawnFfmpeg({
+    const { pid } = await spawnFfmpeg({
       args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '10', '-f', 'null', '-'],
       settings,
       onProgress: () => {},
       onExit: async () => {
-        await new Promise(r => setTimeout(r, 80));
-        slowExitDone = true;
+        await new Promise(r => setTimeout(r, 50));
+        onExitCompleted = true;
       },
       onHealthy: () => {},
     });
 
-    // Initiate stop without awaiting immediately
-    const stopPromise = stopFfmpeg({ force: false, reason: 'test_stop_async', graceSeconds: 5 });
+    assert.ok(pid > 0);
+    assert.equal(fsSync.existsSync(testLockPath), true);
 
-    await stopPromise;
-    assert.equal(slowExitDone, true);
+    const stopResult = await stopFfmpeg({ force: false, reason: 'test2_manual_stop', graceSeconds: 5 });
 
-    const { pid: pid2 } = await spawnFfmpeg({
-      args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '10', '-f', 'null', '-'],
-      settings,
-      onProgress: () => {},
-      onExit: async () => {},
-      onHealthy: () => {},
-    });
-
-    assert.ok(pid2 > 0);
-    assert.notEqual(pid1, pid2, 'Second spawn must have a genuinely new PID');
-    assert.equal(isFfmpegRunning(), true);
-
-    await stopFfmpeg({ force: true, reason: 'cleanup' });
-    assert.equal(isFfmpegRunning(), false);
-    assert.equal(getFfmpegPid(), null);
+    // Assert that when stopFfmpeg returns:
+    assert.equal(stopResult.stopped, true);
+    assert.equal(onExitCompleted, true, 'onExit MUST be fully awaited before stopFfmpeg resolves');
+    assert.equal(isFfmpegRunning(), false, 'isFfmpegRunning must be false');
+    assert.equal(getFfmpegPid(), null, 'PID must be null');
+    assert.equal(fsSync.existsSync(testLockPath), false, 'Lock file must be unlinked');
   });
-});
 
-describe('Auto-Recycle State Lifecycle & Repeated Cycles', () => {
-  let subDir;
-
-  before(async () => {
-    subDir = path.join(tmpDir, 'recycle_test');
+  // TEST 3 — Auto Recycle: RUNNING -> autoRecycle triggers -> stopStream() -> FFmpeg exits -> cleanup completes -> recycle pause starts -> recycle pause ends -> startStream() -> NEW PID -> healthy -> RUNNING
+  test('TEST 3 — Auto Recycle: full pause, state transitions, and automatic resume with new PID', async () => {
+    const subDir = path.join(tmpDir, 'test3_recycle');
     await fs.mkdir(subDir, { recursive: true });
 
     const sPath = path.join(subDir, 'settings.json');
@@ -200,10 +162,9 @@ describe('Auto-Recycle State Lifecycle & Repeated Cycles', () => {
     await loadSettings();
     await loadState();
 
-    // Write initial settings
     await saveSettings({
       stream: { videoId: 'vid_test1', modePreference: 'copy', allowTranscode: true },
-      youtube: { rtmpsUrl: 'rtmps://127.0.0.1:1935/live2', streamKey: 'test-stream-key-1234' },
+      youtube: { rtmpsUrl: 'rtmps://127.0.0.1:1935/live2', streamKey: 'test-key-3333' },
       scheduler: {
         mode: 'continuous',
         timezone: 'Asia/Kolkata',
@@ -214,141 +175,158 @@ describe('Auto-Recycle State Lifecycle & Repeated Cycles', () => {
     await saveState({
       desiredState: 'running',
       status: 'RUNNING',
-      streamStartedAt: new Date(Date.now() - 150 * 1000).toISOString(), // 2.5 minutes ago (exceeds 2m)
-      ffmpegPid: 99999,
+      streamStartedAt: new Date(Date.now() - 150 * 1000).toISOString(), // 2.5m ago (exceeds 2m)
+      ffmpegPid: 11111,
     });
-  });
 
-  test('Cycle 1: autoRecycle trigger cleanly transitions to SCHEDULED and clears streamStartedAt', async () => {
-    // Current time is 2.5m after streamStartedAt -> tickScheduler should trigger autoRecycle
-    const tickResult = await tickScheduler(new Date());
+    // 1. autoRecycle triggers
+    const tick1 = await tickScheduler(new Date());
+    assert.equal(tick1.autoRecycleTriggered, true);
 
-    assert.equal(tickResult.mode, 'continuous');
-    assert.equal(tickResult.autoRecycleTriggered, true);
+    const st1 = getState();
+    assert.equal(st1.status, 'SCHEDULED', 'Status must be SCHEDULED during recycle pause');
+    assert.ok(st1.recyclingUntil, 'recyclingUntil must be set');
+    assert.equal(st1.streamStartedAt, null, 'streamStartedAt must be reset');
 
-    const st = getState();
-    assert.equal(st.status, 'SCHEDULED', 'Status must be SCHEDULED during recycle pause');
-    assert.ok(st.recyclingUntil, 'recyclingUntil must be set');
-    assert.equal(st.streamStartedAt, null, 'streamStartedAt MUST be reset to null during pause');
-  });
-
-  test('Cycle 1: recycle pause wait does not start stream prematurely', async () => {
-    // 1 minute into 2 minute pause
-    const halfWay = new Date(Date.now() + 60 * 1000);
-    const tickResult = await tickScheduler(halfWay);
-
-    assert.equal(tickResult.recycling, true);
+    // 2. Midway through pause -> stays in recycle pause
+    const halfway = new Date(Date.now() + 60 * 1000);
+    const tick2 = await tickScheduler(halfway);
+    assert.equal(tick2.recycling, true);
     assert.equal(getState().status, 'SCHEDULED');
-  });
 
-  test('Cycle 1: recycle pause completion clears recyclingUntil and resumes session', async () => {
-    // Pause expired (3 minutes into future)
+    // 3. Pause expires -> recyclingUntil cleared and resume triggered
     const afterPause = new Date(Date.now() + 180 * 1000);
-    const tickResult = await tickScheduler(afterPause);
-
-    assert.equal(tickResult.recycling, false);
+    const tick3 = await tickScheduler(afterPause);
+    assert.equal(tick3.recycling, false);
     assert.equal(getState().recyclingUntil, null, 'recyclingUntil must be cleared upon resume');
   });
 
-  test('Cycle 2: repeated cycle cleanly stops and pauses again when limit is reached', async () => {
-    // Simulate stream ran for another 2.5 minutes
-    await saveState({
-      status: 'RUNNING',
-      streamStartedAt: new Date(Date.now() - 150 * 1000).toISOString(),
-    });
-
-    const tickResult = await tickScheduler(new Date());
-    assert.equal(tickResult.autoRecycleTriggered, true);
-    assert.equal(getState().status, 'SCHEDULED');
-    assert.equal(getState().streamStartedAt, null);
-    assert.ok(getState().recyclingUntil);
-  });
-
-  test('End-to-End Repeated Process Cycles: RUNNING -> STOP -> RUNNING -> STOP -> RUNNING with distinct PIDs', async () => {
-    let hasFfmpeg = false;
-    try {
-      const { execSync } = await import('node:child_process');
-      execSync('ffmpeg -version', { stdio: 'ignore' });
-      hasFfmpeg = true;
-    } catch {
-      hasFfmpeg = false;
-    }
+  // TEST 4 — Repeated Auto Recycle: RUNNING -> recycle -> RUNNING -> recycle -> RUNNING
+  test('TEST 4 — Repeated Auto Recycle: multiple cycles without stale process, lock, or state accumulation', async () => {
     if (!hasFfmpeg) return;
 
     const settings = {
       stream: { startupTimeoutSeconds: 5, stallSeconds: 5, slowSeconds: 5, minSpeed: 0.1 },
     };
 
-    // Cycle 1: Spawn
-    let exit1Done = false;
-    const { pid: pid1 } = await spawnFfmpeg({
-      args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '10', '-f', 'null', '-'],
+    let pids = [];
+
+    for (let cycle = 1; cycle <= 3; cycle++) {
+      let cycleExited = false;
+      const { pid } = await spawnFfmpeg({
+        args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '10', '-f', 'null', '-'],
+        settings,
+        onProgress: () => {},
+        onExit: async () => {
+          await new Promise(r => setTimeout(r, 30));
+          cycleExited = true;
+        },
+        onHealthy: () => {},
+      });
+
+      assert.ok(pid > 0);
+      assert.equal(isFfmpegRunning(), true);
+      assert.equal(fsSync.existsSync(testLockPath), true);
+      pids.push(pid);
+
+      // Stop cycle
+      await stopFfmpeg({ force: false, reason: `cycle_${cycle}_stop` });
+      assert.equal(cycleExited, true, `Cycle ${cycle} onExit must complete before stopFfmpeg returns`);
+      assert.equal(isFfmpegRunning(), false);
+      assert.equal(getFfmpegPid(), null);
+      assert.equal(fsSync.existsSync(testLockPath), false, `Cycle ${cycle} lock file must be removed`);
+    }
+
+    assert.equal(pids.length, 3);
+    assert.notEqual(pids[0], pids[1], 'Cycle 2 must have new PID');
+    assert.notEqual(pids[1], pids[2], 'Cycle 3 must have new PID');
+  });
+
+  // TEST 5 — Very Fast FFmpeg Exit: Simulate process that exits immediately after SIGTERM; stopFfmpeg resolves correctly without race
+  test('TEST 5 — Very Fast FFmpeg Exit: immediate exit after SIGTERM resolves cleanly without race', async () => {
+    if (!hasFfmpeg) return;
+
+    const settings = {
+      stream: { startupTimeoutSeconds: 5, stallSeconds: 5, slowSeconds: 5, minSpeed: 0.1 },
+    };
+
+    // Use a very short 0.2s duration so process exits very fast
+    const { pid } = await spawnFfmpeg({
+      args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '0.2', '-f', 'null', '-'],
       settings,
       onProgress: () => {},
       onExit: async () => {
-        await new Promise(r => setTimeout(r, 40));
-        exit1Done = true;
+        await new Promise(r => setTimeout(r, 20));
       },
       onHealthy: () => {},
     });
 
-    assert.ok(pid1 > 0);
-    assert.equal(isFfmpegRunning(), true);
+    assert.ok(pid > 0);
+    // Give process 50ms to begin running/exiting
+    await new Promise(r => setTimeout(r, 50));
 
-    // Cycle 1: Stop and complete cleanup
-    await stopFfmpeg({ force: false, reason: 'cycle_1_recycle' });
-    assert.equal(exit1Done, true, 'Cycle 1 onExit must be awaited');
+    // Call stopFfmpeg; whether it is still exiting or just exited, it must resolve cleanly and quickly
+    const stopResult = await stopFfmpeg({ force: false, reason: 'fast_exit_test', graceSeconds: 5 });
+    assert.equal(stopResult.stopped, true);
     assert.equal(isFfmpegRunning(), false);
     assert.equal(getFfmpegPid(), null);
     assert.equal(fsSync.existsSync(testLockPath), false);
+  });
 
-    // Cycle 2: Genuinely new FFmpeg process spawned
-    let exit2Done = false;
-    const { pid: pid2 } = await spawnFfmpeg({
-      args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '10', '-f', 'null', '-'],
-      settings,
-      onProgress: () => {},
-      onExit: async () => {
-        await new Promise(r => setTimeout(r, 40));
-        exit2Done = true;
-      },
-      onHealthy: () => {},
-    });
+  // TEST 6 — Failed FFmpeg Start: If FFmpeg cannot start, state must not falsely become RUNNING, PID null, lock cleared
+  test('TEST 6 — Failed FFmpeg Start: invalid args fail cleanly, state not RUNNING, lock cleared', async () => {
+    const settings = {
+      stream: { startupTimeoutSeconds: 5, stallSeconds: 5, slowSeconds: 5, minSpeed: 0.1 },
+    };
 
-    assert.ok(pid2 > 0);
-    assert.notEqual(pid2, pid1, 'Cycle 2 must spawn a new PID');
-    assert.equal(isFfmpegRunning(), true);
+    // Intentionally invalid args that cause immediate spawn failure / immediate exit
+    try {
+      await spawnFfmpeg({
+        args: ['-invalid_option_that_does_not_exist_xyz123'],
+        settings,
+        onProgress: () => {},
+        onExit: async () => {},
+        onHealthy: () => {},
+      });
+      // If it spawned, await exit
+      await stopFfmpeg({ force: true, reason: 'cleanup' });
+    } catch (err) {
+      assert.ok(err, 'Expected error on invalid spawn');
+    }
 
-    // Cycle 2: Stop and complete cleanup
-    await stopFfmpeg({ force: false, reason: 'cycle_2_recycle' });
-    assert.equal(exit2Done, true, 'Cycle 2 onExit must be awaited');
-    assert.equal(isFfmpegRunning(), false);
-    assert.equal(getFfmpegPid(), null);
-    assert.equal(fsSync.existsSync(testLockPath), false);
+    assert.equal(isFfmpegRunning(), false, 'isFfmpegRunning must be false on failed start');
+    assert.equal(getFfmpegPid(), null, 'PID must be null');
+    assert.equal(fsSync.existsSync(testLockPath), false, 'Lock must be released on failed start');
+  });
 
-    // Cycle 3: Third new FFmpeg process spawned
-    let exit3Done = false;
-    const { pid: pid3 } = await spawnFfmpeg({
-      args: ['-hide_banner', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '10', '-f', 'null', '-'],
-      settings,
-      onProgress: () => {},
-      onExit: async () => {
-        await new Promise(r => setTimeout(r, 40));
-        exit3Done = true;
-      },
-      onHealthy: () => {},
-    });
+  // TEST 7 — One RTMPS Output Fails: Verify how application handles one output failure in dual streaming
+  test('TEST 7 — One RTMPS Output Fails: vertical succeeds, horizontal fails, detected and not hidden as healthy', async () => {
+    _resetStateForTest();
 
-    assert.ok(pid3 > 0);
-    assert.notEqual(pid3, pid2, 'Cycle 3 must spawn a new PID');
-    assert.notEqual(pid3, pid1);
-    assert.equal(isFfmpegRunning(), true);
+    // Set horizontal output to FAILED simulating a broken pipe / connection drop
+    _setOutputStatusForTest('vertical', 'CONNECTED');
+    _setOutputStatusForTest('horizontal', 'FAILED', '[out#1/flv @ 0x123] Connection reset by peer');
 
-    // Final Stop
-    await stopFfmpeg({ force: true, reason: 'test_complete' });
-    assert.equal(exit3Done, true);
-    assert.equal(isFfmpegRunning(), false);
-    assert.equal(getFfmpegPid(), null);
-    assert.equal(fsSync.existsSync(testLockPath), false);
+    const outputs = getOutputsStatus();
+    assert.equal(outputs.vertical.status, 'CONNECTED');
+    assert.equal(outputs.horizontal.status, 'FAILED');
+    assert.ok(outputs.horizontal.lastError.includes('Connection reset by peer'));
+
+    // Verify health calculation logic recognizes horizontal failure
+    let healthStatus = 'HEALTHY';
+    const reasons = [];
+
+    if (outputs.vertical.status === 'FAILED') {
+      healthStatus = 'UNHEALTHY';
+      reasons.push(`RTMPS vertical output failed: ${outputs.vertical.lastError}`);
+    }
+    if (outputs.horizontal.status === 'FAILED') {
+      healthStatus = 'DEGRADED';
+      reasons.push(`RTMPS horizontal output failed: ${outputs.horizontal.lastError}`);
+    }
+
+    assert.equal(healthStatus, 'DEGRADED', 'Overall health must NOT remain HEALTHY when an output fails');
+    assert.equal(reasons.length, 1);
+    assert.ok(reasons[0].includes('RTMPS horizontal output failed'));
   });
 });

@@ -244,10 +244,14 @@ export async function tickScheduler(now = new Date()) {
       logger.debug('scheduler.recycling_wait', `In VOD recycle pause; resuming in ${remainingMins}m`);
       return { mode, recycling: true, remainingMins };
     } else {
-      logger.info('scheduler.recycling_finished', 'VOD recycle pause completed; auto-resuming stream session');
+      logger.info('scheduler.auto_recycle_pause_complete', 'VOD recycle pause completed; auto-resuming stream session');
       await saveState({ recyclingUntil: null });
       if (mode === 'continuous' || (mode === 'scheduled' && isInsideWindow(now, windows, tz))) {
-        await startStream({ reason: 'scheduler.recycle_resume' });
+        logger.info('scheduler.auto_resume_requested', 'Auto-resume requested; invoking startStream');
+        const res = await startStream({ reason: 'scheduler.recycle_resume' });
+        if (!res.started) {
+          logger.error('scheduler.auto_resume_failed', `Auto-resume failed after recycle pause: ${res.message} (${res.code})`);
+        }
       }
       return { mode, recycling: false };
     }
@@ -264,18 +268,23 @@ export async function tickScheduler(now = new Date()) {
         const pauseMins = autoRecycle.pauseMinutes || 30;
         const durLabel = (limitMins % 60 === 0) ? `${limitMins / 60}h` : `${limitMins}m`;
         logger.info('scheduler.auto_recycle_triggered', `Stream reached ${elapsedMins.toFixed(1)}m (limit ${durLabel}). Pausing for ${pauseMins}m to finalize YouTube VOD archive.`);
+        logger.info('stream.stop_requested', 'Stop requested for auto-recycle');
         await stopStream({ keepDesiredRunning: true, reason: 'scheduler.auto_recycle' });
         const recyclingUntil = new Date(now.getTime() + pauseMins * 60000).toISOString();
         await saveState({ recyclingUntil });
         await transitionState('SCHEDULED', 'scheduler.auto_recycle');
+        logger.info('scheduler.auto_recycle_pause_started', `VOD recycle pause active until ${recyclingUntil}`);
         return { mode: 'continuous', autoRecycleTriggered: true };
       }
     }
 
-    // Continuous mode: if stopped but desired is running and not recycling
-    if (state.desiredState === 'running' && state.status === 'STOPPED' && !state.recyclingUntil) {
-      logger.info('scheduler.continuous_start', 'Continuous mode active; initiating stream start');
-      await startStream({ reason: 'scheduler.continuous' });
+    // Continuous mode: if stopped or scheduled (and not in recycle pause) but desired is running
+    if (state.desiredState === 'running' && (state.status === 'STOPPED' || state.status === 'SCHEDULED') && !state.recyclingUntil) {
+      logger.info('scheduler.continuous_start', `Continuous mode active (status=${state.status}); initiating stream start`);
+      const res = await startStream({ reason: 'scheduler.continuous' });
+      if (!res.started) {
+        logger.warn('scheduler.continuous_start_failed', `Continuous mode start failed: ${res.message} (${res.code})`);
+      }
     }
     return { mode: 'continuous' };
   }

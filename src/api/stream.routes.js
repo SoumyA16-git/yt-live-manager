@@ -10,7 +10,7 @@ import {
   setMaintenance,
 } from '../stream-manager.js';
 import { getState } from '../state-manager.js';
-import { getLatestProgress, getRecentStderr } from '../ffmpeg-manager.js';
+import { getLatestProgress, getRecentStderr, getOutputsStatus } from '../ffmpeg-manager.js';
 
 export function createStreamRouter() {
   const router = Router();
@@ -19,10 +19,20 @@ export function createStreamRouter() {
   router.get(['/', '/status'], async (req, res) => {
     const state = getState();
     const progress = getLatestProgress();
+    const outputs = getOutputsStatus();
 
     // Compute Health Verdict (PRD §15.4)
     const reasons = [];
     let healthStatus = 'HEALTHY';
+
+    if (outputs.vertical.status === 'FAILED') {
+      healthStatus = 'UNHEALTHY';
+      reasons.push(`RTMPS vertical output failed: ${outputs.vertical.lastError || 'Connection error'}`);
+    }
+    if (outputs.horizontal.enabled && outputs.horizontal.status === 'FAILED') {
+      healthStatus = 'DEGRADED';
+      reasons.push(`RTMPS horizontal output failed: ${outputs.horizontal.lastError || 'Connection error'}`);
+    }
 
     if (state.status === 'ERROR') {
       healthStatus = 'UNHEALTHY';
@@ -73,6 +83,7 @@ export function createStreamRouter() {
       isDualStream:        Boolean(state.isDualStream),
       pairedHorizontalVideoId: state.pairedHorizontalVideoId,
       progress,
+      outputs,
       healthVerdict: {
         status: healthStatus,
         reasons,

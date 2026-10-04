@@ -259,6 +259,7 @@ async function releaseLock() {
  * Check and clean up orphaned locks at startup.
  */
 export async function cleanupStaleLockOnBoot() {
+  await killRogueFfmpegProcesses();
   try {
     const raw = await fs.readFile(_lockPath, 'utf8');
     const lock = JSON.parse(raw);
@@ -299,6 +300,11 @@ const RING_MAX = 50;
 let _exitCompletionPromise = null;
 let _resolveExitCompletion = null;
 
+let _outputDestinations = {
+  vertical: { status: 'INIT', lastError: null, connectedAt: null },
+  horizontal: { enabled: false, status: 'INIT', lastError: null, connectedAt: null },
+};
+
 // Watchdog timers & state
 let _startupTimer = null;
 let _stallWatchdog = null;
@@ -312,6 +318,21 @@ function clearWatchdogs() {
   if (_stallWatchdog) { clearInterval(_stallWatchdog); _stallWatchdog = null; }
   if (_slowWatchdog) { clearInterval(_slowWatchdog); _slowWatchdog = null; }
   _slowStartTime = null;
+}
+
+async function killRogueFfmpegProcesses() {
+  if (process.platform !== 'linux') return;
+  try {
+    const { execSync } = await import('node:child_process');
+    const out = execSync("pgrep -f 'ffmpeg.*(live2|flv)' || true", { encoding: 'utf8' }).trim();
+    if (out) {
+      const pids = out.split(/\s+/).map(p => parseInt(p, 10)).filter(p => p > 0 && p !== process.pid && p !== _currentPid);
+      for (const p of pids) {
+        logger.warn('ffmpeg.rogue_killed', `Found orphaned/rogue FFmpeg process PID ${p}; terminating`);
+        try { process.kill(p, 'SIGTERM'); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore */ }
 }
 
 // ─── Process Spawning ─────────────────────────────────────────────────────────
@@ -346,6 +367,21 @@ export async function spawnFfmpeg({
       code: 'E_ALREADY_RUNNING',
     });
   }
+
+  // Terminate any rogue/orphaned FFmpeg processes on system before spawning
+  await killRogueFfmpegProcesses();
+
+  // Detect output destinations from args
+  let flvCount = 0;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-f' && args[i + 1] === 'flv') flvCount++;
+  }
+  const hasHorizontal = flvCount >= 2;
+
+  _outputDestinations = {
+    vertical: { status: 'INIT', lastError: null, connectedAt: null },
+    horizontal: { enabled: hasHorizontal, status: hasHorizontal ? 'INIT' : 'DISABLED', lastError: null, connectedAt: null },
+  };
 
   _expectedExit = false;
   _latestProgress = null;
@@ -382,6 +418,7 @@ export async function spawnFfmpeg({
 
   _currentChild = child;
   _currentPid = child.pid;
+  logger.info('ffmpeg.spawned', `New FFmpeg process spawned with PID ${child.pid}`);
 
   // Lock acquisition
   try {
@@ -498,9 +535,22 @@ export async function spawnFfmpeg({
 
       _latestProgress = progressData;
 
-      // Check Healthy trigger
-      if (!becameHealthy && totalSize > 0 && speed >= minSpeed) {
+      // Check Healthy trigger: verify encoder speed & progress, and ensure neither configured output has failed
+      const vertFailed = _outputDestinations.vertical.status === 'FAILED';
+      const horizFailed = _outputDestinations.horizontal.enabled && _outputDestinations.horizontal.status === 'FAILED';
+
+      if (!becameHealthy && totalSize > 0 && speed >= minSpeed && !vertFailed && !horizFailed) {
         becameHealthy = true;
+        if (_outputDestinations.vertical.status !== 'FAILED') {
+          _outputDestinations.vertical.status = 'CONNECTED';
+          _outputDestinations.vertical.connectedAt = new Date().toISOString();
+          logger.info('ffmpeg.rtmps_vertical', 'RTMPS vertical output: CONNECTED');
+        }
+        if (_outputDestinations.horizontal.enabled && _outputDestinations.horizontal.status !== 'FAILED') {
+          _outputDestinations.horizontal.status = 'CONNECTED';
+          _outputDestinations.horizontal.connectedAt = new Date().toISOString();
+          logger.info('ffmpeg.rtmps_horizontal', 'RTMPS horizontal output: CONNECTED');
+        }
         if (_startupTimer) { clearTimeout(_startupTimer); _startupTimer = null; }
         if (typeof onHealthy === 'function') onHealthy(progressData);
       }
@@ -549,7 +599,22 @@ export async function spawnFfmpeg({
     _stderrRing.push({ line: redacted, at: new Date().toISOString() });
     if (_stderrRing.length > RING_MAX) _stderrRing.shift();
 
-    if (redacted.includes('error') || redacted.includes('Error') || redacted.includes('failed')) {
+    const lower = redacted.toLowerCase();
+    const isError = lower.includes('error') || lower.includes('failed') || lower.includes('broken pipe') || lower.includes('connection reset');
+
+    // Categorize output failure
+    const isOut0 = redacted.includes('[out#0') || redacted.includes('[vost#0') || redacted.includes('[aost#0');
+    const isOut1 = redacted.includes('[out#1') || redacted.includes('[vost#1') || redacted.includes('[aost#1');
+
+    if (isOut0 && isError) {
+      _outputDestinations.vertical.status = 'FAILED';
+      _outputDestinations.vertical.lastError = redacted;
+      logger.error('ffmpeg.rtmps_vertical_failed', `RTMPS vertical output: FAILED (${redacted})`);
+    } else if (isOut1 && isError) {
+      _outputDestinations.horizontal.status = 'FAILED';
+      _outputDestinations.horizontal.lastError = redacted;
+      logger.error('ffmpeg.rtmps_horizontal_failed', `RTMPS horizontal output: FAILED (${redacted})`);
+    } else if (isError) {
       logger.warn('ffmpeg.stderr', redacted);
     } else {
       logger.debug('ffmpeg.stderr', redacted);
@@ -714,11 +779,25 @@ export function getLatestProgress() {
   return _latestProgress ? { ..._latestProgress } : null;
 }
 
+export function getOutputsStatus() {
+  return {
+    vertical: { ..._outputDestinations.vertical },
+    horizontal: { ..._outputDestinations.horizontal },
+  };
+}
+
 export function getRecentStderr() {
   return [..._stderrRing];
 }
 
 // ─── Test Helpers ─────────────────────────────────────────────────────────────
+
+export function _setOutputStatusForTest(destination, status, error = null) {
+  if (_outputDestinations[destination]) {
+    _outputDestinations[destination].status = status;
+    _outputDestinations[destination].lastError = error;
+  }
+}
 
 export function _resetStateForTest() {
   _currentChild = null;
@@ -727,6 +806,10 @@ export function _resetStateForTest() {
   _latestProgress = null;
   _exitCompletionPromise = null;
   _resolveExitCompletion = null;
+  _outputDestinations = {
+    vertical: { status: 'INIT', lastError: null, connectedAt: null },
+    horizontal: { enabled: false, status: 'INIT', lastError: null, connectedAt: null },
+  };
   clearWatchdogs();
 }
 
