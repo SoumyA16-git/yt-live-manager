@@ -428,13 +428,13 @@ export async function createAndBindBroadcast({
 
   // 2. Bind broadcast to the reusable liveStream
   logger.info('youtube_api.binding_broadcast', `Binding broadcast ${broadcastId} to stream ${streamId}`);
-  await youtubeFetch(
-    `liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails`,
+  const bound = await youtubeFetch(
+    `liveBroadcasts/bind?id=${encodeURIComponent(broadcastId)}&streamId=${encodeURIComponent(streamId)}&part=id,contentDetails,status`,
     { method: 'POST' }
   );
 
   _currentBroadcastId = broadcastId;
-  _currentLifeCycleStatus = created.status?.lifeCycleStatus || 'ready';
+  _currentLifeCycleStatus = bound?.status?.lifeCycleStatus || 'ready';
   _lastCheckedAt = new Date().toISOString();
 
   return {
@@ -537,12 +537,16 @@ export async function manageBroadcastLifecycleOnStart({
     while (Date.now() - autoStartBegin < autoStartMaxWait) {
       await new Promise(r => setTimeout(r, 2000));
       const bCheck = await resolveBoundBroadcast(stream.id);
+      if (bCheck && (!broadcast.id || bCheck.id === broadcast.id || (bCheck.lifeCycleStatus !== 'complete' && !bCheck.isComplete))) {
+        broadcast = bCheck;
+        _currentLifeCycleStatus = bCheck.lifeCycleStatus;
+      }
       if (bCheck && bCheck.lifeCycleStatus === 'live') {
-        logger.info('youtube_api.autostart_succeeded', `Broadcast ${broadcast.id} auto-started to LIVE!`);
+        logger.info('youtube_api.autostart_succeeded', `Broadcast ${bCheck.id} auto-started to LIVE!`);
         return {
           success: true,
           liveStreamId: stream.id,
-          broadcastId: broadcast.id,
+          broadcastId: bCheck.id,
           streamStatus,
           lifeCycleStatus: 'live',
         };
@@ -552,7 +556,12 @@ export async function manageBroadcastLifecycleOnStart({
   }
 
   // 6. Explicit Transition to LIVE if not auto-started or enableAutoStart is false
-  if (broadcast.lifeCycleStatus === 'ready' || broadcast.lifeCycleStatus === 'testing') {
+  const canTransition = broadcast.lifeCycleStatus === 'ready'
+    || broadcast.lifeCycleStatus === 'testing'
+    || _currentLifeCycleStatus === 'ready'
+    || _currentLifeCycleStatus === 'testing';
+
+  if (canTransition) {
     try {
       const transitioned = await transitionBroadcast(broadcast.id, 'live');
       if (transitioned.lifeCycleStatus === 'live') {
@@ -569,7 +578,11 @@ export async function manageBroadcastLifecycleOnStart({
   while (lifeCycleStatus !== 'live' && Date.now() - livePollStart < liveTimeoutSec * 1000) {
     await new Promise(r => setTimeout(r, 2000));
     const bCheck = await resolveBoundBroadcast(stream.id);
-    if (bCheck) lifeCycleStatus = bCheck.lifeCycleStatus;
+    if (bCheck && (!broadcast.id || bCheck.id === broadcast.id || (bCheck.lifeCycleStatus !== 'complete' && !bCheck.isComplete))) {
+      broadcast = bCheck;
+      lifeCycleStatus = bCheck.lifeCycleStatus;
+      _currentLifeCycleStatus = lifeCycleStatus;
+    }
     if (lifeCycleStatus === 'live') break;
   }
 
