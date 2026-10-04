@@ -13,6 +13,7 @@ import {
   resolveBoundBroadcast,
   transitionBroadcast,
   createAndBindBroadcast,
+  generateBroadcastTitle,
   manageBroadcastLifecycleOnStart,
   getYouTubeLiveApiState,
   _resetStateForTest,
@@ -658,8 +659,75 @@ describe('youtube-api-manager', () => {
     assert.strictEqual(createdBody?.contentDetails?.monitorStream?.enableMonitorStream, false);
     assert.strictEqual(createdBody?.contentDetails?.enableAutoStart, false);
     assert.strictEqual(createdBody?.contentDetails?.enableAutoStop, true);
+    assert.ok(createdBody?.snippet?.title.startsWith('Chinese Street Food Live Streaming Mochi'));
     assert.strictEqual(res.success, true);
     assert.strictEqual(res.broadcastId, 'bcast_fresh_recycle');
     assert.strictEqual(res.lifeCycleStatus, 'live');
+  });
+
+  describe('automatic broadcast title generation (Asia/Kolkata)', () => {
+    it('generates title with exact required prefix', () => {
+      const title = generateBroadcastTitle();
+      assert.ok(title.startsWith('Chinese Street Food Live Streaming Mochi "'));
+    });
+
+    it('formats date as DD-MM-YYYY in Asia/Kolkata timezone', () => {
+      // 2026-10-04T18:30:00.000Z is 2026-10-05 00:00:00 IST
+      const title = generateBroadcastTitle('2026-10-04T18:30:00.000Z');
+      assert.ok(title.includes('"05-10-2026"'));
+    });
+
+    it('formats time in 12-hour hh:mm AM/PM format in Asia/Kolkata timezone', () => {
+      // 18:12 UTC = 23:42 IST on 04-10-2026
+      const title1 = generateBroadcastTitle('2026-10-04T18:12:00.000Z');
+      assert.strictEqual(title1, 'Chinese Street Food Live Streaming Mochi "04-10-2026" "11:42 PM"');
+
+      // 19:05 UTC = 00:35 IST on 05-10-2026 -> 12:35 AM
+      const title2 = generateBroadcastTitle('2026-10-04T19:05:00.000Z');
+      assert.strictEqual(title2, 'Chinese Street Food Live Streaming Mochi "05-10-2026" "12:35 AM"');
+
+      // 07:05 UTC = 12:35 IST on 05-10-2026 -> 12:35 PM
+      const title3 = generateBroadcastTitle('2026-10-05T07:05:00.000Z');
+      assert.strictEqual(title3, 'Chinese Street Food Live Streaming Mochi "05-10-2026" "12:35 PM"');
+    });
+
+    it('generates different titles for different session start timestamps', () => {
+      const titleA = generateBroadcastTitle(new Date('2026-10-05T01:00:00.000Z'));
+      const titleB = generateBroadcastTitle(new Date('2026-10-05T05:30:00.000Z'));
+      assert.notStrictEqual(titleA, titleB);
+      assert.ok(titleA.includes('"06:30 AM"'));
+      assert.ok(titleB.includes('"11:00 AM"'));
+    });
+
+    it('passes generated title directly to liveBroadcasts.insert when creating broadcast', async () => {
+      initYouTubeApi({
+        YOUTUBE_CLIENT_ID: 'test-client-id',
+        YOUTUBE_CLIENT_SECRET: 'test-client-secret',
+        YOUTUBE_REFRESH_TOKEN: 'test-refresh-token',
+      });
+
+      let insertedSnippet = null;
+      global.fetch = async (url, opts) => {
+        if (url === 'https://oauth2.googleapis.com/token') {
+          return { ok: true, json: async () => ({ access_token: 'mock-token', expires_in: 3600 }) };
+        }
+        if (url.includes('liveBroadcasts?part=snippet,status,contentDetails') && opts?.method === 'POST') {
+          insertedSnippet = JSON.parse(opts.body).snippet;
+          return { ok: true, json: async () => ({ id: 'bcast_auto_title_test', status: { lifeCycleStatus: 'ready' } }) };
+        }
+        if (url.includes('liveBroadcasts/bind') && opts?.method === 'POST') {
+          return { ok: true, json: async () => ({ id: 'bcast_auto_title_test', status: { lifeCycleStatus: 'ready' } }) };
+        }
+        throw new Error(`Unexpected URL: ${url}`);
+      };
+
+      const res = await createAndBindBroadcast({ streamId: 'stream_title_test' });
+      assert.ok(insertedSnippet);
+      assert.match(
+        insertedSnippet.title,
+        /^Chinese Street Food Live Streaming Mochi "\d{2}-\d{2}-\d{4}" "(0[1-9]|1[0-2]):[0-5][0-9] (AM|PM)"$/
+      );
+      assert.strictEqual(res.title, insertedSnippet.title);
+    });
   });
 });

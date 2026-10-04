@@ -382,15 +382,47 @@ export async function transitionBroadcast(broadcastId, targetStatus = 'live') {
 }
 
 /**
+ * Automatically generate YouTube live broadcast title in the required production format:
+ * Chinese Street Food Live Streaming Mochi "DD-MM-YYYY" "hh:mm AM/PM"
+ * Computed in Asia/Kolkata timezone (IST, UTC+5:30) at stream start moment.
+ *
+ * @param {Date|string|number} [date=new Date()]
+ * @returns {string} Formatted broadcast title
+ */
+export function generateBroadcastTitle(date = new Date()) {
+  const d = date instanceof Date ? date : new Date(date);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  }).formatToParts(d);
+
+  const m = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  const day = (m.day || '01').padStart(2, '0');
+  const month = (m.month || '01').padStart(2, '0');
+  const year = m.year || '2026';
+  const hour = (m.hour || '12').padStart(2, '0');
+  const minute = (m.minute || '00').padStart(2, '0');
+  const period = (m.dayPeriod || 'AM').toUpperCase();
+
+  return `Chinese Street Food Live Streaming Mochi "${day}-${month}-${year}" "${hour}:${minute} ${period}"`;
+}
+
+/**
  * Create a fresh liveBroadcast and bind it to the specified streamId.
  * Used during auto-recycle when the previous broadcast is closed ('complete').
  *
  * @param {object} opts
  * @param {string} opts.streamId
  * @param {string} [opts.title]
- * @param {boolean} [opts.enableAutoStart=true]
- * @param {boolean} [opts.enableAutoStop=false]
- * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean }>}
+ * @param {boolean} [opts.enableAutoStart=false]
+ * @param {boolean} [opts.enableAutoStop=true]
+ * @param {boolean} [opts.enableMonitorStream=false]
+ * @returns {Promise<{ id: string, title: string, lifeCycleStatus: string, enableAutoStart: boolean, enableAutoStop: boolean, enableMonitorStream: boolean }>}
  */
 export async function createAndBindBroadcast({
   streamId,
@@ -403,7 +435,7 @@ export async function createAndBindBroadcast({
     throw new Error('streamId and configured API required to create broadcast');
   }
 
-  const broadcastTitle = title || `24×7 Live Stream — ${new Date().toISOString().slice(0, 10)}`;
+  const broadcastTitle = title || generateBroadcastTitle(new Date());
   logger.info('youtube_api.creating_broadcast', `Creating new liveBroadcast: "${broadcastTitle}" (monitorStream=${enableMonitorStream}, autoStart=${enableAutoStart}, autoStop=${enableAutoStop})`, {
     monitorStream: enableMonitorStream,
     autoStart: enableAutoStart,
