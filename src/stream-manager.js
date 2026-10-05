@@ -33,6 +33,7 @@ import {
   listVideos,
   setActiveVideo,
   findPairedHorizontalVideo,
+  findPairedVerticalVideo,
   findPairedComplementaryVideo,
   buildLogicalVideos,
   getFreshPlayablePlaylist,
