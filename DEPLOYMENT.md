@@ -111,21 +111,50 @@ curl -X PUT http://127.0.0.1:3000/api/settings \
 ```
 
 ### 7. Update Application Code (Run on VPS)
+
+#### Option A: One-Command All-in-One Updater (Recommended)
 ```bash
-# Pull latest code and run safe update with automated backup & health check:
-cd ~/yt-live-manager && git pull origin main && sudo bash update.sh
+# Pulls latest git code, installs playwright + chromium, updates systemd, and restarts:
+cd ~/yt-live-manager && git pull origin main && bash scripts/update.sh
+
+# (If your app is installed in /opt/yt-live-manager, run):
+cd /opt/yt-live-manager && git pull origin main && bash scripts/update.sh
 ```
 
-### 8. Reclaim ~250 MB+ RAM (Run on VPS)
+#### Option B: Step-by-Step Manual Update
 ```bash
-# Trim heavy idle background daemons (snapd, journald buffers, caches):
-sudo bash /opt/yt-live-manager/scripts/optimize-vps.sh
+cd ~/yt-live-manager
+git pull origin main
+npm install
+npx playwright install --with-deps chromium
+sudo apt-get update && sudo apt-get install -y xvfb x11vnc
+sudo systemctl daemon-reload
+sudo systemctl restart yt-live-manager
+```
+
+### 8. One-Time YouTube Studio Login Bootstrap
+```bash
+# 1. On your VPS, start the bootstrap script:
+cd ~/yt-live-manager && npm run youtube:login
+
+# 2. On your LOCAL machine, open an SSH port-forwarding tunnel in terminal:
+ssh -L 5900:localhost:5900 ubuntu@<YOUR_OCI_VM_PUBLIC_IP>
+
+# 3. Open any VNC viewer (RealVNC, TigerVNC, etc.) and connect to:
+# localhost:5900
+# Sign into Google and complete 2FA. The script auto-saves the profile and closes.
 ```
 
 ### 9. View Live Logs (Run on VPS)
 ```bash
-# View live stream logs (stream keys & OAuth tokens automatically redacted):
-sudo journalctl -u yt-live-manager -f
+# View live stream & automation logs formatted clearly:
+sudo journalctl -u yt-live-manager -f --output=cat
+```
+
+### 10. Reclaim ~250 MB+ RAM (Run on VPS)
+```bash
+# Trim heavy idle background daemons (snapd, journald buffers, caches):
+sudo bash /opt/yt-live-manager/scripts/optimize-vps.sh
 ```
 
 ---
@@ -606,36 +635,146 @@ sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
 
 Every live start (Manual START, Scheduled START, and Auto-Recycle START) is gated behind YouTube Studio preparation via Playwright.
 
-### Quick Deploy & Update Command (Run on VPS)
+### 10.1 Why This Layer Is Critical
 
-```bash
-# Option 1: Run the all-in-one update script
-cd ~/yt-live-manager   # or /opt/yt-live-manager
-bash scripts/update.sh
+When stopping and restarting a YouTube live stream using the same default/reusable stream key, YouTube Studio edge nodes can leave the stream in `"Preparing stream"` if the Live Control Room is not actively prepared and open.
 
-# Option 2: Run step-by-step
-git pull origin main
-npm install
-npx playwright install --with-deps chromium
-sudo apt-get update && sudo apt-get install -y xvfb x11vnc
-sudo systemctl daemon-reload
-sudo systemctl restart yt-live-manager
+The Playwright automation layer solves this by:
+1. Opening YouTube Studio in a lightweight persistent Chromium profile before FFmpeg starts.
+2. Detecting Google authentication state (`YOUTUBE_AUTH_REQUIRED` if login is needed).
+3. Automatically dismissing any `"Stream finished"` / `"Stream ended"` dialogs from past broadcasts.
+4. Verifying that the Live Control Room is fresh and ready for encoder ingest (`YOUTUBE_FRESH_STREAM_READY`).
+5. Gating FFmpeg start: FFmpeg only spawns after YouTube Studio confirms readiness.
+6. Keeping Chromium open during FFmpeg startup to confirm encoder ingest / preview data.
+7. Completely closing Chromium immediately after confirmation (Chromium never runs 24/7).
+
+```
+Manual START / Auto-Recycle / Scheduled START
+                   │
+                   ▼
+  YouTubeStudioAutomationService.prepareNextLiveSession()
+                   │
+                   ├─► Acquire in-memory Mutex Lock
+                   ├─► Launch persistent Chromium profile (1 GB RAM low-memory flags)
+                   ├─► Open https://studio.youtube.com/live
+                   ├─► Verify Google Authentication
+                   │     └─► If login page: abort with YOUTUBE_AUTH_REQUIRED (No FFmpeg)
+                   ├─► Dismiss "previous stream ended" dialog if present
+                   ├─► Verify Live Control Room is ready for Default Stream Key
+                   │     └─► State: YOUTUBE_FRESH_STREAM_READY
+                   ▼
+         FFmpeg Start Gate Opens
+                   │
+                   ├─► State: STARTING_FFMPEG
+                   ├─► Spawn FFmpeg publisher
+                   ├─► Feed initial media segment into pipe
+                   ▼
+  session.confirmIngestAndClose()
+                   │
+                   ├─► State: WAITING_FOR_YOUTUBE_PREVIEW
+                   ├─► Keep Chromium open, observe Live Control Room
+                   ├─► Confirm incoming encoder stream / preview
+                   ├─► Close persistent Chromium context
+                   ├─► Scoped PID cleanup (kills only automation Chromium process if orphaned)
+                   ├─► Release Mutex Lock
+                   ▼
+       State: RUNNING (FFmpeg continues streaming 24×7)
 ```
 
-### One-Time YouTube Studio Login Bootstrap
+---
 
-1. On the VPS:
-   ```bash
-   npm run youtube:login
-   ```
-2. From your local computer, open an SSH port-forwarding tunnel:
-   ```bash
-   ssh -L 5900:localhost:5900 ubuntu@<YOUR_VPS_IP>
-   ```
-3. Open any VNC viewer (RealVNC, TigerVNC, etc.) and connect to:
-   ```
-   localhost:5900
-   ```
-4. Sign in to your Google Account and complete 2FA in the browser window.
-5. Once YouTube Studio is loaded, the script detects the session, saves the persistent profile to `data/youtube-browser-profile/`, closes the browser, and tears down Xvfb/VNC automatically.
+### 10.2 Production VPS Deployment Commands
+
+#### Option A: One-Command All-in-One Updater (Recommended)
+
+Run this single command on your VPS:
+```bash
+cd ~/yt-live-manager && git pull origin main && bash scripts/update.sh
+```
+*(If your repository is cloned at `/opt/yt-live-manager`, use: `cd /opt/yt-live-manager && git pull origin main && bash scripts/update.sh`)*
+
+This script automatically pulls latest git code, installs npm packages, installs Playwright Chromium and Ubuntu system libraries, installs Xvfb/x11vnc, reloads systemd, and restarts the service.
+
+#### Option B: Step-by-Step Manual Execution
+
+```bash
+# 1. Navigate to repository directory:
+cd ~/yt-live-manager
+
+# 2. Pull latest code from GitHub:
+git pull origin main
+
+# 3. Install npm dependencies:
+npm install
+
+# 4. Install Playwright Chromium and required Linux system libraries:
+npx playwright install --with-deps chromium
+
+# 5. Install virtual display & VNC bridge for the one-time login:
+sudo apt-get update && sudo apt-get install -y xvfb x11vnc
+
+# 6. Reload systemd and restart the service:
+sudo systemctl daemon-reload
+sudo systemctl restart yt-live-manager
+
+# 7. Follow live service logs:
+sudo journalctl -u yt-live-manager -f --output=cat
+```
+
+---
+
+### 10.3 One-Time YouTube Studio Login Bootstrap
+
+This is a one-time step. After the initial login, your Google session is preserved in `data/youtube-browser-profile/` and reused automatically on every start.
+
+```bash
+# Step 1: On your VPS, run the login bootstrap:
+cd ~/yt-live-manager && npm run youtube:login
+```
+
+When you run this on a headless VPS without a GUI, the script automatically starts `Xvfb` on `:99` and `x11vnc` on `localhost:5900`.
+
+```bash
+# Step 2: On your LOCAL computer (Windows PowerShell / macOS / Linux terminal), open an SSH tunnel:
+ssh -L 5900:localhost:5900 ubuntu@<YOUR_OCI_VM_PUBLIC_IP>
+```
+
+```
+Step 3: Open any VNC Viewer on your local machine:
+Connect to: localhost:5900
+```
+- In the VNC window, you will see Chromium on the Google sign-in page.
+- Log into your YouTube Google Account and complete 2FA.
+- Navigate into YouTube Studio.
+- The `youtube:login` script continuously inspects the session. As soon as YouTube Studio loads, it detects the active session, flushes cookies to `data/youtube-browser-profile/`, closes the browser, and tears down Xvfb/VNC automatically.
+
+---
+
+### 10.4 Troubleshooting & Common Questions
+
+#### 1. "Port 5900 is already in use"
+If `x11vnc` was previously running in the background:
+```bash
+sudo pkill -f x11vnc || true
+sudo pkill -f Xvfb || true
+npm run youtube:login
+```
+
+#### 2. "YOUTUBE_AUTH_REQUIRED in Dashboard"
+If Google invalidated your session cookies or required periodic re-authentication:
+- Click **STOP** in the dashboard.
+- Run `npm run youtube:login` on the VPS and complete the VNC login step.
+- Click **START** again.
+
+#### 3. 1 GB RAM VPS Memory Protection
+- The persistent Chromium instance is launched strictly with `--disable-dev-shm-usage`, `--no-sandbox`, `--disable-gpu`, and `--js-flags=--max-old-space-size=256`.
+- Chromium is terminated completely as soon as encoder ingest is confirmed.
+- Scoped PID cleanup ensures only this automation instance is ever killed; it never touches unrelated processes on the VPS.
+
+#### 4. Verify Persistent Profile Exists
+```bash
+# Check that profile directory is populated:
+ls -la ~/yt-live-manager/data/youtube-browser-profile/
+```
+
 
