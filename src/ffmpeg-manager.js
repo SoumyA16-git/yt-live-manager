@@ -422,6 +422,7 @@ let _primaryChild = null;
 let _primaryPid = null;
 let _primaryFeeder = null;
 let _feederExitExpected = false;
+let _feederExitPromise = null;
 let _currentSegment = null;
 let _expectedExit = false;
 let _latestProgress = null;
@@ -904,6 +905,11 @@ export async function feedMediaSegment({
 
   _primaryFeeder = primaryFeeder;
 
+  let resolveFeederExit;
+  _feederExitPromise = new Promise(resolve => {
+    resolveFeederExit = resolve;
+  });
+
   // Pipe feeder stdout into publisher stdin (end: false prevents publisher stdin from closing!)
   primaryFeeder.stdout.pipe(_primaryChild.stdin, { end: false });
 
@@ -925,8 +931,14 @@ export async function feedMediaSegment({
   });
 
   primaryFeeder.on('exit', (code, signal) => {
+    try { rlStderr.close(); } catch { /* ignore */ }
     _primaryFeeder = null;
     logger.info('playlist.primary_feeder_exit', `Primary feeder exited with code ${code}, signal ${signal} (expected: ${_feederExitExpected})`);
+    if (resolveFeederExit) {
+      resolveFeederExit({ code, signal });
+      resolveFeederExit = null;
+    }
+    _feederExitPromise = null;
     if (_feederExitExpected) return;
 
     if (code === 0) {
@@ -942,18 +954,88 @@ export async function feedMediaSegment({
   });
 }
 
+function _cleanupStoppedPublisher() {
+  if (_primaryChild) {
+    try {
+      if (_primaryChild.stdin && !_primaryChild.stdin.destroyed) _primaryChild.stdin.destroy();
+      if (_primaryChild.stdout && !_primaryChild.stdout.destroyed) _primaryChild.stdout.destroy();
+      if (_primaryChild.stderr && !_primaryChild.stderr.destroyed) _primaryChild.stderr.destroy();
+    } catch { /* ignore */ }
+  }
+  _primaryChild = null;
+  _primaryPid = null;
+  _latestProgress = null;
+  _expectedExit = false;
+  _exitCompletionPromise = null;
+  _resolveExitCompletion = null;
+  if (_outputDestinations.horizontal) {
+    _outputDestinations.horizontal.status = _streamMode === 'horizontal' ? 'INIT' : 'DISABLED';
+  }
+  if (_outputDestinations.vertical) {
+    _outputDestinations.vertical.status = _streamMode === 'vertical' ? 'INIT' : 'DISABLED';
+  }
+}
+
 /**
  * Stop any active segment feeder processes.
+ * Awaits complete feeder exit, destroys streams, and prevents orphan processes.
  */
 export async function stopFeeders() {
   _feederExitExpected = true;
-  if (_primaryFeeder) {
-    try {
-      _primaryFeeder.stdout?.unpipe();
-      _primaryFeeder.kill('SIGTERM');
-    } catch { /* ignore */ }
-    _primaryFeeder = null;
+  const feeder = _primaryFeeder;
+  const exitPromise = _feederExitPromise;
+
+  if (!feeder) {
+    if (exitPromise) {
+      try { await exitPromise; } catch { /* ignore */ }
+    }
+    _currentSegment = null;
+    return;
   }
+
+  try {
+    feeder.stdout?.unpipe();
+  } catch { /* ignore */ }
+
+  try {
+    if (feeder.stdin && !feeder.stdin.destroyed) feeder.stdin.destroy();
+  } catch { /* ignore */ }
+
+  try {
+    feeder.kill('SIGTERM');
+  } catch {
+    try { feeder.kill('SIGKILL'); } catch { /* ignore */ }
+  }
+
+  // Wait up to 3000ms for feeder process to exit
+  let timerId = null;
+  const timeoutPromise = new Promise(resolve => {
+    timerId = setTimeout(() => resolve('TIMEOUT'), 3000);
+  });
+
+  const res = await Promise.race([
+    exitPromise || new Promise(r => feeder.once('exit', r)),
+    timeoutPromise,
+  ]);
+  if (timerId) clearTimeout(timerId);
+
+  if (res === 'TIMEOUT') {
+    logger.warn('playlist.feeder_kill_timeout', `Feeder PID ${feeder.pid} did not exit after SIGTERM within 3s; sending SIGKILL`);
+    try { feeder.kill('SIGKILL'); } catch { /* ignore */ }
+    await Promise.race([
+      exitPromise || new Promise(r => feeder.once('exit', r)),
+      new Promise(r => setTimeout(r, 1000)),
+    ]);
+  }
+
+  try {
+    if (feeder.stdout && !feeder.stdout.destroyed) feeder.stdout.destroy();
+    if (feeder.stderr && !feeder.stderr.destroyed) feeder.stderr.destroy();
+  } catch { /* ignore */ }
+
+  _primaryFeeder = null;
+  _feederExitPromise = null;
+  _currentSegment = null;
 }
 
 export function isFeederRunning() {
@@ -966,7 +1048,7 @@ export function getCurrentSegment() {
 
 /**
  * Stop currently running FFmpeg process.
- * Order: SIGTERM → wait stopGraceSeconds → SIGKILL.
+ * Order: Feeder Stop → Graceful Stdin EOF (clean RTMP unpublish) → SIGTERM → SIGKILL.
  * Guaranteed: returns only when process exited, lock released, and onExit completed.
  *
  * @param {object}  [opts]
@@ -979,8 +1061,9 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
 
   if (!_primaryChild) {
     if (_exitCompletionPromise) {
-      await _exitCompletionPromise;
+      try { await _exitCompletionPromise; } catch { /* ignore */ }
     }
+    _cleanupStoppedPublisher();
     return { stopped: true };
   }
 
@@ -990,33 +1073,60 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
   _expectedExit = (expected !== undefined) ? Boolean(expected) : isNormalStop;
   clearWatchdogs();
 
-  // Close publisher stdin pipe gracefully
-  if (primary?.stdin && !primary.stdin.destroyed) {
-    try { primary.stdin.end(); } catch { /* ignore */ }
-  }
-
   logger.info('ffmpeg.stopping', `Stopping FFmpeg (PID: ${primary?.pid}, mode: ${_streamMode}, reason: ${reason}, force: ${force})`);
 
   if (force) {
-    if (primary) { try { primary.kill('SIGKILL'); } catch { /* ignore */ } }
+    try { primary.kill('SIGKILL'); } catch { /* ignore */ }
     if (exitPromise) {
       await Promise.race([
         exitPromise,
         new Promise(resolve => setTimeout(resolve, 5000))
       ]);
     }
+    _cleanupStoppedPublisher();
     return { stopped: true };
   }
 
-  // Graceful SIGTERM
+  // Graceful Step 1: Close stdin pipe.
+  // Because FFmpeg reads MPEG-TS from pipe:0, closing stdin delivers EOF to pipe:0.
+  // This allows FFmpeg to write the FLV trailer, send the RTMP unpublish packet, and close the TCP connection cleanly.
+  let stdinClosed = false;
+  if (primary?.stdin && !primary.stdin.destroyed) {
+    try {
+      primary.stdin.end();
+      stdinClosed = true;
+    } catch { /* ignore */ }
+  }
+
+  if (stdinClosed) {
+    // Give FFmpeg a brief window to flush and exit cleanly on EOF
+    let eofTimer = null;
+    const eofPromise = new Promise(resolve => {
+      eofTimer = setTimeout(() => resolve('TIMEOUT'), 1500);
+    });
+
+    const eofResult = await Promise.race([
+      exitPromise || Promise.resolve('DONE'),
+      eofPromise
+    ]);
+    if (eofTimer) clearTimeout(eofTimer);
+
+    if (eofResult !== 'TIMEOUT') {
+      logger.info('ffmpeg.clean_eof_exit', `FFmpeg publisher PID ${primary?.pid} exited cleanly from stdin EOF`);
+      _cleanupStoppedPublisher();
+      return { stopped: true };
+    }
+  }
+
+  // Graceful Step 2: If FFmpeg did not exit after stdin EOF, send SIGTERM
   try {
-    if (primary) primary.kill('SIGTERM');
+    primary.kill('SIGTERM');
   } catch (err) {
     try { primary?.kill('SIGKILL'); } catch { /* ignore */ }
   }
 
-  // Wait for complete exit cleanup with graceSeconds timeout
-  const graceMs = Math.max(1000, graceSeconds * 1000);
+  // Wait for complete exit cleanup with remaining graceSeconds timeout
+  const graceMs = Math.max(1000, (graceSeconds - (stdinClosed ? 1.5 : 0)) * 1000);
   let timerId = null;
   const timeoutPromise = new Promise(resolve => {
     timerId = setTimeout(() => resolve('TIMEOUT'), graceMs);
@@ -1031,7 +1141,7 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
 
   if (result === 'TIMEOUT') {
     logger.warn('ffmpeg.sigterm_timeout', `FFmpeg publisher PID ${primary?.pid} did not exit within ${graceSeconds}s; sending SIGKILL`);
-    if (primary) { try { primary.kill('SIGKILL'); } catch { /* ignore */ } }
+    try { primary.kill('SIGKILL'); } catch { /* ignore */ }
     if (exitPromise) {
       await Promise.race([
         exitPromise,
@@ -1040,6 +1150,7 @@ export async function stopFfmpeg({ force = false, reason = 'manual_stop', graceS
     }
   }
 
+  _cleanupStoppedPublisher();
   return { stopped: true };
 }
 
@@ -1084,6 +1195,7 @@ export function _setOutputStatusForTest(destination, status, error = null) {
 
 export function _resetStateForTest() {
   _primaryFeeder = null;
+  _feederExitPromise = null;
   _feederExitExpected = false;
   _currentSegment = null;
   _primaryChild = null;

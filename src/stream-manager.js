@@ -55,6 +55,8 @@ const _spawnTimestamps = []; // for circuit breaker (> 30 in 10 min)
 let _lastCycleOrder    = []; // active cycle order of { id, duration }
 let _currentSessionStartOffset = 0; // seek offset applied at session start
 let _startInProgress   = false; // re-entrancy mutex for startStream
+let _stopInProgressPromise = null; // completion barrier for stopStream
+let _lastStreamStopTime = 0; // timestamp when stream was completely stopped
 let _lastProgressTimestamp = null;
 
 export function getCurrentLifecyclePromise() {
@@ -521,6 +523,18 @@ export async function handleSegmentFinished(mode = 'copy') {
 export async function startStream({ reason = 'manual_start', clearMaintenance = false } = {}) {
   logger.info('stream.start_requested', `Stream start requested (reason: ${reason})`);
 
+  // 1. STOP COMPLETION BARRIER:
+  // If a stop is currently in progress, wait for it to 100% complete before proceeding
+  if (_stopInProgressPromise) {
+    logger.info('stream.waiting_for_stop', 'Waiting for previous stream stop to complete before starting fresh session');
+    try {
+      await _stopInProgressPromise;
+    } catch (err) {
+      logger.warn('stream.stop_wait_error', `Previous stop encountered error: ${err.message}`);
+    }
+  }
+
+  // 2. Prevent overlapping publisher instances
   if (isFfmpegRunning()) {
     logger.info('stream.already_running', 'Stream is already running; ignoring redundant start request');
     const curState = getState();
@@ -542,6 +556,25 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
   _startInProgress = true;
 
   try {
+    // 3. REMOTE YOUTUBE RTMP SESSION TEARDOWN SETTLE BARRIER:
+    // When stopping and restarting on the EXACT SAME YouTube Default/Reusable Stream Key,
+    // YouTube's RTMP edge server requires a brief settle window (typically 1.5 - 2s) to cleanly
+    // process the TCP socket FIN / RTMP unpublish and finalize the previous broadcast session.
+    // If the new connection arrives too quickly, YouTube Studio gets confused by the overlapping
+    // connection on the same key and stays stuck in "Preparing stream" instead of Auto-starting LIVE.
+    if (_lastStreamStopTime > 0) {
+      const elapsed = Date.now() - _lastStreamStopTime;
+      const currentSettings = getSettings();
+      const minSettleMs = (currentSettings.stream?.rtmpSettleSeconds !== undefined)
+        ? (Number(currentSettings.stream.rtmpSettleSeconds) * 1000)
+        : (process.env.NODE_ENV === 'test' ? 50 : 2000);
+      if (elapsed < minSettleMs) {
+        const waitMs = minSettleMs - elapsed;
+        logger.info('stream.rtmp_settle_wait', `Enforcing ${waitMs}ms YouTube RTMP edge teardown settle window on default stream key`);
+        await new Promise(r => setTimeout(r, waitMs));
+      }
+    }
+
     // Clear any pending timers
     if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
     if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
@@ -918,48 +951,71 @@ export async function computeResumeBookmark(sessionElapsedSec) {
  * @param {string}  [opts.reason='manual_stop']
  */
 export async function stopStream({ keepDesiredRunning = false, reason = 'manual_stop' } = {}) {
-  if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
-  if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
-  if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
-
-  if (reason !== 'auto_recycle') {
-    clearAutoRecycleTimer('stream_stopped');
-    clearAutoResumeTimer('stream_stopped');
-  } else {
-    clearAutoRecycleTimer();
+  if (_stopInProgressPromise) {
+    return _stopInProgressPromise;
   }
 
-  const settings = getSettings();
-  logger.info('stream.stop', `Stop requested (${reason}); stream will start from 00:00 on next run`);
-  _currentSessionStartOffset = 0;
-  _lastProgressTimestamp = null;
-  resetProcessBaseline();
+  _stopInProgressPromise = (async () => {
+    try {
+      if (_backoffTimer)   { clearTimeout(_backoffTimer);   _backoffTimer = null; }
+      if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
+      if (_slowRetryTimer) { clearTimeout(_slowRetryTimer); _slowRetryTimer = null; }
 
-  await stopFeeders();
-  await saveState({
-    ...(keepDesiredRunning ? {} : { desiredState: 'stopped' }),
-    streamStartedAt: null,
-    currentPlaybackState: 'STOPPED',
-    currentLogicalVideoId: null,
-    currentVerticalVideoId: null,
-    currentHorizontalVideoId: null,
-    isDualStream: false,
-    pairedHorizontalVideoId: null,
-    pairedVerticalVideoId: null,
-    ...(reason === 'auto_recycle' ? {} : { resumeBookmark: null, recyclingUntil: null }),
-    currentSeekOffset: 0,
-  });
+      if (reason !== 'auto_recycle') {
+        clearAutoRecycleTimer('stream_stopped');
+        clearAutoResumeTimer('stream_stopped');
+      } else {
+        clearAutoRecycleTimer();
+      }
 
-  const graceSec = settings.stream?.stopGraceSeconds ?? 8;
+      const settings = getSettings();
+      logger.info('stream.stop', `Stop requested (${reason}); stopping feeders and publisher cleanly`);
+      _currentSessionStartOffset = 0;
+      _lastProgressTimestamp = null;
+      resetProcessBaseline();
 
-  await stopFfmpeg({ force: false, reason, graceSeconds: graceSec });
-  await flushUsage({ force: true });
+      // 1. Wait for feeder process to stop cleanly, unpipe, and fully exit
+      await stopFeeders();
 
-  if (!keepDesiredRunning) {
-    await transitionState('STOPPED', reason);
-  }
+      // 2. Mark state as stopping / stopped in persistent storage
+      await saveState({
+        ...(keepDesiredRunning ? {} : { desiredState: 'stopped' }),
+        ffmpegPid: null,
+        streamStartedAt: null,
+        currentPlaybackState: 'STOPPED',
+        currentLogicalVideoId: null,
+        currentVerticalVideoId: null,
+        currentHorizontalVideoId: null,
+        isDualStream: false,
+        pairedHorizontalVideoId: null,
+        pairedVerticalVideoId: null,
+        youtubeStreamActive: false,
+        youtubeBroadcastLive: false,
+        youtubeIngest: 'INACTIVE',
+        youtubeBroadcast: 'INACTIVE',
+        ...(reason === 'auto_recycle' ? {} : { resumeBookmark: null, recyclingUntil: null }),
+        currentSeekOffset: 0,
+      });
 
-  return { stopped: true };
+      const graceSec = settings.stream?.stopGraceSeconds ?? 8;
+
+      // 3. Stop publisher with graceful EOF -> wait -> SIGTERM -> SIGKILL barrier
+      await stopFfmpeg({ force: false, reason, graceSeconds: graceSec });
+      await flushUsage({ force: true });
+
+      if (!keepDesiredRunning) {
+        await transitionState('STOPPED', reason);
+      }
+
+      _lastStreamStopTime = Date.now();
+      logger.info('stream.stop_complete', `Stream stop barrier completed cleanly (${reason})`);
+      return { stopped: true };
+    } finally {
+      _stopInProgressPromise = null;
+    }
+  })();
+
+  return _stopInProgressPromise;
 }
 
 // ─── Unexpected Exit & Recovery (PRD §9) ──────────────────────────────────────
