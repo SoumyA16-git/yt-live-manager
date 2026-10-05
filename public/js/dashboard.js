@@ -1571,29 +1571,8 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
       }
     });
   });
-}  videosList.querySelectorAll('.btn-play-solo').forEach(b => {
-    b.addEventListener('click', async () => {
-      const id = b.getAttribute('data-id');
-      await updatePlaylist([id], _currentPlaybackOrder);
-    });
-  });
-
-  // Attach Delete Events
-  videosList.querySelectorAll('.btn-delete').forEach(b => {
-    b.addEventListener('click', async () => {
-      const id = b.getAttribute('data-id');
-      if (confirm('Delete this video from library?')) {
-        try {
-          await apiDelete(`/api/videos/${id}`);
-          showToast('Video deleted from library.', 'success', 'Video Removed');
-          await fetchVideos();
-        } catch (err) {
-          showToast(err.message, 'error', 'Delete Failed');
-        }
-      }
-    });
-  });
 }
+
 
 async function fetchLogs() {
   try {
