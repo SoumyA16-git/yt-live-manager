@@ -1,7 +1,7 @@
 /**
  * test/unit/youtube-studio-service.test.js
  *
- * Tests the YouTubeStudioAutomationService:
+ * Tests the YouTubeStudioAutomationService with Real Chrome + connectOverCDP:
  * 1. Auth required detection (accounts.google.com redirects -> YOUTUBE_AUTH_REQUIRED)
  * 2. Previous stream ended dialog detection and dismissal
  * 3. Fresh Live Control Room readiness detection (YOUTUBE_FRESH_STREAM_READY)
@@ -18,7 +18,7 @@ import { loadSettings } from '../../src/config-manager.js';
 import { loadState, getState } from '../../src/state-manager.js';
 import { stopStream } from '../../src/stream-manager.js';
 
-describe('YouTubeStudioAutomationService', () => {
+describe('YouTubeStudioAutomationService (Real Chrome + connectOverCDP)', () => {
   beforeEach(async () => {
     await loadSettings();
     await loadState();
@@ -42,12 +42,18 @@ describe('YouTubeStudioAutomationService', () => {
       pages: () => [mockPage],
       newPage: async () => mockPage,
       close: async () => { closed = true; },
-      browser: () => ({ process: () => ({ pid: 999999 }) }),
+    };
+
+    const mockBrowser = {
+      contexts: () => [mockBrowserContext],
+      newContext: async () => mockBrowserContext,
+      close: async () => { closed = true; },
     };
 
     const mockPlaywright = {
+      _skipChromeSpawn: true,
       chromium: {
-        launchPersistentContext: async () => mockBrowserContext,
+        connectOverCDP: async () => mockBrowser,
       },
     };
 
@@ -67,10 +73,10 @@ describe('YouTubeStudioAutomationService', () => {
     const st = getState();
     assert.equal(st.youtubeStatus, YOUTUBE_STATES.YOUTUBE_AUTH_REQUIRED);
     assert.equal(st.stage, 'YOUTUBE_AUTH_REQUIRED');
-    assert.equal(closed, true, 'Browser context should be closed immediately on auth failure');
+    assert.equal(closed, true, 'Browser connection should be closed immediately on auth failure');
   });
 
-  test('2. Successfully prepares session and handles previous stream dialog', async () => {
+  test('2. Successfully prepares session and handles previous stream dialog over CDP', async () => {
     let closed = false;
     let dialogDismissed = false;
 
@@ -117,12 +123,18 @@ describe('YouTubeStudioAutomationService', () => {
       pages: () => [mockPage],
       newPage: async () => mockPage,
       close: async () => { closed = true; },
-      browser: () => ({ process: () => ({ pid: 999999 }) }),
+    };
+
+    const mockBrowser = {
+      contexts: () => [mockBrowserContext],
+      newContext: async () => mockBrowserContext,
+      close: async () => { closed = true; },
     };
 
     const mockPlaywright = {
+      _skipChromeSpawn: true,
       chromium: {
-        launchPersistentContext: async () => mockBrowserContext,
+        connectOverCDP: async () => mockBrowser,
       },
     };
 
@@ -133,12 +145,12 @@ describe('YouTubeStudioAutomationService', () => {
 
     assert.equal(session.sessionState, YOUTUBE_STATES.YOUTUBE_FRESH_STREAM_READY);
     assert.equal(dialogDismissed, true, 'Previous stream dialog must be dismissed');
-    assert.equal(closed, false, 'Chromium must remain open after preparation until ingest confirmation');
+    assert.equal(closed, false, 'Chrome connection must remain open until ingest confirmation');
 
     // Test phase 2: confirmIngestAndClose()
     const confirmResult = await session.confirmIngestAndClose({ timeoutMs: 5000 });
     assert.equal(confirmResult.success, true);
-    assert.equal(closed, true, 'Chromium must close cleanly after ingest confirmation');
+    assert.equal(closed, true, 'Chrome connection must close cleanly after ingest confirmation');
   });
 
   test('3. Detects old/ended stream and throws if fresh stream not available', async () => {
@@ -159,12 +171,18 @@ describe('YouTubeStudioAutomationService', () => {
       pages: () => [mockPage],
       newPage: async () => mockPage,
       close: async () => { closed = true; },
-      browser: () => ({ process: () => ({ pid: 999999 }) }),
+    };
+
+    const mockBrowser = {
+      contexts: () => [mockBrowserContext],
+      newContext: async () => mockBrowserContext,
+      close: async () => { closed = true; },
     };
 
     const mockPlaywright = {
+      _skipChromeSpawn: true,
       chromium: {
-        launchPersistentContext: async () => mockBrowserContext,
+        connectOverCDP: async () => mockBrowser,
       },
     };
 
@@ -181,10 +199,10 @@ describe('YouTubeStudioAutomationService', () => {
       }
     );
 
-    assert.equal(closed, true, 'Browser context should be closed cleanly on old stream rejection');
+    assert.equal(closed, true, 'Browser connection should be closed cleanly on old stream rejection');
   });
 
-  test('4. Ingest confirmation timeout triggers error and closes browser', async () => {
+  test('4. Ingest confirmation timeout triggers error and closes Chrome connection', async () => {
     let closed = false;
 
     const mockPage = {
@@ -202,12 +220,18 @@ describe('YouTubeStudioAutomationService', () => {
       pages: () => [mockPage],
       newPage: async () => mockPage,
       close: async () => { closed = true; },
-      browser: () => ({ process: () => ({ pid: 999999 }) }),
+    };
+
+    const mockBrowser = {
+      contexts: () => [mockBrowserContext],
+      newContext: async () => mockBrowserContext,
+      close: async () => { closed = true; },
     };
 
     const mockPlaywright = {
+      _skipChromeSpawn: true,
       chromium: {
-        launchPersistentContext: async () => mockBrowserContext,
+        connectOverCDP: async () => mockBrowser,
       },
     };
 
@@ -228,7 +252,7 @@ describe('YouTubeStudioAutomationService', () => {
       }
     );
 
-    assert.equal(closed, true, 'Browser context must close even after ingest timeout');
+    assert.equal(closed, true, 'Chrome connection must close even after ingest timeout');
   });
 
   test('5. Serializes concurrent preparation requests through in-memory mutex', async () => {
@@ -253,13 +277,20 @@ describe('YouTubeStudioAutomationService', () => {
         close: async () => { closed = true; },
       };
 
+      const mockBrowser = {
+        contexts: () => [mockBrowserContext],
+        newContext: async () => mockBrowserContext,
+        close: async () => { closed = true; },
+      };
+
       return {
+        _skipChromeSpawn: true,
         chromium: {
-          launchPersistentContext: async () => {
-            sequence.push(`launch_${id}`);
+          connectOverCDP: async () => {
+            sequence.push(`connect_${id}`);
             await new Promise(r => setTimeout(r, delayMs));
             sequence.push(`ready_${id}`);
-            return mockBrowserContext;
+            return mockBrowser;
           },
         },
       };
@@ -285,10 +316,10 @@ describe('YouTubeStudioAutomationService', () => {
     await s2.confirmIngestAndClose();
 
     assert.deepEqual(sequence, [
-      'launch_1',
+      'connect_1',
       'ready_1',
-      'launch_2',
+      'connect_2',
       'ready_2',
-    ], 'Preparation sessions must strictly serialize and never launch Chromium concurrently');
+    ], 'Preparation sessions must strictly serialize and never connect CDP concurrently');
   });
 });

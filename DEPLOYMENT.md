@@ -114,7 +114,7 @@ curl -X PUT http://127.0.0.1:3000/api/settings \
 
 #### Option A: One-Command All-in-One Updater (Recommended)
 ```bash
-# Pulls latest git code, installs playwright + chromium, updates systemd, and restarts:
+# Pulls latest git code, installs real Google Chrome stable, updates systemd, and restarts:
 cd ~/yt-live-manager && git pull origin main && bash scripts/update.sh
 
 # (If your app is installed in /opt/yt-live-manager, run):
@@ -126,15 +126,24 @@ cd /opt/yt-live-manager && git pull origin main && bash scripts/update.sh
 cd ~/yt-live-manager
 git pull origin main
 npm install
-npx playwright install --with-deps chromium
+
+# Install official Google Chrome stable (prevents Google "This browser or app may not be secure" error):
+if ! command -v google-chrome &>/dev/null && ! command -v google-chrome-stable &>/dev/null; then
+  wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+  sudo apt-get update -y && sudo apt-get install -y /tmp/chrome.deb && rm -f /tmp/chrome.deb
+fi
+
+# Install virtual display & VNC bridge for one-time interactive login:
 sudo apt-get update && sudo apt-get install -y xvfb x11vnc
+
+# Reload and restart systemd service:
 sudo systemctl daemon-reload
 sudo systemctl restart yt-live-manager
 ```
 
-### 8. One-Time YouTube Studio Login Bootstrap
+### 8. One-Time YouTube Studio Login Bootstrap (Real Google Chrome)
 ```bash
-# 1. On your VPS, start the bootstrap script:
+# 1. On your VPS, start the bootstrap script (launches real Chrome + Xvfb + x11vnc):
 cd ~/yt-live-manager && npm run youtube:login
 
 # 2. On your LOCAL machine, open an SSH port-forwarding tunnel in terminal:
@@ -142,7 +151,8 @@ ssh -L 5900:localhost:5900 ubuntu@<YOUR_OCI_VM_PUBLIC_IP>
 
 # 3. Open any VNC viewer (RealVNC, TigerVNC, etc.) and connect to:
 # localhost:5900
-# Sign into Google and complete 2FA. The script auto-saves the profile and closes.
+# Sign into Google and complete 2FA in the REAL Google Chrome window.
+# The script auto-saves the persistent profile to data/youtube-browser-profile/ and exits.
 ```
 
 ### 9. View Live Logs (Run on VPS)
@@ -631,22 +641,36 @@ sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
 
 ---
 
-## Phase 10: YouTube Studio Browser Automation Layer (Playwright)
+## Phase 10: YouTube Studio Browser Automation Layer (Real Google Chrome + connectOverCDP)
 
-Every live start (Manual START, Scheduled START, and Auto-Recycle START) is gated behind YouTube Studio preparation via Playwright.
+Every live start (Manual START, Scheduled START, and Auto-Recycle START) is gated behind YouTube Studio preparation via Real Google Chrome and Playwright CDP connection.
 
-### 10.1 Why This Layer Is Critical
+### 10.1 Architecture & Why Real Google Chrome Is Required
 
-When stopping and restarting a YouTube live stream using the same default/reusable stream key, YouTube Studio edge nodes can leave the stream in `"Preparing stream"` if the Live Control Room is not actively prepared and open.
+1. **Google Login Security ("This browser or app may not be secure"):**
+   Google blocks sign-in on Playwright's bundled Chromium. We do NOT use fragile stealth plugins, fake user-agents, or automation-detection workarounds. Instead, we use the **official, real installed Google Chrome binary** (`google-chrome-stable`) on the VPS.
 
-The Playwright automation layer solves this by:
-1. Opening YouTube Studio in a lightweight persistent Chromium profile before FFmpeg starts.
-2. Detecting Google authentication state (`YOUTUBE_AUTH_REQUIRED` if login is needed).
-3. Automatically dismissing any `"Stream finished"` / `"Stream ended"` dialogs from past broadcasts.
-4. Verifying that the Live Control Room is fresh and ready for encoder ingest (`YOUTUBE_FRESH_STREAM_READY`).
-5. Gating FFmpeg start: FFmpeg only spawns after YouTube Studio confirms readiness.
-6. Keeping Chromium open during FFmpeg startup to confirm encoder ingest / preview data.
-7. Completely closing Chromium immediately after confirmation (Chromium never runs 24/7).
+2. **Dedicated Non-Default Profile (`data/youtube-browser-profile/`):**
+   Chrome 136+ strictly requires `--user-data-dir` to be a non-default directory when remote debugging is enabled. We use `data/youtube-browser-profile/`, which is ignored in Git and persists authentication cookies across restarts.
+
+3. **Remote Debugging Over CDP (`connectOverCDP`):**
+   Chrome is launched with:
+   - `--user-data-dir=data/youtube-browser-profile/`
+   - `--remote-debugging-port=9222`
+   - `--remote-debugging-address=127.0.0.1` (localhost-only, NEVER exposed publicly)
+   - `--no-first-run`
+   - `--no-default-browser-check`
+   - Memory limits: `--disable-dev-shm-usage`, `--no-sandbox`, `--disable-gpu`, `--js-flags=--max-old-space-size=256`
+   
+   Playwright then connects via:
+   ```javascript
+   chromium.connectOverCDP('http://127.0.0.1:9222')
+   ```
+
+4. **Lifecycle & Resource Protection:**
+   - Real Chrome runs **only** during preparation and initial video ingest confirmation (typically 15-30 seconds).
+   - Once YouTube Studio confirms incoming video/health, the CDP connection closes and the Chrome process is cleanly killed (`SIGTERM` / `SIGKILL`).
+   - FFmpeg continues streaming 24×7 without browser memory overhead.
 
 ```
 Manual START / Auto-Recycle / Scheduled START
@@ -655,8 +679,9 @@ Manual START / Auto-Recycle / Scheduled START
   YouTubeStudioAutomationService.prepareNextLiveSession()
                    │
                    ├─► Acquire in-memory Mutex Lock
-                   ├─► Launch persistent Chromium profile (1 GB RAM low-memory flags)
-                   ├─► Open https://studio.youtube.com/live
+                   ├─► Spawn real Google Chrome (--user-data-dir=data/youtube-browser-profile/ --remote-debugging-port=9222)
+                   ├─► Connect Playwright via chromium.connectOverCDP("http://127.0.0.1:9222")
+                   ├─► Navigate to https://studio.youtube.com/live
                    ├─► Verify Google Authentication
                    │     └─► If login page: abort with YOUTUBE_AUTH_REQUIRED (No FFmpeg)
                    ├─► Dismiss "previous stream ended" dialog if present
@@ -672,10 +697,10 @@ Manual START / Auto-Recycle / Scheduled START
   session.confirmIngestAndClose()
                    │
                    ├─► State: WAITING_FOR_YOUTUBE_PREVIEW
-                   ├─► Keep Chromium open, observe Live Control Room
+                   ├─► Keep Chrome open, observe Live Control Room
                    ├─► Confirm incoming encoder stream / preview
-                   ├─► Close persistent Chromium context
-                   ├─► Scoped PID cleanup (kills only automation Chromium process if orphaned)
+                   ├─► Close Playwright CDP connection
+                   ├─► Terminate real Google Chrome process & verify PID exit
                    ├─► Release Mutex Lock
                    ▼
        State: RUNNING (FFmpeg continues streaming 24×7)
@@ -693,7 +718,7 @@ cd ~/yt-live-manager && git pull origin main && bash scripts/update.sh
 ```
 *(If your repository is cloned at `/opt/yt-live-manager`, use: `cd /opt/yt-live-manager && git pull origin main && bash scripts/update.sh`)*
 
-This script automatically pulls latest git code, installs npm packages, installs Playwright Chromium and Ubuntu system libraries, installs Xvfb/x11vnc, reloads systemd, and restarts the service.
+This script automatically pulls latest git code, installs npm packages, installs official Google Chrome stable, installs Xvfb/x11vnc, reloads systemd, and restarts the service.
 
 #### Option B: Step-by-Step Manual Execution
 
@@ -707,8 +732,11 @@ git pull origin main
 # 3. Install npm dependencies:
 npm install
 
-# 4. Install Playwright Chromium and required Linux system libraries:
-npx playwright install --with-deps chromium
+# 4. Install official Google Chrome stable:
+if ! command -v google-chrome &>/dev/null && ! command -v google-chrome-stable &>/dev/null; then
+  wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+  sudo apt-get update -y && sudo apt-get install -y /tmp/chrome.deb && rm -f /tmp/chrome.deb
+fi
 
 # 5. Install virtual display & VNC bridge for the one-time login:
 sudo apt-get update && sudo apt-get install -y xvfb x11vnc
@@ -723,7 +751,7 @@ sudo journalctl -u yt-live-manager -f --output=cat
 
 ---
 
-### 10.3 One-Time YouTube Studio Login Bootstrap
+### 10.3 One-Time YouTube Studio Login Bootstrap (Real Google Chrome)
 
 This is a one-time step. After the initial login, your Google session is preserved in `data/youtube-browser-profile/` and reused automatically on every start.
 
@@ -732,7 +760,11 @@ This is a one-time step. After the initial login, your Google session is preserv
 cd ~/yt-live-manager && npm run youtube:login
 ```
 
-When you run this on a headless VPS without a GUI, the script automatically starts `Xvfb` on `:99` and `x11vnc` on `localhost:5900`.
+When you run this on a headless VPS without a GUI, the script automatically:
+1. Starts `Xvfb` on `:99`.
+2. Starts `x11vnc` bound **strictly to localhost** on `127.0.0.1:5900`.
+3. Launches real Google Chrome pointing to `data/youtube-browser-profile/`.
+4. Navigates to `https://studio.youtube.com/live`.
 
 ```bash
 # Step 2: On your LOCAL computer (Windows PowerShell / macOS / Linux terminal), open an SSH tunnel:
@@ -743,10 +775,9 @@ ssh -L 5900:localhost:5900 ubuntu@<YOUR_OCI_VM_PUBLIC_IP>
 Step 3: Open any VNC Viewer on your local machine:
 Connect to: localhost:5900
 ```
-- In the VNC window, you will see Chromium on the Google sign-in page.
-- Log into your YouTube Google Account and complete 2FA.
-- Navigate into YouTube Studio.
-- The `youtube:login` script continuously inspects the session. As soon as YouTube Studio loads, it detects the active session, flushes cookies to `data/youtube-browser-profile/`, closes the browser, and tears down Xvfb/VNC automatically.
+- In the VNC window, you will see real Google Chrome on the Google sign-in page.
+- Log into your YouTube Google Account and complete 2FA manually in the real Chrome UI.
+- The script automatically detects when YouTube Studio is reached, flushes the profile to disk, cleanly terminates Chrome, shuts down Xvfb and x11vnc, and exits with code 0.
 
 ---
 
@@ -767,8 +798,8 @@ If Google invalidated your session cookies or required periodic re-authenticatio
 - Click **START** again.
 
 #### 3. 1 GB RAM VPS Memory Protection
-- The persistent Chromium instance is launched strictly with `--disable-dev-shm-usage`, `--no-sandbox`, `--disable-gpu`, and `--js-flags=--max-old-space-size=256`.
-- Chromium is terminated completely as soon as encoder ingest is confirmed.
+- The real Google Chrome process is launched strictly with `--disable-dev-shm-usage`, `--no-sandbox`, `--disable-gpu`, and `--js-flags=--max-old-space-size=256`.
+- Chrome is terminated completely as soon as encoder ingest is confirmed.
 - Scoped PID cleanup ensures only this automation instance is ever killed; it never touches unrelated processes on the VPS.
 
 #### 4. Verify Persistent Profile Exists

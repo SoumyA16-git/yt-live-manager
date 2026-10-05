@@ -17,9 +17,15 @@ git pull origin main
 echo "[2/5] Installing npm dependencies..."
 npm install
 
-# 3. Install Playwright Chromium and system dependencies
-echo "[3/5] Installing Playwright Chromium browser and OS libraries..."
-npx playwright install --with-deps chromium
+# 3. Ensure real Google Chrome is installed (required to avoid Google "This browser or app may not be secure" error)
+echo "[3/5] Checking Google Chrome installation..."
+if ! command -v google-chrome &>/dev/null && ! command -v google-chrome-stable &>/dev/null; then
+  echo "Installing official Google Chrome stable on Linux VPS..."
+  wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+  sudo apt-get update -y && sudo apt-get install -y /tmp/chrome.deb && rm -f /tmp/chrome.deb
+else
+  echo "Real Google Chrome binary is already installed ($(command -v google-chrome || command -v google-chrome-stable))."
+fi
 
 # 4. Install display tools for one-time login if missing
 echo "[4/5] Checking display tools (xvfb, x11vnc)..."

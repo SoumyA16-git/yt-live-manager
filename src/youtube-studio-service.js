@@ -1,29 +1,34 @@
 /**
- * youtube-studio-service.js — Centralized Playwright automation for YouTube Studio.
+ * youtube-studio-service.js — Centralized YouTube Studio automation via Real Google Chrome & CDP.
  *
- * Responsibilities:
- * - Opens YouTube Studio in a dedicated persistent Chromium profile before FFmpeg starts.
+ * Architecture:
+ * - Launches REAL Google Chrome binary (not Playwright bundled Chromium) with a dedicated user-data-dir.
+ * - Starts Chrome with localhost-only remote debugging: --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1
+ * - Connects Playwright over CDP: chromium.connectOverCDP("http://127.0.0.1:9222")
+ * - Bypasses Google's "This browser or app may not be secure" block.
  * - Detects authentication state (flags YOUTUBE_AUTH_REQUIRED if Google login is needed).
  * - Dismisses "previous stream ended" / "stream finished" popups dynamically.
  * - Verifies the Live Control Room is fresh and ready for encoder ingest (YOUTUBE_FRESH_STREAM_READY).
  * - Gates FFmpeg start: FFmpeg only spawns after YouTube Studio is confirmed ready.
- * - Keeps Chromium open until YouTube confirms encoder ingest / preview data.
- * - Completely closes Chromium after confirmation (never runs 24/7).
- * - Scoped Chromium PID tracking: kills ONLY this automation instance if orphaned.
+ * - Keeps Chrome open until YouTube confirms encoder ingest / preview data.
+ * - Completely terminates Chrome process immediately after confirmation (never runs 24/7).
+ * - Scoped Chrome PID tracking: kills ONLY this automation instance if orphaned.
  * - Async in-memory mutex: prevents concurrent browser sessions.
  */
 
+import { spawn } from 'node:child_process';
+import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { logger } from './logger.js';
 import PATHS from './lib/paths.js';
 import { getSettings } from './config-manager.js';
 import { saveState } from './state-manager.js';
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import { getChromeExecutablePath } from './lib/chrome-finder.js';
 
 // ─── Module State & Mutex ───────────────────────────────────────────────────
 
 let _browserMutex = Promise.resolve();
-let _activeSession = null;
 let _trackedBrowserPid = null;
 
 export const YOUTUBE_STATES = Object.freeze({
@@ -38,16 +43,16 @@ export const YOUTUBE_STATES = Object.freeze({
 });
 
 /**
- * Scoped process cleanup: terminates only the tracked Chromium PID belonging
+ * Scoped process cleanup: terminates only the tracked Chrome PID belonging
  * to this automation instance if still alive after context.close().
  */
 async function cleanupScopedChromiumPid(pid) {
   if (!pid) return;
   try {
     process.kill(pid, 0); // check if alive
-    logger.warn('youtube.browser.orphan_detected', `Chromium PID ${pid} still running after close; sending SIGTERM`);
+    logger.warn('youtube.browser.orphan_detected', `Chrome PID ${pid} still running after close; sending SIGTERM`);
     process.kill(pid, 'SIGTERM');
-    await new Promise(r => setTimeout(r, 500));
+    await new Promise(r => setTimeout(r, 600));
     try {
       process.kill(pid, 0);
       process.kill(pid, 'SIGKILL');
@@ -72,6 +77,41 @@ function acquireBrowserLock() {
   return currentLock.then(() => release);
 }
 
+/**
+ * Polls the Chrome DevTools HTTP endpoint until it answers.
+ */
+function waitForCdpEndpoint(port, timeoutMs = 20000) {
+  const startTime = Date.now();
+  return new Promise((resolve, reject) => {
+    const check = () => {
+      const req = http.get(`http://127.0.0.1:${port}/json/version`, res => {
+        if (res.statusCode === 200) {
+          resolve(true);
+        } else {
+          retry();
+        }
+      });
+      req.on('error', () => {
+        retry();
+      });
+      req.setTimeout(1000, () => {
+        req.destroy();
+        retry();
+      });
+    };
+
+    const retry = () => {
+      if (Date.now() - startTime > timeoutMs) {
+        reject(new Error(`Timed out waiting for Chrome remote debugging on port ${port}`));
+      } else {
+        setTimeout(check, 300);
+      }
+    };
+
+    check();
+  });
+}
+
 // ─── Core Service Class ─────────────────────────────────────────────────────
 
 export class YouTubeStudioAutomationService {
@@ -94,7 +134,7 @@ export class YouTubeStudioAutomationService {
 
     // 1. Bypass during unit test mode unless an injected mock playwright is provided
     if (process.env.NODE_ENV === 'test' && !injectedPlaywright && studioCfg.bypassInTest !== false) {
-      logger.info('youtube.prepare.test_bypass', `Bypassing Playwright YouTube Studio preparation in NODE_ENV=test (reason: ${reason})`);
+      logger.info('youtube.prepare.test_bypass', `Bypassing YouTube Studio preparation in NODE_ENV=test (reason: ${reason})`);
       await saveState({ stage: 'STARTING_FFMPEG', youtubeStatus: YOUTUBE_STATES.YOUTUBE_FRESH_STREAM_READY });
       return {
         sessionState: YOUTUBE_STATES.YOUTUBE_FRESH_STREAM_READY,
@@ -120,7 +160,8 @@ export class YouTubeStudioAutomationService {
     await saveState({ stage: 'PREPARING_YOUTUBE', youtubeStatus: YOUTUBE_STATES.IDLE });
 
     const releaseLock = await acquireBrowserLock();
-    let browserContext = null;
+    let chromeProc = null;
+    let browserCdp = null;
     let page = null;
     let browserPid = null;
 
@@ -132,7 +173,7 @@ export class YouTubeStudioAutomationService {
           pw = await import('playwright');
         } catch (importErr) {
           logger.error('youtube.browser.missing_dependency', `Playwright package is not installed: ${importErr.message}`);
-          throw new Error(`Playwright is not installed. Please run "npm install playwright" and "npx playwright install chromium"`);
+          throw new Error(`Playwright is not installed. Please run "npm install playwright"`);
         }
       }
 
@@ -142,44 +183,69 @@ export class YouTubeStudioAutomationService {
       const isHeadless = studioCfg.headless !== false && process.env.YOUTUBE_HEADLESS !== 'false';
       const prepareTimeoutMs = studioCfg.prepareTimeoutMs || 90000;
       const previewTimeoutMs = studioCfg.previewTimeoutMs || 45000;
+      const cdpPort = studioCfg.remoteDebuggingPort || 9222;
 
-      logger.info('youtube.browser.launching', `Launching persistent Chromium profile: ${profileDir}`, {
-        headless: isHeadless,
-        profileDir,
-      });
+      // 3. Launch REAL Google Chrome process
+      if (!injectedPlaywright || !injectedPlaywright._skipChromeSpawn) {
+        const chromePath = getChromeExecutablePath();
+        logger.info('youtube.browser.launching_real_chrome', `Launching real Google Chrome on port ${cdpPort}: ${chromePath}`, {
+          profileDir,
+          headless: isHeadless,
+          cdpPort,
+        });
 
-      // 3. Launch persistent Chromium with optimized 1GB RAM flags
-      const chromium = pw.chromium || pw;
-      browserContext = await chromium.launchPersistentContext(profileDir, {
-        headless: isHeadless,
-        viewport: { width: 1280, height: 720 },
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
+        const chromeArgs = [
+          `--user-data-dir=${profileDir}`,
+          `--remote-debugging-port=${cdpPort}`,
+          '--remote-debugging-address=127.0.0.1',
+          '--no-first-run',
+          '--no-default-browser-check',
+          '--disable-background-networking',
+          '--disable-sync',
+          '--disable-default-apps',
+          '--disable-extensions',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--disable-extensions',
-          '--disable-background-networking',
-          '--disable-default-apps',
-          '--disable-sync',
-          '--no-first-run',
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
           '--js-flags=--max-old-space-size=256',
-        ],
-      });
+        ];
 
-      // Extract PID if accessible from internal browser process
-      try {
-        const proc = browserContext.browser ? browserContext.browser()?.process() : null;
-        if (proc && proc.pid) {
-          browserPid = proc.pid;
-          _trackedBrowserPid = browserPid;
+        if (isHeadless) {
+          chromeArgs.push('--headless=new');
         }
-      } catch {
-        // PID extraction non-critical
+
+        chromeProc = spawn(chromePath, chromeArgs, {
+          stdio: 'ignore',
+          detached: false,
+        });
+
+        browserPid = chromeProc.pid;
+        _trackedBrowserPid = browserPid;
+        logger.info('youtube.browser.spawned', `Real Google Chrome spawned with PID ${browserPid}`);
+
+        // Wait for CDP endpoint to answer
+        await waitForCdpEndpoint(cdpPort, 20000);
       }
 
-      const pages = browserContext.pages();
-      page = pages.length > 0 ? pages[0] : await browserContext.newPage();
+      // 4. Connect Playwright using connectOverCDP
+      const chromium = pw.chromium || pw;
+      logger.info('youtube.cdp.connecting', `Connecting Playwright over CDP to http://127.0.0.1:${cdpPort}`);
+
+      if (typeof chromium.connectOverCDP === 'function') {
+        browserCdp = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
+        const contexts = browserCdp.contexts();
+        const context = contexts.length > 0 ? contexts[0] : await browserCdp.newContext();
+        const pages = context.pages();
+        page = pages.length > 0 ? pages[0] : await context.newPage();
+      } else if (typeof chromium.launchPersistentContext === 'function') {
+        // Mock fallback for test harnesses that provide launchPersistentContext
+        browserCdp = await chromium.launchPersistentContext(profileDir, { headless: isHeadless });
+        const pages = browserCdp.pages();
+        page = pages.length > 0 ? pages[0] : await browserCdp.newPage();
+      } else {
+        throw new Error('Playwright chromium does not support connectOverCDP or launchPersistentContext');
+      }
 
       // Collect console logs for diagnostic evidence without screenshots
       const recentConsoleLogs = [];
@@ -188,7 +254,7 @@ export class YouTubeStudioAutomationService {
         if (recentConsoleLogs.length > 30) recentConsoleLogs.shift();
       });
 
-      // 4. Navigate to YouTube Studio Live Control Room
+      // 5. Navigate to YouTube Studio Live Control Room
       const targetUrl = studioCfg.channelUrl?.trim() || 'https://studio.youtube.com/live';
       logger.info('youtube.navigation.start', `Navigating to YouTube Studio: ${targetUrl}`);
       await saveState({ youtubeStatus: YOUTUBE_STATES.YOUTUBE_STUDIO_OPEN });
@@ -201,7 +267,7 @@ export class YouTubeStudioAutomationService {
       // Allow initial dynamic components to settle
       await page.waitForTimeout(2000);
 
-      // 5. Authentication check
+      // 6. Authentication check
       const currentUrl = page.url();
       if (currentUrl.includes('accounts.google.com') || currentUrl.includes('signin') || currentUrl.includes('ServiceLogin')) {
         logger.error('youtube.auth.required', `Google authentication required. Current URL: ${currentUrl}`);
@@ -221,10 +287,10 @@ export class YouTubeStudioAutomationService {
 
       logger.info('youtube.auth.ok', 'YouTube Studio authentication validated successfully');
 
-      // 6. Inspect & dismiss "previous stream ended" / "stream finished" dialog
+      // 7. Inspect & dismiss "previous stream ended" / "stream finished" dialog
       await this._handlePreviousStreamDialog(page);
 
-      // 7. Inspect Live Control Room state
+      // 8. Inspect Live Control Room state
       const roomState = await this._inspectLiveControlRoomState(page);
       logger.info('youtube.room.state', `Live Control Room evaluated: ${roomState.state}`, {
         url: page.url(),
@@ -233,7 +299,6 @@ export class YouTubeStudioAutomationService {
 
       if (roomState.state === YOUTUBE_STATES.YOUTUBE_OLD_OR_ENDED_STREAM) {
         logger.warn('youtube.room.ended_stream_detected', `Detected old/ended stream. Attempting re-navigation to /live`);
-        // Re-navigate to /live once if stuck on an old ended broadcast
         await page.goto('https://studio.youtube.com/live', { waitUntil: 'domcontentloaded', timeout: 30000 });
         await page.waitForTimeout(2000);
         await this._handlePreviousStreamDialog(page);
@@ -255,7 +320,7 @@ export class YouTubeStudioAutomationService {
         stage: 'STARTING_FFMPEG',
       });
 
-      // 8. Construct Two-Phase Session Handle
+      // 9. Construct Two-Phase Session Handle
       let sessionClosed = false;
 
       const confirmIngestAndClose = async (confirmOpts = {}) => {
@@ -275,7 +340,7 @@ export class YouTubeStudioAutomationService {
             throw err;
           }
 
-          logger.info('youtube.preview.ready', 'Encoder ingest confirmed live by YouTube Studio. Closing Chromium.');
+          logger.info('youtube.preview.ready', 'Encoder ingest confirmed live by YouTube Studio. Closing Chrome.');
           await saveState({
             youtubeStatus: 'RUNNING',
             stage: 'RUNNING',
@@ -289,8 +354,9 @@ export class YouTubeStudioAutomationService {
           throw confirmErr;
         } finally {
           sessionClosed = true;
-          await this._safeCloseBrowser(browserContext, browserPid);
-          browserContext = null;
+          await this._safeCloseBrowser(browserCdp, chromeProc, browserPid);
+          browserCdp = null;
+          chromeProc = null;
           releaseLock();
         }
       };
@@ -299,8 +365,9 @@ export class YouTubeStudioAutomationService {
         if (sessionClosed) return;
         sessionClosed = true;
         logger.warn('youtube.session.aborted', `Session aborted: ${abortErr?.message || 'unknown'}`);
-        await this._safeCloseBrowser(browserContext, browserPid);
-        browserContext = null;
+        await this._safeCloseBrowser(browserCdp, chromeProc, browserPid);
+        browserCdp = null;
+        chromeProc = null;
         releaseLock();
       };
 
@@ -326,7 +393,7 @@ export class YouTubeStudioAutomationService {
         },
       });
 
-      await this._safeCloseBrowser(browserContext, browserPid);
+      await this._safeCloseBrowser(browserCdp, chromeProc, browserPid);
       releaseLock();
       throw prepErr;
     }
@@ -372,7 +439,6 @@ export class YouTubeStudioAutomationService {
             }
 
             if (!clicked) {
-              // Press Escape as standard dialog fallback
               logger.info('youtube.previous_dialog.fallback_escape', 'Dismissing dialog via Escape key');
               await page.keyboard.press('Escape');
               await page.waitForTimeout(500);
@@ -408,10 +474,6 @@ export class YouTubeStudioAutomationService {
     }
 
     // 2. Fresh usable Live Control Room indicators:
-    // When YouTube Studio Live Control Room is ready for encoder input, it displays:
-    // - "connect your encoder to go live" or "waiting for video" or "connect streaming software"
-    // - Stream URL & Stream key sections
-    // - Live stream status bar
     const freshReadyIndicators = [
       'connect your encoder to go live',
       'connect streaming software to go live',
@@ -460,8 +522,6 @@ export class YouTubeStudioAutomationService {
       try {
         const bodyText = (await page.innerText('body')).toLowerCase();
 
-        // Positive ingest indicators:
-        // Studio displays "Excellent connection", "Good connection", "Incoming stream", etc.
         const liveIndicators = [
           'excellent connection',
           'good connection',
@@ -473,14 +533,11 @@ export class YouTubeStudioAutomationService {
         const hasConnectionSignal = liveIndicators.some(sig => bodyText.includes(sig)) ||
           (/\b(you're live|stream is live|broadcasting live)\b/i.test(bodyText));
 
-        // Check if "No data" has been cleared and player has active video stream
         const noDataPresent = bodyText.includes('no data') && !bodyText.includes('excellent connection');
 
-        // Check video element state in preview
         const videoReceiving = await page.evaluate(() => {
           const video = document.querySelector('video');
           if (video && video.videoWidth > 0 && video.videoHeight > 0) return true;
-          // Check for active stream health indicators
           const healthBadge = document.querySelector('[aria-label*="connection"], [aria-label*="Connection"]');
           if (healthBadge) return true;
           return false;
@@ -506,20 +563,30 @@ export class YouTubeStudioAutomationService {
 
   // ─── Helper: Safe Scoped Browser Close ────────────────────────────────────
 
-  static async _safeCloseBrowser(browserContext, browserPid) {
-    if (!browserContext) return;
-    logger.info('youtube.browser.closing', 'Closing Playwright persistent browser context');
-    try {
-      await browserContext.close();
-    } catch (err) {
-      logger.warn('youtube.browser.close_warning', `Error during context.close(): ${err.message}`);
+  static async _safeCloseBrowser(browserCdp, chromeProc, browserPid) {
+    if (browserCdp) {
+      logger.info('youtube.cdp.closing', 'Closing Playwright CDP browser connection');
+      try {
+        await browserCdp.close();
+      } catch (err) {
+        logger.warn('youtube.cdp.close_warning', `Error during browser.close(): ${err.message}`);
+      }
     }
 
-    // Scoped orphan cleanup for this specific PID
+    if (chromeProc) {
+      logger.info('youtube.browser.stopping', 'Terminating real Google Chrome process');
+      try {
+        chromeProc.kill('SIGTERM');
+      } catch (err) {
+        logger.warn('youtube.browser.kill_warning', `Error stopping Chrome process: ${err.message}`);
+      }
+    }
+
     if (browserPid) {
       await cleanupScopedChromiumPid(browserPid);
     }
+
     _trackedBrowserPid = null;
-    logger.info('youtube.browser.closed', 'Persistent Chromium closed cleanly');
+    logger.info('youtube.browser.closed', 'Real Google Chrome terminated cleanly');
   }
 }
