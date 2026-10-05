@@ -218,22 +218,17 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
 
   // 7, 8, 9. Fresh playlist reload at boundary transitions to B
   test('7, 8, 9. Fresh playlist reload at video boundary transitions to B with synchronized vertical & horizontal', async () => {
-    const aVert = await createMockVideo({ id: 'vid_a0000001', originalName: 'A_vertical.mp4', orientation: 'vertical' });
     const aHoriz = await createMockVideo({ id: 'vid_a0000002', originalName: 'A_horizontal.mp4', orientation: 'horizontal' });
-    const bVert = await createMockVideo({ id: 'vid_b0000001', originalName: 'B_vertical.mp4', orientation: 'vertical' });
     const bHoriz = await createMockVideo({ id: 'vid_b0000002', originalName: 'B_horizontal.mp4', orientation: 'horizontal' });
 
-    aVert.pairedVideoId = 'vid_a0000002';
-    aHoriz.pairedVideoId = 'vid_a0000001';
-    bVert.pairedVideoId = 'vid_b0000002';
-    bHoriz.pairedVideoId = 'vid_b0000001';
-
-    const allVideos = [aVert, aHoriz, bVert, bHoriz];
+    const allVideos = [aHoriz, bHoriz];
     await writeJSON(catalogFile, { videos: allVideos });
 
     await saveSettings({
       stream: {
-        playlist: ['vid_a0000001', 'vid_b0000001'],
+        mode: 'horizontal',
+        playlists: { horizontal: ['vid_a0000002', 'vid_b0000002'] },
+        playlist: ['vid_a0000002', 'vid_b0000002'],
         playbackOrder: 'sequential',
       },
       youtube: {
@@ -245,8 +240,7 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
     await saveState({
       status: 'RUNNING',
       ffmpegPid: 54321,
-      currentLogicalVideoId: 'vid_a0000001',
-      currentVerticalVideoId: 'vid_a0000001',
+      currentLogicalVideoId: 'vid_a0000002',
       currentHorizontalVideoId: 'vid_a0000002',
       currentPlaybackState: 'PLAYING',
     });
@@ -254,17 +248,15 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
     // Trigger boundary reload
     const fresh = await getFreshPlayablePlaylist(getSettings(), allVideos);
     assert.strictEqual(fresh.length, 2, 'Fresh playlist has 2 items');
-    assert.strictEqual(fresh[0].id, 'vid_a0000001');
-    assert.strictEqual(fresh[1].id, 'vid_b0000001');
+    assert.strictEqual(fresh[0].id, 'vid_a0000002');
+    assert.strictEqual(fresh[1].id, 'vid_b0000002');
 
     // Next item in sequential order after a is b
-    const currentIndex = fresh.findIndex(x => x.id === 'vid_a0000001');
+    const currentIndex = fresh.findIndex(x => x.id === 'vid_a0000002');
     const nextIndex = (currentIndex + 1) % fresh.length;
     const nextItem = fresh[nextIndex];
 
-    assert.strictEqual(nextItem.id, 'vid_b0000001');
-    assert.strictEqual(nextItem.verticalVideoId, 'vid_b0000001');
-    assert.strictEqual(nextItem.horizontalVideoId, 'vid_b0000002');
+    assert.strictEqual(nextItem.id, 'vid_b0000002');
   });
 
   // 10 & 11. C and D can be added while A is playing; all remain available in sequence
@@ -273,19 +265,17 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
     const videos = [];
     for (let i = 0; i < letters.length; i++) {
       const char = letters[i];
-      const vId = `vid_${char}0000001`;
       const hId = `vid_${char}0000002`;
-      const v = await createMockVideo({ id: vId, originalName: `${char.toUpperCase()}_v.mp4`, orientation: 'vertical' });
       const h = await createMockVideo({ id: hId, originalName: `${char.toUpperCase()}_h.mp4`, orientation: 'horizontal' });
-      v.pairedVideoId = h.id;
-      h.pairedVideoId = v.id;
-      videos.push(v, h);
+      videos.push(h);
     }
     await writeJSON(catalogFile, { videos });
 
     const settings = {
       stream: {
-        playlist: ['vid_a0000001', 'vid_b0000001', 'vid_c0000001', 'vid_d0000001'],
+        mode: 'horizontal',
+        playlists: { horizontal: ['vid_a0000002', 'vid_b0000002', 'vid_c0000002', 'vid_d0000002'] },
+        playlist: ['vid_a0000002', 'vid_b0000002', 'vid_c0000002', 'vid_d0000002'],
         playbackOrder: 'sequential',
       },
       youtube: {
@@ -295,7 +285,7 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
 
     const fresh = await getFreshPlayablePlaylist(settings, videos);
     assert.strictEqual(fresh.length, 4);
-    assert.deepStrictEqual(fresh.map(x => x.id), ['vid_a0000001', 'vid_b0000001', 'vid_c0000001', 'vid_d0000001']);
+    assert.deepStrictEqual(fresh.map(x => x.id), ['vid_a0000002', 'vid_b0000002', 'vid_c0000002', 'vid_d0000002']);
   });
 
   // 12. Partial pair is not playable
@@ -341,21 +331,21 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
 
   // 15. Deleted future item is not selected
   test('15. If a future playlist item is removed from settings, fresh reload does not select it', async () => {
-    const a = await createMockVideo({ id: 'vid_66660001', originalName: 'A.mp4', orientation: 'vertical' });
-    const b = await createMockVideo({ id: 'vid_66660002', originalName: 'B.mp4', orientation: 'vertical' });
-    const aH = await createMockVideo({ id: 'vid_66660003', originalName: 'A_h.mp4', orientation: 'horizontal' });
-    const bH = await createMockVideo({ id: 'vid_66660004', originalName: 'B_h.mp4', orientation: 'horizontal' });
-    a.pairedVideoId = aH.id; aH.pairedVideoId = a.id;
-    b.pairedVideoId = bH.id; bH.pairedVideoId = b.id;
+    const a = await createMockVideo({ id: 'vid_66660001', originalName: 'A.mp4', orientation: 'horizontal' });
+    const b = await createMockVideo({ id: 'vid_66660002', originalName: 'B.mp4', orientation: 'horizontal' });
 
     // Initially playlist has [A, B]
     // User deletes B from playlist while A is playing
     const settings = {
-      stream: { playlist: ['vid_66660001'] }, // B removed!
+      stream: {
+        mode: 'horizontal',
+        playlists: { horizontal: ['vid_66660001'] },
+        playlist: ['vid_66660001'],
+      },
       youtube: { horizontalStreamKey: 'key' },
     };
 
-    const fresh = await getFreshPlayablePlaylist(settings, [a, aH, b, bH]);
+    const fresh = await getFreshPlayablePlaylist(settings, [a, b]);
     assert.strictEqual(fresh.length, 1);
     assert.strictEqual(fresh[0].id, 'vid_66660001');
   });
@@ -364,19 +354,19 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
   test('16. Concurrent playlist updates are serialized by mutex', async () => {
     const mockVideos = [];
     for (let i = 1; i <= 5; i++) {
-      mockVideos.push(await createMockVideo({ id: `vid_5555000${i}`, originalName: `Video_${i}.mp4`, orientation: 'vertical' }));
+      mockVideos.push(await createMockVideo({ id: `vid_5555000${i}`, originalName: `Video_${i}.mp4`, orientation: 'horizontal' }));
     }
     await writeJSON(catalogFile, { videos: mockVideos });
 
     const promises = [];
     for (let i = 1; i <= 5; i++) {
-      promises.push(setPlaylist([`vid_5555000${i}`], 'sequential'));
+      promises.push(setPlaylist([`vid_5555000${i}`], 'sequential', 'horizontal'));
     }
     const results = await Promise.all(promises);
     assert.strictEqual(results.length, 5);
     const finalSettings = getSettings();
-    assert.ok(Array.isArray(finalSettings.stream.playlist));
-    assert.ok(finalSettings.stream.playlist.length > 0);
+    assert.ok(Array.isArray(finalSettings.stream.playlists.horizontal));
+    assert.ok(finalSettings.stream.playlists.horizontal.length > 0);
   });
 
   // 17. Sequential playback order mode
@@ -403,14 +393,22 @@ describe('Hot Playlist Sync — 21 Comprehensive Tests', () => {
   // 19. Single-stream mode works if configured
   test('19. Single-stream mode: complete without complementary pair when horizontalKey is empty', async () => {
     await saveSettings({
+      stream: {
+        mode: 'vertical',
+      },
       youtube: {
+        streamKey: 'vert-key',
         horizontalStreamKey: '',
       },
     });
     const singleV = await createMockVideo({ id: 'vid_44440001', originalName: 'single.mp4', orientation: 'vertical' });
     const settings = {
-      stream: { playlist: ['vid_44440001'] },
-      youtube: { horizontalStreamKey: '' }, // Dual streaming disabled
+      stream: {
+        mode: 'vertical',
+        playlists: { vertical: ['vid_44440001'] },
+        playlist: ['vid_44440001'],
+      },
+      youtube: { streamKey: 'vert-key', horizontalStreamKey: '' },
     };
 
     const fresh = await getFreshPlayablePlaylist(settings, [singleV]);

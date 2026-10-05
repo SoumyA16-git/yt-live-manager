@@ -23,11 +23,22 @@ import { getState, saveState } from './state-manager.js';
 import { logger } from './logger.js';
 import PATHS from './lib/paths.js';
 
+import { AsyncLocalStorage } from 'node:async_hooks';
+
 const SCHEMA_VERSION = 1;
 
+const _playlistLockStorage = new AsyncLocalStorage();
 let _playlistMutex = Promise.resolve();
+
 export function withPlaylistLock(fn) {
-  const next = _playlistMutex.then(fn, fn);
+  if (_playlistLockStorage.getStore()) {
+    // Already holding the playlist lock in this asynchronous context; avoid reentrant deadlock
+    return fn();
+  }
+  const next = _playlistMutex.then(
+    () => _playlistLockStorage.run(true, fn),
+    () => _playlistLockStorage.run(true, fn)
+  );
   _playlistMutex = next.catch(() => {});
   return next;
 }
@@ -334,63 +345,80 @@ export function buildLogicalVideos(allVideos = [], playlist = [], currentActiveI
  */
 export async function getFreshPlayablePlaylist(settings = null, allVideos = null) {
   const currentSettings = settings || getSettings();
-  const currentPlaylist = Array.isArray(currentSettings.stream?.playlist) ? currentSettings.stream.playlist : [];
-  const videos = allVideos || await listVideos();
-  const dualEnabled = isDualActive(currentSettings);
+  const mode = currentSettings.stream?.mode || 'horizontal';
+  const modePlaylists = currentSettings.stream?.playlists;
+  const currentPlaylist = (modePlaylists && Array.isArray(modePlaylists[mode]) && modePlaylists[mode].length > 0)
+    ? modePlaylists[mode]
+    : (Array.isArray(currentSettings.stream?.playlist) ? currentSettings.stream.playlist : []);
 
-  const logicals = buildLogicalVideos(videos, currentPlaylist, null, currentSettings);
-  const logicalMap = new Map();
-  for (const l of logicals) {
-    logicalMap.set(l.id, l);
-    if (l.verticalVideoId) logicalMap.set(l.verticalVideoId, l);
-    if (l.horizontalVideoId) logicalMap.set(l.horizontalVideoId, l);
-  }
+  const videos = allVideos || await listVideos();
+  const videoMap = new Map(videos.map(v => [v.id, v]));
 
   const playable = [];
-  const seenLogicalIds = new Set();
+  const seenIds = new Set();
 
-  for (const pId of currentPlaylist) {
-    const item = logicalMap.get(pId);
-    if (!item) {
-      logger.warn('playlist.video_missing', `Configured playlist item ${pId} not found in library`);
+  for (const id of currentPlaylist) {
+    if (seenIds.has(id)) continue;
+    const v = videoMap.get(id);
+    if (!v) {
+      logger.warn('playlist.video_missing', `Configured playlist item ${id} not found in library`);
       continue;
     }
-    if (seenLogicalIds.has(item.id)) continue;
 
-    if (dualEnabled) {
-      if (!item.vertical || !item.horizontal) {
-        logger.warn('playlist.pair_missing', `Playlist item ${item.id} (${item.label}) is missing paired stream companion; skipping`, {
-          logicalId: item.id,
-          hasVertical: Boolean(item.vertical),
-          hasHorizontal: Boolean(item.horizontal),
-        });
-        continue;
-      }
-      if (!item.vertical.exists || !item.horizontal.exists) {
-        logger.warn('playlist.video_missing', `Playlist item ${item.id} has missing media files on disk; skipping`, {
-          logicalId: item.id,
-          verticalExists: Boolean(item.vertical?.exists),
-          horizontalExists: Boolean(item.horizontal?.exists),
-        });
-        continue;
-      }
-    } else {
-      const activeMember = item.vertical || item.horizontal;
-      if (!activeMember || !activeMember.exists) {
-        logger.warn('playlist.video_missing', `Playlist item ${item.id} file is missing on disk; skipping`);
-        continue;
-      }
+    const ext = path.extname(v.filename || `${v.id}.mp4`);
+    const p = resolveVideoPath(v.id, ext);
+    if (!fsSync.existsSync(p)) {
+      logger.warn('playlist.video_missing', `Playlist item ${id} file is missing on disk: ${p}`);
+      continue;
     }
 
-    seenLogicalIds.add(item.id);
-    playable.push(item);
+    const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
+    // Strict mode check: do not mix modes
+    if (mode === 'horizontal' && !isHoriz) {
+      logger.warn('playlist.orientation_mismatch', `Skipping vertical video ${id} in horizontal mode`);
+      continue;
+    }
+    if (mode === 'vertical' && isHoriz) {
+      logger.warn('playlist.orientation_mismatch', `Skipping horizontal video ${id} in vertical mode`);
+      continue;
+    }
+
+    seenIds.add(id);
+    playable.push({
+      ...v,
+      id: v.id,
+      logicalId: v.id,
+      videoPath: p,
+      isHoriz,
+      horizontal: isHoriz ? { ...v, path: p, exists: true } : null,
+      vertical: !isHoriz ? { ...v, path: p, exists: true } : null,
+      horizontalVideoId: isHoriz ? v.id : null,
+      verticalVideoId: !isHoriz ? v.id : null,
+    });
   }
 
-  // Fallback: if playlist was empty but single active video exists
+  // Fallback: if playlist was empty but single active video exists matching mode
   if (playable.length === 0 && currentSettings.stream?.videoId) {
-    const item = logicalMap.get(currentSettings.stream.videoId);
-    if (item && (!dualEnabled || (item.vertical && item.horizontal && item.vertical.exists && item.horizontal.exists))) {
-      playable.push(item);
+    const singleV = videoMap.get(currentSettings.stream.videoId);
+    if (singleV) {
+      const isHoriz = (singleV.probe?.width || 0) >= (singleV.probe?.height || 0);
+      if ((mode === 'horizontal' && isHoriz) || (mode === 'vertical' && !isHoriz)) {
+        const ext = path.extname(singleV.filename || `${singleV.id}.mp4`);
+        const p = resolveVideoPath(singleV.id, ext);
+        if (fsSync.existsSync(p)) {
+          playable.push({
+            ...singleV,
+            id: singleV.id,
+            logicalId: singleV.id,
+            videoPath: p,
+            isHoriz,
+            horizontal: isHoriz ? { ...singleV, path: p, exists: true } : null,
+            vertical: !isHoriz ? { ...singleV, path: p, exists: true } : null,
+            horizontalVideoId: isHoriz ? singleV.id : null,
+            verticalVideoId: !isHoriz ? singleV.id : null,
+          });
+        }
+      }
     }
   }
 
@@ -701,6 +729,12 @@ async function _executeDiskSync() {
     }
   }
 
+  try {
+    await migratePlaylistsByOrientation(videos);
+  } catch (err) {
+    logger.warn('video.migrate_playlists_failed', `Could not auto-migrate playlists: ${err.message}`);
+  }
+
   return videos;
 }
 
@@ -910,6 +944,28 @@ export async function processUpload(fileStream, fileInfo) {
     });
   }
 
+  // Dimension validation per upload mode
+  const uploadMode = (fileInfo.uploadMode || fileInfo.mode || getStreamMode() || 'horizontal').toLowerCase();
+  const width = probe.width || 0;
+  const height = probe.height || 0;
+  const isHorizontalVideo = width >= height;
+
+  if (uploadMode === 'horizontal') {
+    if (!isHorizontalVideo) {
+      try { await fs.unlink(tempPath); } catch { /* ignore */ }
+      throw Object.assign(new Error('Horizontal 16:9 video required.'), {
+        code: 'E_HORIZONTAL_VIDEO_REQUIRED',
+      });
+    }
+  } else if (uploadMode === 'vertical') {
+    if (isHorizontalVideo) {
+      try { await fs.unlink(tempPath); } catch { /* ignore */ }
+      throw Object.assign(new Error('Vertical 9:16 video required.'), {
+        code: 'E_VERTICAL_VIDEO_REQUIRED',
+      });
+    }
+  }
+
   // Atomic rename into videos/ directory
   try {
     await fs.rename(tempPath, targetPath);
@@ -919,7 +975,7 @@ export async function processUpload(fileStream, fileInfo) {
   }
 
   // Evaluate compatibility
-  const targetOrient = (probe && probe.width > probe.height) ? 'horizontal' : 'vertical';
+  const targetOrient = uploadMode;
   const compatibility = evaluateCompatibility(probe, settings, targetOrient);
 
   const videoMeta = {
@@ -928,6 +984,8 @@ export async function processUpload(fileStream, fileInfo) {
     originalName,
     filename: path.basename(targetPath),
     sizeBytes,
+    mode: uploadMode,
+    orientation: uploadMode,
     uploadedAt: new Date().toISOString(),
     mtimeMs: stat.mtimeMs,
     probe,
@@ -939,31 +997,43 @@ export async function processUpload(fileStream, fileInfo) {
   const updatedVideos = [videoMeta, ...existingVideos.filter(v => v.id !== id)];
   await saveVideosIndex(updatedVideos);
 
-  // Call finalizePairIfComplete to atomically evaluate and link pairs
-  const pairResult = await finalizePairIfComplete(id);
-
-  // If dual streaming is disabled and no active video/playlist configured, auto-select this new video
+  // Auto-append to target mode playlist
   const currentSettings = getSettings();
-  const dualEnabled = isDualActive(currentSettings);
-  const currentPlaylist = currentSettings?.stream?.playlist;
-  const currentActive = currentSettings?.stream?.videoId;
-  if (!dualEnabled && (!currentActive || !Array.isArray(currentPlaylist) || currentPlaylist.length === 0)) {
-    await setActiveVideo(id);
+  const currentPlaylists = {
+    horizontal: Array.isArray(currentSettings.stream?.playlists?.horizontal) ? [...currentSettings.stream.playlists.horizontal] : [],
+    vertical: Array.isArray(currentSettings.stream?.playlists?.vertical) ? [...currentSettings.stream.playlists.vertical] : [],
+  };
+
+  if (!currentPlaylists[uploadMode].includes(id)) {
+    currentPlaylists[uploadMode].push(id);
   }
 
-  logger.info('video.uploaded', `Uploaded video ${id} (${originalName}) - ${compatibility.status}`, {
+  const patch = {
+    stream: {
+      playlists: currentPlaylists,
+    },
+  };
+
+  const activeStreamMode = currentSettings.stream?.mode || 'horizontal';
+  if (uploadMode === activeStreamMode) {
+    patch.stream.playlist = [...currentPlaylists[activeStreamMode]];
+    if (!currentSettings.stream?.videoId) {
+      patch.stream.videoId = id;
+    }
+  }
+
+  await saveSettings(patch);
+
+  logger.info('video.uploaded', `Uploaded ${uploadMode} video ${id} (${originalName}) - ${compatibility.status}`, {
     id,
+    mode: uploadMode,
     status: compatibility.status,
     sizeBytes,
-    isPaired: Boolean(pairResult.paired),
-    isComplete: Boolean(pairResult.isComplete),
   });
 
   return {
     ...videoMeta,
-    isPaired: Boolean(pairResult.paired),
-    isComplete: Boolean(pairResult.isComplete),
-    logicalId: pairResult.logicalId || id,
+    logicalId: id,
   };
 }
 
@@ -1127,43 +1197,65 @@ export async function setActiveVideo(id) {
 }
 
 /**
- * Set stream playlist and playback order.
+ * Set stream playlist and playback order for a specific mode.
  *
  * @param {string[]} playlistIds Array of video IDs
- * @param {'sequential'|'shuffle'} [playbackOrder='sequential']
- * @returns {Promise<{ playlist: string[], playbackOrder: string }>}
+ * @param {'sequential'|'shuffle'|'serial'} [playbackOrder='serial']
+ * @param {'horizontal'|'vertical'} [mode] Target mode (defaults to current stream.mode)
+ * @returns {Promise<{ mode: string, playlist: string[], playlists: object, playbackOrder: string }>}
  */
-export async function setPlaylist(playlistIds, playbackOrder = 'sequential') {
+export async function setPlaylist(playlistIds, playbackOrder = 'serial', mode = null) {
   return withPlaylistLock(async () => {
     if (!Array.isArray(playlistIds)) {
       throw Object.assign(new Error('Playlist must be an array of video IDs'), { code: 'E_INVALID_PLAYLIST' });
     }
 
-    const validOrder = ['sequential', 'shuffle'].includes(playbackOrder) ? playbackOrder : 'sequential';
+    const validOrder = ['sequential', 'shuffle', 'serial'].includes(playbackOrder) ? playbackOrder : 'serial';
     const existingVideos = await listVideos();
     const existingMap = new Map(existingVideos.map(v => [v.id, v]));
 
-    // Validate all video IDs exist and preserve order without duplicates
+    const currentSettings = getSettings();
+    const currentMode = currentSettings.stream?.mode || 'horizontal';
+    const targetMode = (mode === 'horizontal' || mode === 'vertical') ? mode : currentMode;
+
+    // Validate all video IDs exist and match the mode's orientation
     const validatedIds = [];
     for (const id of playlistIds) {
-      if (existingMap.has(id) && !validatedIds.includes(id)) {
-        validatedIds.push(id);
+      const v = existingMap.get(id);
+      if (v && !validatedIds.includes(id)) {
+        const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
+        if (targetMode === 'horizontal' && isHoriz) {
+          validatedIds.push(id);
+        } else if (targetMode === 'vertical' && !isHoriz) {
+          validatedIds.push(id);
+        }
       }
     }
 
-    const primaryVideoId = validatedIds[0] || '';
+    const currentPlaylists = {
+      horizontal: Array.isArray(currentSettings.stream?.playlists?.horizontal) ? [...currentSettings.stream.playlists.horizontal] : [],
+      vertical: Array.isArray(currentSettings.stream?.playlists?.vertical) ? [...currentSettings.stream.playlists.vertical] : [],
+    };
+    currentPlaylists[targetMode] = validatedIds;
 
-    await saveSettings({
+    const patch = {
       stream: {
-        videoId: primaryVideoId,
-        playlist: validatedIds,
+        playlists: currentPlaylists,
         playbackOrder: validOrder,
       },
-    });
+    };
 
-    await saveState({ activeVideoId: primaryVideoId || null });
+    if (targetMode === currentMode) {
+      const primaryVideoId = validatedIds[0] || '';
+      patch.stream.playlist = validatedIds;
+      patch.stream.videoId = primaryVideoId;
+      await saveState({ activeVideoId: primaryVideoId || null });
+    }
 
-    logger.info('video.playlist_updated', `Updated stream playlist (${validatedIds.length} videos, order: ${validOrder})`, {
+    await saveSettings(patch);
+
+    logger.info('video.playlist_updated', `Updated ${targetMode} playlist (${validatedIds.length} videos, order: ${validOrder})`, {
+      mode: targetMode,
       playlist: validatedIds,
       playbackOrder: validOrder,
     });
@@ -1171,7 +1263,89 @@ export async function setPlaylist(playlistIds, playbackOrder = 'sequential') {
       itemCount: validatedIds.length,
     });
 
-    return { playlist: validatedIds, playbackOrder: validOrder };
+    return { mode: targetMode, playlist: validatedIds, playlists: currentPlaylists, playbackOrder: validOrder };
+  });
+}
+
+/**
+ * Migrate legacy playlist and videos into mode-specific playlists based on ffprobe dimensions.
+ */
+export async function migratePlaylistsByOrientation(providedVideos = null) {
+  return withPlaylistLock(async () => {
+    const settings = getSettings();
+    const stream = settings.stream || {};
+    let changed = false;
+
+    const currentPlaylists = {
+      horizontal: Array.isArray(stream.playlists?.horizontal) ? [...stream.playlists.horizontal] : [],
+      vertical: Array.isArray(stream.playlists?.vertical) ? [...stream.playlists.vertical] : [],
+    };
+
+    let videos = providedVideos;
+    if (!videos) {
+      const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+      videos = data?.videos ?? [];
+    }
+
+    for (const v of videos) {
+      const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
+      if (isHoriz) {
+        if (!currentPlaylists.horizontal.includes(v.id)) {
+          currentPlaylists.horizontal.push(v.id);
+          changed = true;
+        }
+      } else {
+        if (!currentPlaylists.vertical.includes(v.id)) {
+          currentPlaylists.vertical.push(v.id);
+          changed = true;
+        }
+      }
+    }
+
+    if (Array.isArray(stream.playlist) && stream.playlist.length > 0) {
+      const legacyHoriz = stream.playlist.filter(id => {
+        const v = videos.find(x => x.id === id);
+        return v && (v.probe?.width || 0) >= (v.probe?.height || 0);
+      });
+      const legacyVert = stream.playlist.filter(id => {
+        const v = videos.find(x => x.id === id);
+        return v && (v.probe?.height || 0) > (v.probe?.width || 0);
+      });
+
+      if (legacyHoriz.length > 0) {
+        currentPlaylists.horizontal = [
+          ...legacyHoriz,
+          ...currentPlaylists.horizontal.filter(id => !legacyHoriz.includes(id)),
+        ];
+        changed = true;
+      }
+      if (legacyVert.length > 0) {
+        currentPlaylists.vertical = [
+          ...legacyVert,
+          ...currentPlaylists.vertical.filter(id => !legacyVert.includes(id)),
+        ];
+        changed = true;
+      }
+    }
+
+    const mode = stream.mode || 'horizontal';
+    const activePlaylist = currentPlaylists[mode] || [];
+    const activeVideoId = activePlaylist[0] || stream.videoId || '';
+
+    if (changed || !stream.playlists) {
+      await saveSettings({
+        stream: {
+          mode,
+          playlists: currentPlaylists,
+          playlist: activePlaylist,
+          videoId: activeVideoId,
+        },
+      });
+      await saveState({ activeVideoId });
+      logger.info('video.playlists_migrated', `Playlists migrated by orientation: ${currentPlaylists.horizontal.length} horizontal, ${currentPlaylists.vertical.length} vertical`);
+    }
+
+    return currentPlaylists;
   });
 }
 

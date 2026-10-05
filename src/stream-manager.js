@@ -25,23 +25,18 @@ import {
   getFfmpegPid,
   getLatestProgress,
 } from './ffmpeg-manager.js';
-import { getSettings, loadSettings, getStreamKey, getHorizontalStreamKey, isDualStreamEnabled } from './config-manager.js';
+import { getSettings, loadSettings, getStreamKey, getHorizontalStreamKey } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
 import {
   getVideo,
   resolveVideoPath,
   listVideos,
   setActiveVideo,
-  findPairedHorizontalVideo,
-  findPairedVerticalVideo,
-  findPairedComplementaryVideo,
-  buildLogicalVideos,
   getFreshPlayablePlaylist,
 } from './video-manager.js';
 import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage } from './usage-manager.js';
 import { logger } from './logger.js';
-import { isYouTubeApiConfigured, manageBroadcastLifecycleOnStart, transitionBroadcast } from './youtube-api-manager.js';
 import { isInsideWindow } from './scheduler.js';
 import PATHS from './lib/paths.js';
 
@@ -60,10 +55,9 @@ const _spawnTimestamps = []; // for circuit breaker (> 30 in 10 min)
 let _lastCycleOrder    = []; // active cycle order of { id, duration }
 let _currentSessionStartOffset = 0; // seek offset applied at session start
 let _startInProgress   = false; // re-entrancy mutex for startStream
-let _lifecyclePromise  = null; // tracks active YouTube broadcast lifecycle operation
 
 export function getCurrentLifecyclePromise() {
-  return _lifecyclePromise;
+  return null;
 }
 
 export function getAutoRecycleTimers() {
@@ -168,26 +162,36 @@ export async function evaluateStartGates(options = {}) {
     return { allowed: false, code: 'E_BW_LIMIT', reason: 'Monthly bandwidth safety limit reached' };
   }
 
-  // 4. YouTube Stream Key Configured (Primary is Horizontal 16:9 key "long")
-  const streamKey = (getHorizontalStreamKey() || settings.youtube?.horizontalStreamKey || getStreamKey() || settings.youtube?.streamKey || '').trim();
-  if (!streamKey) {
-    return { allowed: false, code: 'E_KEY_MISSING', reason: 'YouTube stream key is not configured' };
+  // 4. YouTube Stream Key Configured for Active Mode
+  const streamMode = (settings.stream?.mode || 'horizontal').toLowerCase();
+  let streamKey = '';
+  if (streamMode === 'horizontal') {
+    streamKey = (getHorizontalStreamKey() || settings.youtube?.horizontalStreamKey || '').trim();
+    if (!streamKey) {
+      return { allowed: false, code: 'E_KEY_MISSING', reason: 'Horizontal YouTube stream key is not configured' };
+    }
+  } else {
+    streamKey = (getStreamKey() || settings.youtube?.streamKey || '').trim();
+    if (!streamKey) {
+      return { allowed: false, code: 'E_KEY_MISSING', reason: 'Vertical YouTube stream key is not configured' };
+    }
   }
 
-  // 5. Video / Playlist Selected and Valid
-  let playlist = settings.stream?.playlist;
+  // 5. Video / Mode-Specific Playlist Selected and Valid
+  const modePlaylists = settings.stream?.playlists;
+  let playlist = (modePlaylists && Array.isArray(modePlaylists[streamMode]) && modePlaylists[streamMode].length > 0)
+    ? modePlaylists[streamMode]
+    : (Array.isArray(settings.stream?.playlist) ? settings.stream.playlist : []);
+
   if (!Array.isArray(playlist) || playlist.length === 0) {
     if (settings.stream?.videoId) {
       playlist = [settings.stream.videoId];
     } else {
-      const allVideos = await listVideos();
-      if (allVideos.length === 1) {
-        playlist = [allVideos[0].id];
-        await setActiveVideo(allVideos[0].id);
-        logger.info('stream.auto_select_single', `Auto-selected sole library video ${allVideos[0].id} for stream start`);
-      } else {
-        return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
-      }
+      return {
+        allowed: false,
+        code: 'E_PLAYLIST_EMPTY',
+        reason: `${streamMode === 'horizontal' ? 'Horizontal' : 'Vertical'} playlist is empty`,
+      };
     }
   }
 
@@ -206,11 +210,33 @@ export async function evaluateStartGates(options = {}) {
       return { allowed: false, code: 'E_VIDEO_FILE_MISSING', reason: `Video file missing on disk: ${resolvedPath}` };
     }
     vMeta.filePath = resolvedPath;
+
+    // Strict orientation validation
+    const isHoriz = (vMeta.probe?.width || 0) >= (vMeta.probe?.height || 0);
+    if (streamMode === 'horizontal' && !isHoriz) {
+      return {
+        allowed: false,
+        code: 'E_HORIZONTAL_VIDEO_REQUIRED',
+        reason: `Video ${vId} is vertical (9:16) but stream mode is Horizontal (16:9).`,
+      };
+    }
+    if (streamMode === 'vertical' && isHoriz) {
+      return {
+        allowed: false,
+        code: 'E_VERTICAL_VIDEO_REQUIRED',
+        reason: `Video ${vId} is horizontal (16:9) but stream mode is Vertical (9:16).`,
+      };
+    }
+
     playlistMetas.push(vMeta);
   }
 
   if (playlistMetas.length === 0) {
-    return { allowed: false, code: 'E_NO_VIDEO', reason: 'No video selected for streaming' };
+    return {
+      allowed: false,
+      code: 'E_PLAYLIST_EMPTY',
+      reason: `${streamMode === 'horizontal' ? 'Horizontal' : 'Vertical'} playlist is empty`,
+    };
   }
 
   let videoMeta;
@@ -338,207 +364,21 @@ export async function evaluateStartGates(options = {}) {
     return { allowed: false, code: 'E_DESIRED_STOPPED', reason: 'Desired state is stopped' };
   }
 
-  // 9. Dual Stream Resolution: Primary = Horizontal 16:9 ("long"), Secondary = Vertical 9:16 ("shot")
-  let verticalMeta = null;
-  let horizontalMeta = null;
-  let dualTarget = null;
-  const rawHorizKey = (getHorizontalStreamKey() || settings.youtube?.horizontalStreamKey || '').trim();
-  const rawVertKey = (getStreamKey() || settings.youtube?.streamKey || '').trim();
-  const dualEnabled = isDualStreamEnabled();
-  const isDual = Boolean(dualEnabled && rawHorizKey && rawVertKey && rawHorizKey !== rawVertKey);
-
-  if (dualEnabled && rawHorizKey && rawVertKey && rawHorizKey === rawVertKey) {
-    return {
-      allowed: false,
-      code: 'E_DUAL_STREAM_KEYS_IDENTICAL',
-      reason: 'Horizontal and Vertical Stream Keys must be different.',
-    };
-  }
-
-  const allVideos = await listVideos();
+  // 9. Single Stream Resolution for Active Mode
   const rtmpsUrl = settings.youtube?.rtmpsUrl || 'rtmps://a.rtmps.youtube.com:443/live2';
-
-  if (playlistMetas.length === 1) {
-    let candidate = playlistMetas[0];
-    if (isDual) {
-      const isVert = (candidate.probe?.height || 0) > (candidate.probe?.width || 0) || candidate.orientation === 'vertical';
-      let hVideo = null;
-      let vVideo = null;
-
-      if (isVert) {
-        vVideo = candidate;
-        hVideo = findPairedHorizontalVideo(candidate, allVideos);
-      } else {
-        hVideo = candidate;
-        vVideo = findPairedVerticalVideo(candidate, allVideos);
-      }
-
-      if (!hVideo) {
-        return {
-          allowed: false,
-          code: 'E_DUAL_PAIR_MISSING',
-          reason: 'Dual Live is enabled, but selected video has no matching horizontal (16:9) pair.',
-        };
-      }
-      if (!vVideo) {
-        return {
-          allowed: false,
-          code: 'E_DUAL_PAIR_MISSING',
-          reason: 'Dual Live is enabled, but selected video has no matching vertical (9:16) pair.',
-        };
-      }
-
-      const hExt = path.extname(hVideo.filename || `${hVideo.id}.mp4`);
-      const resolvedHPath = resolveVideoPath(hVideo.id, hExt);
-      const vExt = path.extname(vVideo.filename || `${vVideo.id}.mp4`);
-      const resolvedVPath = resolveVideoPath(vVideo.id, vExt);
-
-      try {
-        await fs.access(resolvedHPath);
-      } catch {
-        return {
-          allowed: false,
-          code: 'E_DUAL_PAIR_MISSING',
-          reason: `Paired complementary horizontal video missing on disk: ${resolvedHPath}`,
-        };
-      }
-      try {
-        await fs.access(resolvedVPath);
-      } catch {
-        return {
-          allowed: false,
-          code: 'E_DUAL_PAIR_MISSING',
-          reason: `Paired complementary vertical video file missing on disk: ${resolvedVPath}`,
-        };
-      }
-
-      videoMeta = {
-        ...hVideo,
-        filePath: resolvedHPath,
-        isConcat: false,
-        seekOffset: 0,
-      };
-      verticalMeta = {
-        ...vVideo,
-        filePath: resolvedVPath,
-        isConcat: false,
-        seekOffset: 0,
-      };
-      horizontalMeta = videoMeta;
-      dualTarget = `${rtmpsUrl}/${rawVertKey.trim()}`;
-      logger.info('stream.dual_stream_paired', `Dual streaming enabled: Primary Horizontal ${videoMeta.id} paired with Secondary Vertical ${verticalMeta.id}`);
-    } else {
-      // Single stream (Dual OFF)
-      const isVert = (candidate.probe?.height || 0) > (candidate.probe?.width || 0) || candidate.orientation === 'vertical';
-      if (isVert) {
-        const pairedH = findPairedHorizontalVideo(candidate, allVideos);
-        if (pairedH) {
-          const hExt = path.extname(pairedH.filename || `${pairedH.id}.mp4`);
-          const resolvedHPath = resolveVideoPath(pairedH.id, hExt);
-          try {
-            await fs.access(resolvedHPath);
-            candidate = {
-              ...pairedH,
-              filePath: resolvedHPath,
-              isConcat: false,
-              seekOffset: 0,
-            };
-          } catch { /* keep candidate */ }
-        }
-      }
-      videoMeta = candidate;
-      verticalMeta = null;
-      horizontalMeta = null;
-      dualTarget = null;
-    }
-  } else {
-    // Multi-video playlist
-    if (isDual) {
-      const verticalMap = new Map();
-      const horizontalMap = new Map();
-
-      for (const vMeta of playlistMetas) {
-        const isVert = (vMeta.probe?.height || 0) > (vMeta.probe?.width || 0) || vMeta.orientation === 'vertical';
-        const hVideo = isVert ? findPairedHorizontalVideo(vMeta, allVideos) : vMeta;
-        const vVideo = isVert ? vMeta : findPairedVerticalVideo(vMeta, allVideos);
-
-        if (!hVideo || !vVideo) {
-          return {
-            allowed: false,
-            code: 'E_DUAL_PAIR_MISSING',
-            reason: `Dual Live is enabled, but playlist video ${vMeta.id} has no matching complementary pair.`,
-          };
-        }
-
-        const hExt = path.extname(hVideo.filename || `${hVideo.id}.mp4`);
-        const resolvedHPath = resolveVideoPath(hVideo.id, hExt);
-        const vExt = path.extname(vVideo.filename || `${vVideo.id}.mp4`);
-        const resolvedVPath = resolveVideoPath(vVideo.id, vExt);
-
-        try {
-          await fs.access(resolvedHPath);
-          await fs.access(resolvedVPath);
-          horizontalMap.set(vMeta.id, { ...hVideo, filePath: resolvedHPath });
-          verticalMap.set(vMeta.id, { ...vVideo, filePath: resolvedVPath });
-        } catch {
-          return {
-            allowed: false,
-            code: 'E_DUAL_PAIR_MISSING',
-            reason: `Paired complementary video file missing on disk for ${vMeta.id}`,
-          };
-        }
-      }
-
-      // Build loop.ffconcat (primary horizontal) and loop_vertical.ffconcat (secondary vertical)
-      const concatLinesH = ['ffconcat version 1.0'];
-      const concatLinesV = ['ffconcat version 1.0'];
-      for (const meta of orderedMetas) {
-        const hMeta = horizontalMap.get(meta.id);
-        const vMeta = verticalMap.get(meta.id);
-        concatLinesH.push(`file '${hMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'")}'`);
-        concatLinesV.push(`file '${vMeta.filePath.replace(/\\/g, '/').replace(/'/g, "\\'")}'`);
-      }
-
-      await fs.mkdir(path.dirname(PATHS.loopConcat), { recursive: true });
-      await fs.writeFile(PATHS.loopConcat, concatLinesH.join('\n') + '\n', 'utf8');
-
-      const secConcatPath = PATHS.loopConcatVertical || PATHS.loopConcatHorizontal;
-      await fs.mkdir(path.dirname(secConcatPath), { recursive: true });
-      await fs.writeFile(secConcatPath, concatLinesV.join('\n') + '\n', 'utf8');
-
-      const firstH = horizontalMap.get(orderedMetas[0].id) || {};
-      videoMeta = {
-        ...firstH,
-        filePath: PATHS.loopConcat,
-        isConcat: true,
-        playlistCount: orderedMetas.length,
-      };
-      const firstV = verticalMap.get(orderedMetas[0].id) || {};
-      verticalMeta = {
-        ...firstV,
-        filePath: secConcatPath,
-        isConcat: true,
-        playlistCount: orderedMetas.length,
-      };
-      horizontalMeta = videoMeta;
-      dualTarget = `${rtmpsUrl}/${rawVertKey.trim()}`;
-      logger.info('stream.dual_stream_playlist_paired', `Dual streaming enabled for playlist: paired ${orderedMetas.length} videos`);
-    } else {
-      // Single multi-video playlist (already created in step 5)
-      verticalMeta = null;
-      horizontalMeta = null;
-      dualTarget = null;
-    }
-  }
+  const destUrl = `${rtmpsUrl}/${streamKey.trim()}`;
 
   return {
     allowed: true,
     videoMeta,
     mode: selectedMode,
-    verticalMeta,
-    horizontalMeta,
-    dualTarget,
-    isDualStream: Boolean(dualTarget && verticalMeta),
+    streamMode,
+    streamKey,
+    destUrl,
+    verticalMeta: null,
+    horizontalMeta: null,
+    dualTarget: null,
+    isDualStream: false,
   };
 }
 
@@ -564,8 +404,8 @@ let _transitionInProgress = false;
 
 /**
  * Transition-aware logical video completion handler.
- * Called when the current logical video reaches its end.
- * Performs a fresh reload of the playlist, selects the next complete logical pair,
+ * Called when the current video reaches its end.
+ * Performs a fresh reload of the playlist, selects the next item in active mode,
  * and feeds it seamlessly into the still-open publisher pipe without interrupting
  * the YouTube RTMPS connection.
  *
@@ -579,27 +419,27 @@ export async function handleSegmentFinished(mode = 'copy') {
   try {
     const currentState = getState();
     const finishedId = currentState.currentLogicalVideoId;
-    logger.info('playlist.current_video_finished', `Logical video finished playback: ${finishedId}`, {
-      logicalVideoId: finishedId,
+    logger.info('playlist.current_video_finished', `Video finished playback: ${finishedId}`, {
+      videoId: finishedId,
     });
 
     // 1. Read the latest playlist configuration from persistent storage and video library state
     const latestSettings = await loadSettings();
     const allVideos = await listVideos();
 
-    // 2. Re-resolve vertical/horizontal pairing & remove invalid/missing items
+    // 2. Fresh reload of mode-specific playable playlist
     const freshPlaylist = await getFreshPlayablePlaylist(latestSettings, allVideos);
-    logger.info('playlist.fresh_reload', `Fresh playlist reloaded at boundary with ${freshPlaylist.length} playable logical items`, {
+    logger.info('playlist.fresh_reload', `Fresh playlist reloaded at boundary with ${freshPlaylist.length} playable items`, {
       itemCount: freshPlaylist.length,
     });
 
     if (freshPlaylist.length === 0) {
-      logger.error('playlist.no_playable_items', 'No playable logical items available in fresh playlist');
+      logger.error('playlist.no_playable_items', 'No playable items available in fresh playlist');
       return;
     }
 
-    // 3. Respect the existing playback order mode
-    const playbackOrder = latestSettings.stream?.playbackOrder || 'sequential';
+    // 3. Respect the existing playback order mode (sequential, serial, or shuffle)
+    const playbackOrder = (latestSettings.stream?.playbackOrder || 'sequential').toLowerCase();
     let nextLogical = null;
 
     if (playbackOrder === 'shuffle') {
@@ -612,7 +452,7 @@ export async function handleSegmentFinished(mode = 'copy') {
         nextLogical = pool[randomIndex];
       }
     } else {
-      // Sequential ordering: find current index and advance to next
+      // Sequential / Serial ordering: find current index and advance to next
       const currentIndex = freshPlaylist.findIndex(item => item.id === finishedId);
       const nextIndex = (currentIndex >= 0 && currentIndex + 1 < freshPlaylist.length) ? (currentIndex + 1) : 0;
       nextLogical = freshPlaylist[nextIndex];
@@ -622,53 +462,50 @@ export async function handleSegmentFinished(mode = 'copy') {
       nextLogical = freshPlaylist[0];
     }
 
-    const isDual = isDualStreamEnabled() && Boolean(getStreamKey());
-    const primaryVideo = nextLogical.horizontal || nextLogical.vertical;
-    const secondaryVideo = isDual ? nextLogical.vertical : null;
+    const streamMode = (latestSettings.stream?.mode || 'horizontal').toLowerCase();
+    const primaryVideo = nextLogical.horizontal || nextLogical.vertical || nextLogical;
 
-    if (!primaryVideo || (isDual && !secondaryVideo)) {
-      logger.warn('playlist.pair_missing', `Selected logical item ${nextLogical.id} missing complete pair; skipping to next`, {
-        logicalId: nextLogical.id,
+    if (!primaryVideo) {
+      logger.warn('playlist.item_missing', `Selected item ${nextLogical.id} missing playable video; skipping to next`, {
+        videoId: nextLogical.id,
       });
       setTimeout(() => handleSegmentFinished(mode), 50);
       return;
     }
 
-    logger.info('playlist.next_logical_video_selected', `Selected next logical video: ${nextLogical.id}`, {
-      logicalVideoId: nextLogical.id,
-      horizontalVideoId: primaryVideo.id,
-      verticalVideoId: secondaryVideo?.id || null,
+    logger.info('playlist.next_video_selected', `Selected next video: ${primaryVideo.id} (${streamMode})`, {
+      videoId: primaryVideo.id,
+      streamMode,
     });
 
-    logger.info('playlist.transition_started', `Transitioning live stream to logical video ${nextLogical.id}`);
+    logger.info('playlist.transition_started', `Transitioning live stream to video ${primaryVideo.id}`);
 
     await saveState({
-      currentLogicalVideoId: nextLogical.id,
-      currentHorizontalVideoId: primaryVideo.id,
-      currentVerticalVideoId: secondaryVideo?.id || null,
+      currentLogicalVideoId: primaryVideo.id,
+      currentHorizontalVideoId: streamMode === 'horizontal' ? primaryVideo.id : null,
+      currentVerticalVideoId: streamMode === 'vertical' ? primaryVideo.id : null,
       currentPlaybackState: 'PLAYING',
       currentVideoStartedAt: new Date().toISOString(),
-      activeVideoId: nextLogical.id,
+      activeVideoId: primaryVideo.id,
     });
 
     await feedMediaSegment({
       primaryVideo,
-      secondaryVideo,
       settings: latestSettings,
       mode,
       onFinished: async () => {
         await handleSegmentFinished(mode);
       },
       onError: async (err) => {
-        logger.warn('playlist.next_video_failed', `Failed starting next segment for ${nextLogical.id}: ${err.message}; selecting next`, {
-          logicalVideoId: nextLogical.id,
+        logger.warn('playlist.next_video_failed', `Failed starting next segment for ${primaryVideo.id}: ${err.message}; selecting next`, {
+          videoId: primaryVideo.id,
           error: err.message,
         });
         await handleSegmentFinished(mode);
       },
     });
 
-    logger.info('playlist.transition_completed', `Completed transition to logical video ${nextLogical.id}`);
+    logger.info('playlist.transition_completed', `Completed transition to video ${primaryVideo.id}`);
   } catch (err) {
     logger.error('playlist.transition_error', `Error during playlist transition: ${err.message}`);
   } finally {
@@ -694,7 +531,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       started: true,
       pid: getFfmpegPid(),
       mode: curState.streamMode,
-      isDualStream: Boolean(curState.isDualStream),
+      streamMode: curState.streamMode,
+      isDualStream: false,
       alreadyRunning: true,
     };
   }
@@ -771,16 +609,17 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     await transitionState('STARTING', reason);
 
     const settings = getSettings();
-    const primaryKey = (getHorizontalStreamKey() || settings.youtube?.horizontalStreamKey || getStreamKey() || settings.youtube?.streamKey || '').trim();
-    const secondaryKey = (getStreamKey() || settings.youtube?.streamKey || '').trim();
+    const streamMode = (gate.streamMode || settings.stream?.mode || 'horizontal').toLowerCase();
+    const primaryKey = gate.streamKey;
+    const destUrl = gate.destUrl;
 
     // Hard guard: ensure key and RTMPS URL are both present before spawning
     const rtmpsUrl = settings.youtube?.rtmpsUrl || 'rtmps://a.rtmps.youtube.com:443/live2';
     if (!primaryKey) {
-      logger.error('stream.key_empty', 'Primary horizontal stream key is empty at spawn time — aborting FFmpeg spawn');
-      await transitionState('ERROR', 'YouTube stream key is empty');
-      await saveState({ lastError: { code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured', at: new Date().toISOString() } });
-      return { started: false, code: 'E_KEY_MISSING', message: 'YouTube stream key is not configured' };
+      logger.error('stream.key_empty', `${streamMode.toUpperCase()} YouTube stream key is empty at spawn time — aborting FFmpeg spawn`);
+      await transitionState('ERROR', `${streamMode} YouTube stream key is empty`);
+      await saveState({ lastError: { code: 'E_KEY_MISSING', message: `${streamMode} YouTube stream key is not configured`, at: new Date().toISOString() } });
+      return { started: false, code: 'E_KEY_MISSING', message: `${streamMode} YouTube stream key is not configured` };
     }
     if (!rtmpsUrl || !rtmpsUrl.startsWith('rtmps://')) {
       logger.error('stream.url_invalid', `Invalid RTMPS URL at spawn time: ${rtmpsUrl}`);
@@ -789,11 +628,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       return { started: false, code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://' };
     }
 
-    const destUrl = `${rtmpsUrl}/${primaryKey}`;
-    const isDual = Boolean(gate.isDualStream && gate.dualTarget);
-    const dualTarget = isDual ? gate.dualTarget : null;
-
-    // Get fresh playable logical items
+    // Get fresh playable items for active mode
     const allVideos = await listVideos();
     const freshPlaylist = await getFreshPlayablePlaylist(settings, allVideos);
 
@@ -820,51 +655,42 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     if (!initialLogical) {
       initialLogical = {
         id: gate.videoMeta.id,
-        horizontalVideoId: gate.videoMeta.id,
-        verticalVideoId: gate.verticalMeta?.id || null,
-        horizontal: gate.videoMeta,
-        vertical: gate.verticalMeta,
+        horizontal: streamMode === 'horizontal' ? gate.videoMeta : null,
+        vertical: streamMode === 'vertical' ? gate.videoMeta : null,
       };
     }
 
-    // PRIMARY IS HORIZONTAL 16:9
     const initialPrimary = initialLogical.horizontal || initialLogical.vertical || gate.videoMeta;
-    // SECONDARY IS VERTICAL 9:16
-    const initialSecondary = isDual ? (initialLogical.vertical || gate.verticalMeta) : null;
 
     if (bookmarkSeek > 0) {
       if (initialPrimary) initialPrimary.seekOffset = bookmarkSeek;
-      if (initialSecondary) initialSecondary.seekOffset = bookmarkSeek;
       _currentSessionStartOffset = bookmarkSeek;
     }
 
     // Build persistent publisher arguments (reads continuous MPEG-TS from pipe:0)
     const publisherArgs = buildPublisherArgs(settings, destUrl);
-    let secPublisherArgs = null;
-    if (isDual && dualTarget) {
-      secPublisherArgs = buildPublisherArgs(settings, dualTarget);
-    }
 
     // Set initial runtime state
     await saveState({
-      currentLogicalVideoId: initialLogical.id,
-      currentHorizontalVideoId: initialPrimary?.id || null,
-      currentVerticalVideoId: initialSecondary?.id || null,
+      streamMode,
+      currentLogicalVideoId: initialPrimary.id,
+      currentHorizontalVideoId: streamMode === 'horizontal' ? initialPrimary.id : null,
+      currentVerticalVideoId: streamMode === 'vertical' ? initialPrimary.id : null,
       currentPlaybackState: 'PLAYING',
       currentVideoStartedAt: new Date().toISOString(),
-      activeVideoId: initialLogical.id,
+      activeVideoId: initialPrimary.id,
+      isDualStream: false,
     });
 
-    logger.info('playlist.next_logical_video_selected', `Selected initial logical video ${initialLogical.id}`, {
-      logicalVideoId: initialLogical.id,
-      horizontalVideoId: initialPrimary?.id || null,
-      verticalVideoId: initialSecondary?.id || null,
+    logger.info('playlist.next_video_selected', `Selected initial video ${initialPrimary.id} (${streamMode})`, {
+      videoId: initialPrimary.id,
+      streamMode,
     });
 
     try {
       const { pid } = await spawnFfmpeg({
         args: publisherArgs,
-        secondaryArgs: secPublisherArgs,
+        mode: streamMode,
         settings,
         pipeMode: true,
         onProgress: (p) => {
@@ -874,33 +700,29 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         onHealthy: async () => {
           _streamStartTime = Date.now();
           await transitionState('RUNNING', 'FFmpeg healthy output detected');
-          logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid}`);
+          logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid} (${streamMode})`);
           armAutoRecycleTimer();
 
-          const apiConfigured = isYouTubeApiConfigured();
           await saveState({
-            streamMode: gate.mode,
-            activeVideoId: initialLogical.id,
+            streamMode,
+            activeVideoId: initialPrimary.id,
             ffmpegPid: pid,
             streamStartedAt: new Date().toISOString(),
             currentSeekOffset: bookmarkSeek || 0,
-            isDualStream: isDual,
-            pairedVerticalVideoId: initialSecondary?.id || null,
-            pairedHorizontalVideoId: initialPrimary?.id || null,
+            isDualStream: false,
+            pairedVerticalVideoId: null,
+            pairedHorizontalVideoId: null,
             resumeBookmark: null,
             lastError: null,
-            youtubeIngest: apiConfigured ? 'WAITING' : 'UNMANAGED',
-            youtubeBroadcast: apiConfigured ? 'PREPARING' : 'UNMANAGED',
-            youtubeStreamActive: false,
-            youtubeBroadcastLive: false,
           });
 
           await appendHistory({
             event: 'start',
             mode: gate.mode,
-            videoId: initialLogical.id,
+            streamMode,
+            videoId: initialPrimary.id,
             pid,
-            isDualStream: isDual,
+            isDualStream: false,
           });
 
           // Start stability timer
@@ -910,101 +732,11 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             logger.info('stream.stable', `Stream has run stably for ${stableSec}s; resetting failure counter`);
             await saveState({ consecutiveFailures: 0 });
           }, stableSec * 1000);
-
-          // If YouTube Data API is configured, manage YouTube broadcast lifecycle autonomously
-          if (apiConfigured) {
-            logger.info('stream.youtube_lifecycle_start', 'Starting YouTube broadcast lifecycle management...');
-            _lifecyclePromise = manageBroadcastLifecycleOnStart({
-              streamKey: primaryKey,
-              secondaryStreamKey: isDual ? secondaryKey : null,
-              isDual,
-              title: '',
-            });
-
-            try {
-              const youtubeResult = await _lifecyclePromise;
-              if (youtubeResult && youtubeResult.unmanaged) {
-                logger.info('stream.youtube_unmanaged', 'YouTube API unmanaged mode; skipping lifecycle');
-                await saveState({
-                  youtubeIngest: 'UNMANAGED',
-                  youtubeBroadcast: 'UNMANAGED',
-                  youtubeStreamActive: false,
-                  youtubeBroadcastLive: false,
-                });
-              } else if (youtubeResult && youtubeResult.success && youtubeResult.lifeCycleStatus === 'live') {
-                const isSingleBroadcastDual = isDual && youtubeResult.isDual && youtubeResult.primaryBroadcastId === youtubeResult.secondaryBroadcastId;
-                if (isSingleBroadcastDual) {
-                  logger.info('stream.youtube_live_confirmed', `YouTube Dual Stream lifecycle confirmed: LIVE (single broadcast: ${youtubeResult.broadcastId}) — one broadcast, two stream ingests. Watch URL: https://www.youtube.com/watch?v=${youtubeResult.broadcastId}`);
-                } else {
-                  logger.info('stream.youtube_live_confirmed', `YouTube broadcast lifecycle confirmed: LIVE (primary: ${youtubeResult.primaryBroadcastId || youtubeResult.broadcastId}, secondary: ${youtubeResult.secondaryBroadcastId || 'N/A'})`);
-                }
-                await saveState({
-                  youtubeStreamActive: true,
-                  youtubeBroadcastLive: true,
-                  youtubeIngest: 'ACTIVE',
-                  youtubeBroadcast: 'LIVE',
-                  liveStreamId: youtubeResult.liveStreamId,
-                  broadcastId: youtubeResult.broadcastId,
-                  primaryBroadcastId: youtubeResult.primaryBroadcastId || youtubeResult.broadcastId,
-                  secondaryBroadcastId: isSingleBroadcastDual ? null : (youtubeResult.secondaryBroadcastId || null),
-                  primaryBroadcastStatus: youtubeResult.primaryLifeCycleStatus || 'live',
-                  secondaryBroadcastStatus: isSingleBroadcastDual ? 'active' : (youtubeResult.secondaryLifeCycleStatus || (isDual ? 'live' : 'inactive')),
-                });
-              } else {
-                logger.warn('stream.youtube_lifecycle_incomplete', `YouTube lifecycle could not confirm LIVE: ${youtubeResult?.reason || 'Status incomplete'}`);
-                await saveState({
-                  youtubeStreamActive: youtubeResult?.streamStatus === 'active',
-                  youtubeBroadcastLive: false,
-                  youtubeIngest: youtubeResult?.streamStatus === 'active' ? 'ACTIVE' : 'WAITING',
-                  youtubeBroadcast: 'ERROR',
-                  primaryBroadcastId: youtubeResult?.primaryBroadcastId || null,
-                  secondaryBroadcastId: youtubeResult?.secondaryBroadcastId || null,
-                  primaryBroadcastStatus: youtubeResult?.primaryLifeCycleStatus || 'error',
-                  secondaryBroadcastStatus: youtubeResult?.secondaryLifeCycleStatus || 'error',
-                  lastError: {
-                    code: 'E_YOUTUBE_LIFECYCLE',
-                    message: youtubeResult?.reason || 'YouTube broadcast failed to transition to LIVE',
-                    at: new Date().toISOString(),
-                  },
-                });
-
-                if (isDual) {
-                  logger.error('stream.youtube_dual_lifecycle_failed', `Dual YouTube broadcast lifecycle failed (${youtubeResult?.reason}). Stopping FFmpeg to prevent half-dual state.`);
-                  await stopFfmpeg({ force: true, reason: 'youtube_dual_lifecycle_failed', expected: false });
-                }
-              }
-            } catch (err) {
-              logger.error('stream.youtube_lifecycle_error', `YouTube broadcast lifecycle error: ${err.message}`);
-              await saveState({
-                youtubeBroadcastLive: false,
-                youtubeBroadcast: 'ERROR',
-                lastError: {
-                  code: 'E_YOUTUBE_LIFECYCLE',
-                  message: `YouTube broadcast lifecycle error: ${err.message}`,
-                  at: new Date().toISOString(),
-                },
-              });
-              if (isDual) {
-                await stopFfmpeg({ force: true, reason: 'youtube_dual_lifecycle_error', expected: false });
-              }
-            } finally {
-              _lifecyclePromise = null;
-            }
-          } else {
-            logger.info('stream.youtube_unmanaged', 'YouTube API OAuth2 credentials not configured; running in unmanaged RTMPS mode');
-            await saveState({
-              youtubeIngest: 'UNMANAGED',
-              youtubeBroadcast: 'UNMANAGED',
-              youtubeStreamActive: false,
-              youtubeBroadcastLive: false,
-            });
-          }
         },
         onExit: async ({ code, signal, expected, lastError }) => {
           await stopFeeders();
           clearAutoRecycleTimer();
           if (_stabilityTimer) { clearTimeout(_stabilityTimer); _stabilityTimer = null; }
-          if (_lifecyclePromise) { _lifecyclePromise = null; }
           await flushUsage({ force: true });
 
           const durationSec = _streamStartTime ? Math.round((Date.now() - _streamStartTime) / 1000) : 0;
@@ -1021,12 +753,6 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             pairedHorizontalVideoId: null,
             pairedVerticalVideoId: null,
             lastExit: { code, signal, at: new Date().toISOString() },
-            youtubeStreamActive: false,
-            youtubeBroadcastLive: false,
-            youtubeIngest: 'INACTIVE',
-            youtubeBroadcast: 'INACTIVE',
-            primaryBroadcastStatus: 'inactive',
-            secondaryBroadcastStatus: 'inactive',
           });
 
           await appendHistory({
@@ -1054,14 +780,13 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       // Feed initial media segment into the publisher pipe
       feedMediaSegment({
         primaryVideo: initialPrimary,
-        secondaryVideo: initialSecondary,
         settings,
         mode: gate.mode,
         onFinished: async () => {
           await handleSegmentFinished(gate.mode);
         },
         onError: async (err) => {
-          logger.warn('playlist.next_video_failed', `Feeder error for ${initialLogical.id}: ${err.message}`);
+          logger.warn('playlist.next_video_failed', `Feeder error for ${initialPrimary.id}: ${err.message}`);
           await handleSegmentFinished(gate.mode);
         },
       }).catch(err => {
@@ -1080,7 +805,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         started: true,
         pid,
         mode: gate.mode,
-        isDualStream: Boolean(gate.dualTarget && gate.horizontalMeta),
+        streamMode,
+        isDualStream: false,
       };
     } catch (err) {
       logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);
@@ -1105,13 +831,16 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
  */
 export async function computeResumeBookmark(sessionElapsedSec) {
   const settings = getSettings();
-  const playlist = settings.stream?.playlist || [];
+  const streamMode = (settings.stream?.mode || 'horizontal').toLowerCase();
+  const playlist = (settings.stream?.playlists && Array.isArray(settings.stream.playlists[streamMode]) && settings.stream.playlists[streamMode].length > 0)
+    ? settings.stream.playlists[streamMode]
+    : (settings.stream?.playlist || []);
   const primaryId = settings.stream?.videoId;
   const startOffset = _currentSessionStartOffset || 0;
   const totalElapsed = startOffset + Math.max(0, sessionElapsedSec);
 
   if (playlist.length <= 1) {
-    const vidId = primaryId || playlist[0];
+    const vidId = playlist[0] || primaryId;
     if (!vidId) return null;
     const video = await getVideo(vidId);
     const duration = Number(video?.probe?.durationSec || video?.probe?.duration || 0);
@@ -1529,42 +1258,7 @@ export async function triggerAutoRecycle() {
   logger.info('stream.auto_recycle_stopping', 'Stopping current FFmpeg session for scheduled auto-recycle');
   await stopStream({ keepDesiredRunning: true, reason: 'auto_recycle' });
 
-  // 7. End/complete both YouTube broadcasts through existing lifecycle behavior if required
-  const curState = getState();
-  const prevPrimaryId = curState.primaryBroadcastId || curState.broadcastId;
-  const prevSecondaryId = curState.secondaryBroadcastId;
-
-  if (isYouTubeApiConfigured()) {
-    if (prevPrimaryId) {
-      try {
-        logger.info('stream.youtube_auto_recycle_completing', `Transitioning primary YouTube broadcast ${prevPrimaryId} to 'complete' for VOD archive finalization`);
-        await transitionBroadcast(prevPrimaryId, 'complete');
-      } catch (ytErr) {
-        logger.warn('stream.youtube_auto_recycle_complete_fail', `Could not complete primary YouTube broadcast ${prevPrimaryId}: ${ytErr.message}`);
-      }
-    }
-    if (prevSecondaryId) {
-      try {
-        logger.info('stream.youtube_auto_recycle_completing_secondary', `Transitioning secondary YouTube broadcast ${prevSecondaryId} to 'complete' for VOD archive finalization`);
-        await transitionBroadcast(prevSecondaryId, 'complete');
-      } catch (ytErr) {
-        logger.warn('stream.youtube_auto_recycle_secondary_complete_fail', `Could not complete secondary YouTube broadcast ${prevSecondaryId}: ${ytErr.message}`);
-      }
-    }
-    await saveState({
-      broadcastId: null,
-      primaryBroadcastId: null,
-      secondaryBroadcastId: null,
-      primaryBroadcastStatus: 'inactive',
-      secondaryBroadcastStatus: 'inactive',
-      youtubeBroadcast: 'INACTIVE',
-      youtubeBroadcastLive: false,
-      youtubeStreamActive: false,
-      youtubeIngest: 'INACTIVE',
-    });
-  }
-
-  // 8. Enter recycle pause state
+  // 7. Enter recycle pause state
   const pauseMinutes = ar.pauseMinutes ?? 60;
   const pauseMs = pauseMinutes * 60 * 1000;
   const recyclingUntil = new Date(Date.now() + pauseMs).toISOString();
@@ -1750,3 +1444,35 @@ export function getAutoRecycleStatus(now = new Date()) {
     displayMode,
   };
 }
+
+/**
+ * Safely change the active stream mode (horizontal or vertical).
+ * Fails with E_STREAM_RUNNING (409) if stream is currently running.
+ *
+ * @param {'horizontal'|'vertical'} newMode
+ * @returns {Promise<{ success: boolean, mode: string }>}
+ */
+export async function setStreamMode(newMode) {
+  const normMode = (newMode || '').toLowerCase();
+  if (normMode !== 'horizontal' && normMode !== 'vertical') {
+    throw Object.assign(new Error('Invalid stream mode. Must be "horizontal" or "vertical".'), {
+      code: 'E_INVALID_MODE',
+      status: 400,
+    });
+  }
+
+  const curState = getState();
+  if (isFfmpegRunning() || curState.status === 'RUNNING' || curState.status === 'STARTING') {
+    throw Object.assign(new Error('Cannot change stream mode while stream is running. Stop stream before switching mode.'), {
+      code: 'E_STREAM_RUNNING',
+      status: 409,
+    });
+  }
+
+  const { saveSettings } = await import('./config-manager.js');
+  await saveSettings({ stream: { mode: normMode } });
+  await saveState({ streamMode: normMode });
+  logger.info('stream.mode_changed', `Stream mode changed to ${normMode}`);
+  return { success: true, mode: normMode };
+}
+

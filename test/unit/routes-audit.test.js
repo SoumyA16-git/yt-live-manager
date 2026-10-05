@@ -175,23 +175,28 @@ describe('All Dashboard Action Routes Audit', () => {
     assert.ok(Array.isArray(body.videos));
   });
 
-  test('GET /api/youtube/template returns metadata configuration', async () => {
-    const res = await fetch(`${baseUrl}/api/youtube/template`, {
-      headers: { Cookie: sessionCookie },
+  test('POST /api/stream/mode changes stream mode', async () => {
+    const res = await fetch(`${baseUrl}/api/stream/mode`, {
+      method: 'POST',
+      headers: {
+        Cookie: sessionCookie,
+        'Content-Type': 'application/json',
+        'x-csrf-token': csrfToken,
+      },
+      body: JSON.stringify({ mode: 'horizontal' }),
     });
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.ok(body.titleTemplate !== undefined);
-    assert.ok(body.description !== undefined);
+    assert.equal(body.mode, 'horizontal');
   });
 
-  test('GET /api/youtube/categories returns category array', async () => {
-    const res = await fetch(`${baseUrl}/api/youtube/categories`, {
+  test('GET /api/videos/playlist?mode=horizontal returns mode playlist', async () => {
+    const res = await fetch(`${baseUrl}/api/videos/playlist?mode=horizontal`, {
       headers: { Cookie: sessionCookie },
     });
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.equal(body.success, true);
-    assert.ok(Array.isArray(body.categories));
+    assert.equal(body.mode, 'horizontal');
+    assert.ok(Array.isArray(body.playlist));
   });
 });

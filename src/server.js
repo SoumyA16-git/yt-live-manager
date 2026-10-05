@@ -27,15 +27,10 @@ import { createBandwidthRouter } from './api/bandwidth.routes.js';
 import { createVideosRouter } from './api/videos.routes.js';
 import { createSystemRouter } from './api/system.routes.js';
 import { createSchedulerRouter } from './api/scheduler.routes.js';
-import { createYouTubeRouter } from './api/youtube.routes.js';
-import { initYouTubeApi, getYouTubeLiveApiState } from './youtube-api-manager.js';
 import PATHS from './lib/paths.js';
 
 export async function createApp(envConfig = {}) {
   const app = express();
-
-  // Initialize YouTube Live API integration
-  initYouTubeApi(envConfig);
 
   // Environment credentials
   const adminUsername     = envConfig.ADMIN_USERNAME      || process.env.ADMIN_USERNAME      || 'admin';
@@ -142,7 +137,6 @@ export async function createApp(envConfig = {}) {
         } : null,
         scheduler: schedulerStatus,
         autoRecycle: schedulerStatus?.autoRecycle || settings.scheduler?.autoRecycle || {},
-        youtubeLive: getYouTubeLiveApiState(),
         healthVerdict: { status: healthStatus, reasons },
         serverUptime: Math.round(process.uptime()),
       });
@@ -171,7 +165,6 @@ export async function createApp(envConfig = {}) {
   app.use('/api/bandwidth', authMw, csrfMw, createBandwidthRouter(authEnv));
   app.use('/api/scheduler', authMw, csrfMw, createSchedulerRouter());
   app.use('/api/videos',    authMw, csrfMw, createVideosRouter());
-  app.use('/api/youtube',   authMw, csrfMw, createYouTubeRouter());
   app.use('/api/system',    authMw, systemRouter);
   app.get('/api/logs', authMw, (req, res, next) => {
     req.url = '/logs';
@@ -189,7 +182,6 @@ export async function createApp(envConfig = {}) {
 if (process.argv[1] && process.argv[1].endsWith('server.js')) {
   (async () => {
     initLogger();
-    initYouTubeApi();
     logger.info('app.boot', 'Starting 24×7 YouTube Vertical Live Streaming Manager');
 
     // 1. Load settings & register stream key

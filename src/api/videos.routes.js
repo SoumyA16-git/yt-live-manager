@@ -62,23 +62,29 @@ export function createVideosRouter() {
   // GET /api/videos/playlist
   router.get('/playlist', (req, res) => {
     const streamSettings = getSettings().stream || {};
-    const playlist = Array.isArray(streamSettings.playlist) ? streamSettings.playlist : [];
-    const playbackOrder = streamSettings.playbackOrder || 'sequential';
-    res.json({ playlist, playbackOrder });
+    const mode = (req.query.mode === 'horizontal' || req.query.mode === 'vertical')
+      ? req.query.mode
+      : (streamSettings.mode || 'horizontal');
+    const playlists = streamSettings.playlists || { horizontal: [], vertical: [] };
+    const playlist = Array.isArray(playlists[mode]) ? playlists[mode] : [];
+    const playbackOrder = streamSettings.playbackOrder || 'serial';
+    res.json({ playlist, playlists, mode, playbackOrder });
   });
 
   // POST /api/videos/playlist
   router.post('/playlist', async (req, res) => {
-    const { playlist, playbackOrder } = req.body || {};
+    const { playlist, playbackOrder, mode } = req.body || {};
     const shouldRestart = req.query.restart === 'true';
 
     try {
       const state = getState();
       const isLive = state.status === 'RUNNING' || state.status === 'STARTING';
+      const currentMode = getSettings().stream?.mode || 'horizontal';
+      const targetMode = (mode === 'horizontal' || mode === 'vertical') ? mode : currentMode;
 
-      const updated = await setPlaylist(playlist || [], playbackOrder || 'sequential');
+      const updated = await setPlaylist(playlist || [], playbackOrder || 'serial', targetMode);
 
-      if (isLive) {
+      if (isLive && targetMode === currentMode) {
         if (shouldRestart) {
           logger.info('video.playlist_restart', `Gracefully restarting stream onto new playlist (${updated.playlist.length} videos)`);
           await stopStream({ keepDesiredRunning: true, reason: 'playlist_change_restart' });
@@ -88,7 +94,7 @@ export function createVideosRouter() {
         }
       }
 
-      res.json({ success: true, hotSync: isLive && !shouldRestart, ...updated });
+      res.json({ success: true, hotSync: isLive && targetMode === currentMode && !shouldRestart, ...updated });
     } catch (err) {
       const status = err.code === 'E_INVALID_PLAYLIST' ? 400 : 500;
       res.status(status).json({ error: err.message, code: err.code });
@@ -245,6 +251,14 @@ export function createVideosRouter() {
       }
     });
 
+    let uploadMode = req.query.mode || '';
+
+    bb.on('field', (name, val) => {
+      if (name === 'mode' && (val === 'horizontal' || val === 'vertical')) {
+        uploadMode = val;
+      }
+    });
+
     bb.on('file', (name, fileStream, info) => {
       fileHandled = true;
       const { filename, mimeType } = info;
@@ -254,6 +268,7 @@ export function createVideosRouter() {
         filename,
         mimeType,
         sizeBytes: contentLength,
+        uploadMode: uploadMode || req.query.mode || getSettings().stream?.mode || 'horizontal',
       });
     });
 
@@ -277,7 +292,7 @@ export function createVideosRouter() {
       } catch (err) {
         const status = err.code === 'E_DISK_LOW' ? 507
           : err.code === 'E_INVALID_EXTENSION' ? 415
-          : err.code === 'E_VIDEO_UNSUPPORTED' ? 422
+          : (err.code === 'E_VIDEO_UNSUPPORTED' || err.code === 'E_HORIZONTAL_VIDEO_REQUIRED' || err.code === 'E_VERTICAL_VIDEO_REQUIRED') ? 422
           : 500;
         res.status(status).json({ error: err.message, code: err.code });
       }

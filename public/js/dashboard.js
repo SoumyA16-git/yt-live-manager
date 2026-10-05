@@ -113,7 +113,7 @@ const metricBitrate = document.getElementById('metric-bitrate');
 const metricRestarts = document.getElementById('metric-restarts');
 const lastErrorBox = document.getElementById('last-error-box');
 const reachabilityBadge = document.getElementById('reachability-badge');
-const deckYoutubeApiBadge = document.getElementById('deck-youtube-api-badge');
+const deckActiveKeyBadge = document.getElementById('deck-active-key-badge');
 
 // Bandwidth Speed Meter (Live Egress Gauge) Elements
 const telemetrySpeedBadge = document.getElementById('telemetry-speed-badge');
@@ -235,7 +235,7 @@ const previewTbMonth = document.getElementById('preview-tb-month');
 
 // Stream Key UI & Maintenance DOM Elements
 const deckStreamKeyBadge = document.getElementById('deck-stream-key-badge');
-const deckDualStreamBadge = document.getElementById('deck-dual-stream-badge');
+const deckStreamModeBadge = document.getElementById('deck-stream-mode-badge');
 const bannerMaintenance = document.getElementById('banner-maintenance');
 const btnDisableMaintenance = document.getElementById('btn-disable-maintenance');
 const keyBadge = document.getElementById('key-badge');
@@ -251,14 +251,25 @@ const horizontalKeyHintText = document.getElementById('horizontal-key-hint-text'
 const iconEyeShowHoriz = document.getElementById('icon-eye-show-horiz');
 const iconEyeHideHoriz = document.getElementById('icon-eye-hide-horiz');
 const btnRevealHorizText = document.getElementById('btn-reveal-horiz-text');
-const cfgDualStreamEnabled = document.getElementById('cfg-dual-stream-enabled');
 
-// Dual Outputs Channel Health DOM Elements
-const deckDualOutputsRow = document.getElementById('deck-dual-outputs-row');
-const dotOutVertical = document.getElementById('dot-out-vertical');
-const textOutVertical = document.getElementById('text-out-vertical');
-const dotOutHorizontal = document.getElementById('dot-out-horizontal');
-const textOutHorizontal = document.getElementById('text-out-horizontal');
+// Mode Selection & Output Status DOM Elements
+const btnModeHorizontal = document.getElementById('btn-mode-horizontal');
+const btnModeVertical = document.getElementById('btn-mode-vertical');
+const modeLockWarning = document.getElementById('mode-lock-warning');
+const deckOutputRow = document.getElementById('deck-output-row');
+const dotStreamOutput = document.getElementById('dot-stream-output');
+const labelStreamOutput = document.getElementById('label-stream-output');
+const textStreamOutput = document.getElementById('text-stream-output');
+
+// Mode Playlist Selector Tabs DOM Elements
+const tabPlaylistHorizontal = document.getElementById('tab-playlist-horizontal');
+const tabPlaylistVertical = document.getElementById('tab-playlist-vertical');
+const badgeCountHorizontal = document.getElementById('badge-count-horizontal');
+const badgeCountVertical = document.getElementById('badge-count-vertical');
+const chipLiveHorizontal = document.getElementById('chip-live-horizontal');
+const chipLiveVertical = document.getElementById('chip-live-vertical');
+const uploadZoneTitle = document.getElementById('upload-zone-title');
+const uploadZoneSub = document.getElementById('upload-zone-sub');
 
 // Scheduler & Auto-Recycle DOM Elements
 const panelScheduler = document.getElementById('panel-scheduler');
@@ -336,38 +347,16 @@ function renderStatus(data) {
   _currentStatus = data.status || 'STOPPED';
   const isDual = Boolean(data.isDualStream);
 
-  // Update status badge & dot
-  const yt = data.youtubeLive;
+  // Update Active Key and Stream Mode Badges
+  const streamMode = (data.streamMode || _activeStreamMode || 'horizontal').toLowerCase();
+  _activeStreamMode = streamMode;
+  const isHoriz = streamMode === 'horizontal';
 
-  if (deckYoutubeApiBadge) {
-    if (!yt || !yt.configured) {
-      deckYoutubeApiBadge.className = 'reachability-pill warning';
-      deckYoutubeApiBadge.textContent = 'YouTube API: NOT CONFIGURED';
-      deckYoutubeApiBadge.title = 'OAuth2 credentials (YOUTUBE_CLIENT_ID, SECRET, REFRESH_TOKEN) not set. Broadcast lifecycle cannot be verified or transitioned automatically.';
-    } else {
-      if (isDual && yt.isDualLive) {
-        deckYoutubeApiBadge.className = 'reachability-pill healthy';
-        deckYoutubeApiBadge.textContent = 'Dual Stream: LIVE (Single Event)';
-        deckYoutubeApiBadge.title = `Single broadcast (${yt.broadcastId || yt.primaryBroadcastId}) is confirmed LIVE via Data API. Primary (horizontal/vertical) & secondary streams active. Watch URL: https://www.youtube.com/watch?v=${yt.broadcastId || yt.primaryBroadcastId}`;
-      } else if (isDual && (yt.primaryBroadcastId || yt.broadcastId)) {
-        deckYoutubeApiBadge.className = 'reachability-pill starting';
-        const bStatus = (yt.primaryBroadcastStatus || yt.lifeCycleStatus || 'WAITING').toUpperCase();
-        deckYoutubeApiBadge.textContent = `Dual: INGEST ACTIVE • BCAST: ${bStatus}`;
-        deckYoutubeApiBadge.title = `Broadcast: ${yt.primaryBroadcastId || yt.broadcastId || 'N/A'} (${bStatus}), Primary Stream: ${yt.primaryStreamStatus || 'unknown'}, Secondary Stream: ${yt.secondaryStreamStatus || 'unknown'}`;
-      } else if (yt.isBroadcastLive) {
-        deckYoutubeApiBadge.className = 'reachability-pill healthy';
-        deckYoutubeApiBadge.textContent = `Broadcast: LIVE (${yt.broadcastId || ''})`;
-        deckYoutubeApiBadge.title = `YouTube broadcast ${yt.broadcastId || ''} is confirmed LIVE via Data API.`;
-      } else if (yt.streamStatus === 'active') {
-        deckYoutubeApiBadge.className = 'reachability-pill starting';
-        deckYoutubeApiBadge.textContent = `Ingest: ACTIVE • ${yt.lifeCycleStatus ? yt.lifeCycleStatus.toUpperCase() : 'PREPARING'}`;
-        deckYoutubeApiBadge.title = `YouTube stream ${yt.liveStreamId || ''} is ACTIVE. Broadcast status: ${yt.lifeCycleStatus || 'unknown'}.`;
-      } else {
-        deckYoutubeApiBadge.className = 'reachability-pill';
-        deckYoutubeApiBadge.textContent = 'YouTube API: Ready';
-        deckYoutubeApiBadge.title = 'OAuth2 credentials configured and ready for automated broadcast management.';
-      }
-    }
+  if (deckActiveKeyBadge) {
+    deckActiveKeyBadge.textContent = isHoriz ? 'ACTIVE KEY: Horizontal' : 'ACTIVE KEY: Vertical';
+    deckActiveKeyBadge.title = isHoriz
+      ? 'YouTube stream key for Horizontal 16:9 ("long")'
+      : 'YouTube stream key for Vertical 9:16 ("shot")';
   }
 
   // Update Auto-Recycle Deck Badge
@@ -397,74 +386,38 @@ function renderStatus(data) {
     }
   }
 
-  // Dual Outputs Channel Health rendering
-  if (deckDualOutputsRow) {
-    const isDualActive = isDual || Boolean(data.outputs?.horizontal?.enabled);
-    if (isDualActive) {
-      deckDualOutputsRow.style.display = 'flex';
-      const vert = data.outputs?.vertical;
-      const horiz = data.outputs?.horizontal;
+  updateModeSelectorUI(streamMode, data.status);
 
-      // Vertical output status
-      const vertStatus = vert?.status || (data.status === 'RUNNING' ? 'CONNECTED' : (data.status === 'STARTING' ? 'INIT' : 'STOPPED'));
-      textOutVertical.textContent = vertStatus;
-      if (vertStatus === 'CONNECTED') {
-        dotOutVertical.className = 'status-dot-sm live';
-      } else if (vertStatus === 'INIT') {
-        dotOutVertical.className = 'status-dot-sm starting';
-      } else if (vertStatus === 'FAILED') {
-        dotOutVertical.className = 'status-dot-sm error';
-      } else {
-        dotOutVertical.className = 'status-dot-sm';
-      }
+  // Single Output Channel Health Status Row
+  const textModeStatus = document.getElementById('text-mode-status');
+  const textSourceStatus = document.getElementById('text-source-status');
+  const textKeyStatus = document.getElementById('text-key-status');
 
-      // Horizontal output status
-      const horizStatus = horiz?.status || (data.status === 'RUNNING' ? 'CONNECTED' : (data.status === 'STARTING' ? 'INIT' : 'STOPPED'));
-      textOutHorizontal.textContent = horizStatus;
-      if (horizStatus === 'CONNECTED') {
-        dotOutHorizontal.className = 'status-dot-sm live';
-      } else if (horizStatus === 'INIT') {
-        dotOutHorizontal.className = 'status-dot-sm starting';
-      } else if (horizStatus === 'FAILED') {
-        dotOutHorizontal.className = 'status-dot-sm error';
-      } else {
-        dotOutHorizontal.className = 'status-dot-sm';
-      }
-    } else {
-      deckDualOutputsRow.style.display = 'none';
+  if (textModeStatus) {
+    textModeStatus.textContent = isHoriz ? 'HORIZONTAL 16:9' : 'VERTICAL 9:16';
+  }
+  if (textSourceStatus) {
+    textSourceStatus.textContent = isHoriz ? 'Horizontal Playlist' : 'Vertical Playlist';
+  }
+  if (textKeyStatus) {
+    textKeyStatus.textContent = isHoriz ? 'Horizontal' : 'Vertical';
+  }
+
+  if (textStreamOutput) {
+    const isConnected = data.status === 'RUNNING' && data.streamOutput === 'CONNECTED';
+    const isStarting = data.status === 'STARTING';
+    const outStatus = isConnected ? 'CONNECTED' : (isStarting ? 'CONNECTING' : 'DISCONNECTED');
+    textStreamOutput.textContent = outStatus;
+    if (dotStreamOutput) {
+      if (outStatus === 'CONNECTED') dotStreamOutput.className = 'status-dot-sm live';
+      else if (outStatus === 'CONNECTING') dotStreamOutput.className = 'status-dot-sm starting';
+      else dotStreamOutput.className = 'status-dot-sm';
     }
   }
 
   if (data.status === 'RUNNING') {
-    if (isDual && data.outputs?.horizontal?.status === 'FAILED') {
-      statusText.textContent = 'DUAL STREAM FAILED (HORIZONTAL DISCONNECTED)';
-      statusDot.className = 'status-dot error';
-    } else if (yt && yt.configured) {
-      if (isDual) {
-        if (yt.isDualLive) {
-          statusText.textContent = 'DUAL STREAM LIVE (1 BROADCAST • DUAL INGEST)';
-          statusDot.className = 'status-dot live';
-        } else {
-          const bStatus = (yt.primaryBroadcastStatus || yt.lifeCycleStatus || 'PREPARING').toUpperCase();
-          const pStatus = (yt.primaryStreamStatus || 'WAITING').toUpperCase();
-          const sStatus = (yt.secondaryStreamStatus || 'WAITING').toUpperCase();
-          statusText.textContent = `DUAL STARTING (INGEST P:${pStatus} S:${sStatus} • BCAST: ${bStatus})`;
-          statusDot.className = 'status-dot starting';
-        }
-      } else if (yt.isBroadcastLive) {
-        statusText.textContent = 'YOUTUBE LIVE (BROADCAST LIVE)';
-        statusDot.className = 'status-dot live';
-      } else {
-        const streamState = yt.streamStatus === 'active' ? 'INGEST ACTIVE' : 'INGEST WAITING';
-        const bcastState = yt.lifeCycleStatus ? yt.lifeCycleStatus.toUpperCase() : 'PREPARING';
-        statusText.textContent = `FFMPEG HEALTHY (${streamState} • BROADCAST: ${bcastState})`;
-        statusDot.className = 'status-dot starting';
-      }
-    } else {
-      // Unmanaged mode: do NOT claim YouTube LIVE when only FFmpeg/RTMPS is healthy
-      statusText.textContent = isDual ? 'DUAL RUNNING (RTMPS ACTIVE • API UNCONFIGURED)' : 'FFMPEG RUNNING (RTMPS ACTIVE • API UNCONFIGURED)';
-      statusDot.className = 'status-dot live';
-    }
+    statusText.textContent = `LIVE (${streamMode.toUpperCase()} 1080p)`;
+    statusDot.className = 'status-dot live';
   } else {
     statusText.textContent = data.status;
     statusDot.className = 'status-dot';
@@ -1320,7 +1273,82 @@ function updateHardwareVisualizations(data) {
   }
 }
 
-let _cachedLogicalVideos = [];
+let _activeStreamMode = 'horizontal';
+let _currentTabMode = 'horizontal';
+let _playlists = { horizontal: [], vertical: [] };
+
+function updateModeSelectorUI(mode, currentStatus) {
+  const isLive = currentStatus === 'RUNNING' || currentStatus === 'STARTING';
+  if (btnModeHorizontal && btnModeVertical) {
+    if (mode === 'horizontal') {
+      btnModeHorizontal.className = 'btn btn-sm mode-btn active btn-primary';
+      btnModeVertical.className = 'btn btn-sm mode-btn btn-secondary';
+    } else {
+      btnModeHorizontal.className = 'btn btn-sm mode-btn btn-secondary';
+      btnModeVertical.className = 'btn btn-sm mode-btn active btn-primary';
+    }
+    btnModeHorizontal.disabled = isLive;
+    btnModeVertical.disabled = isLive;
+  }
+
+  if (modeLockWarning) {
+    modeLockWarning.style.display = isLive ? 'inline' : 'none';
+  }
+
+  if (deckStreamModeBadge) {
+    const isH = mode === 'horizontal';
+    deckStreamModeBadge.textContent = `MODE: ${isH ? 'HORIZONTAL (16:9)' : 'VERTICAL (9:16)'}`;
+    deckStreamModeBadge.style.color = isH ? '#38bdf8' : '#a78bfa';
+  }
+
+  if (chipLiveHorizontal) chipLiveHorizontal.style.display = mode === 'horizontal' ? 'inline-block' : 'none';
+  if (chipLiveVertical) chipLiveVertical.style.display = mode === 'vertical' ? 'inline-block' : 'none';
+}
+
+function switchPlaylistTab(mode) {
+  _currentTabMode = mode;
+  if (tabPlaylistHorizontal && tabPlaylistVertical) {
+    if (mode === 'horizontal') {
+      tabPlaylistHorizontal.className = 'btn btn-sm btn-primary playlist-tab active';
+      tabPlaylistVertical.className = 'btn btn-sm btn-outline playlist-tab';
+    } else {
+      tabPlaylistHorizontal.className = 'btn btn-sm btn-outline playlist-tab';
+      tabPlaylistVertical.className = 'btn btn-sm btn-primary playlist-tab active';
+    }
+  }
+
+  if (uploadZoneTitle && uploadZoneSub) {
+    if (mode === 'horizontal') {
+      uploadZoneTitle.textContent = 'Tap or Drag Horizontal (16:9) MP4 Video Here';
+      uploadZoneSub.textContent = 'Recommended: 1920×1080, H.264 / AAC, 4.5 Mbps, Constant 30/60 fps';
+    } else {
+      uploadZoneTitle.textContent = 'Tap or Drag Vertical (9:16) MP4 Video Here';
+      uploadZoneSub.textContent = 'Recommended: 1080×1920, H.264 / AAC, 4 Mbps, Constant 30/60 fps';
+    }
+  }
+
+  const modePlaylist = _playlists[mode] || [];
+  renderVideos(_cachedVideos, _currentActiveVideoId, modePlaylist, _currentPlaybackOrder);
+}
+
+async function changeStreamMode(targetMode) {
+  if (_currentStatus === 'RUNNING' || _currentStatus === 'STARTING') {
+    showToast('Cannot change stream mode while stream is running. Stop stream first.', 'warning', 'Stream Live');
+    return;
+  }
+
+  try {
+    const res = await apiPost('/api/stream/mode', { mode: targetMode });
+    if (res.success) {
+      _activeStreamMode = res.mode;
+      switchPlaylistTab(res.mode);
+      showToast(`Stream mode switched to ${res.mode.toUpperCase()}`, 'success', 'Mode Changed');
+      await refreshAll();
+    }
+  } catch (err) {
+    showToast(err.message, 'error', 'Mode Change Failed');
+  }
+}
 
 async function fetchVideos() {
   try {
@@ -1329,26 +1357,45 @@ async function fetchVideos() {
       _currentActiveVideoId = data.activeVideoId;
     }
     _cachedVideos = data.videos || [];
-    _cachedLogicalVideos = data.logicalVideos || [];
-    _currentPlaylist = Array.isArray(data.playlist) ? data.playlist : (_currentActiveVideoId ? [_currentActiveVideoId] : []);
+    _playlists = data.playlists || {
+      horizontal: Array.isArray(data.playlist) ? data.playlist : [],
+      vertical: [],
+    };
+    if (data.streamMode) {
+      _activeStreamMode = data.streamMode.toLowerCase();
+    }
     _currentPlaybackOrder = data.playbackOrder || 'sequential';
-    renderVideos(_cachedVideos, data.activeVideoId, _currentPlaylist, _currentPlaybackOrder, _cachedLogicalVideos);
+    _currentPlaylist = _playlists[_currentTabMode] || [];
+
+    // Update tab badges
+    if (badgeCountHorizontal) badgeCountHorizontal.textContent = (_playlists.horizontal?.length || 0);
+    if (badgeCountVertical) badgeCountVertical.textContent = (_playlists.vertical?.length || 0);
+
+    updateModeSelectorUI(_activeStreamMode, _currentStatus);
+    renderVideos(_cachedVideos, data.activeVideoId, _currentPlaylist, _currentPlaybackOrder);
   } catch (err) {
     console.error('Fetch videos failed:', err);
   }
 }
 
-async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder) {
+async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder, mode = _currentTabMode) {
   const isLive = _currentStatus === 'RUNNING' || _currentStatus === 'STARTING';
 
   try {
     const url = '/api/videos/playlist';
-    const res = await apiPost(url, { playlist: newPlaylist, playbackOrder });
-    _currentPlaylist = res.playlist || newPlaylist;
+    const res = await apiPost(url, { playlist: newPlaylist, playbackOrder, mode });
+    if (res.playlists) {
+      _playlists = res.playlists;
+    } else {
+      _playlists[mode] = res.playlist || newPlaylist;
+    }
+    _currentPlaylist = _playlists[_currentTabMode] || [];
     _currentPlaybackOrder = res.playbackOrder || playbackOrder;
     await fetchVideos();
-    if (isLive) {
+    if (isLive && mode === _activeStreamMode) {
       showToast('Playlist updated dynamically without stream restart.', 'success', 'Hot Sync Active');
+    } else {
+      showToast('Playlist updated.', 'success');
     }
   } catch (err) {
     showToast(err.message, 'error', 'Playlist Update Failed');
@@ -1356,28 +1403,34 @@ async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder
   }
 }
 
-function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylist, playbackOrder = _currentPlaybackOrder, logicalVideos = _cachedLogicalVideos) {
+function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_currentTabMode] || []), playbackOrder = _currentPlaybackOrder) {
   videosList.innerHTML = '';
   const currentVideoId = activeIdFromApi || _currentActiveVideoId || _currentSettings?.stream?.videoId;
 
+  // Filter library videos to items matching current tab orientation
+  const tabVideos = videos.filter(v => {
+    const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
+    return _currentTabMode === 'horizontal' ? isHoriz : !isHoriz;
+  });
+
   if (videoCountBadge) {
-    const displayCount = (logicalVideos && logicalVideos.length > 0) ? logicalVideos.length : videos.length;
-    videoCountBadge.textContent = `${displayCount} ${displayCount === 1 ? 'Logical Video' : 'Logical Videos'}`;
+    videoCountBadge.textContent = `${tabVideos.length} ${_currentTabMode === 'horizontal' ? '16:9' : '9:16'} Videos`;
   }
 
   if (playlistSelectedCount) {
     const count = playlist.length;
-    playlistSelectedCount.textContent = `${count} ${count === 1 ? 'Video' : 'Videos'} in Playlist`;
+    playlistSelectedCount.textContent = `${count} ${count === 1 ? 'Video' : 'Videos'} in ${_currentTabMode === 'horizontal' ? '16:9' : '9:16'} Playlist`;
   }
 
   if (selPlaybackOrder) {
     selPlaybackOrder.value = playbackOrder || 'sequential';
   }
 
-  if (videos.length === 0 && (!logicalVideos || logicalVideos.length === 0)) {
+  if (tabVideos.length === 0) {
     videosList.innerHTML = `
       <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1.25rem 1rem;">
-        <div>No videos currently indexed in library.</div>
+        <div>No ${_currentTabMode === 'horizontal' ? 'Horizontal (16:9)' : 'Vertical (9:16)'} videos currently in library.</div>
+        <div style="font-size: 0.75rem; margin-top: 0.35rem; color: var(--text-dim);">Upload a ${_currentTabMode === 'horizontal' ? '16:9' : '9:16'} video above to add it to this playlist.</div>
         <button id="btn-sync-videos" class="btn btn-secondary btn-sm" style="margin-top: 0.65rem;">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           Scan Videos Folder on Server
@@ -1408,188 +1461,40 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
     return;
   }
 
-  // If logical paired videos are available, render unified logical pairs
-  if (logicalVideos && logicalVideos.length > 0) {
-    const activeLogical = logicalVideos.find(l => l.isPlaying || l.id === currentVideoId || (l.verticalVideoId && l.verticalVideoId === currentVideoId));
-    if (activeLogical) {
-      activeVideoName.textContent = `Now Playing: ${activeLogical.label}`;
-    } else if (playlist.length === 0) {
-      activeVideoName.textContent = 'Active: None';
-    } else {
-      activeVideoName.textContent = `Looping ${playlist.length} Logical Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})`;
-    }
-
-    logicalVideos.forEach(l => {
-      const isSelected = playlist.includes(l.id) || (l.verticalVideoId && playlist.includes(l.verticalVideoId)) || (l.horizontalVideoId && playlist.includes(l.horizontalVideoId));
-      const orderIndex = playlist.indexOf(l.id) !== -1 ? playlist.indexOf(l.id) : (l.verticalVideoId ? playlist.indexOf(l.verticalVideoId) : -1);
-      const isPlaying = l.isPlaying || l.id === currentVideoId || (l.verticalVideoId && l.verticalVideoId === currentVideoId);
-
-      const item = document.createElement('div');
-      item.className = `video-item ${isSelected ? 'in-playlist' : ''} ${isPlaying ? 'active' : ''}`;
-
-      let statusBadge = '';
-      if (isPlaying) {
-        statusBadge = '<span class="badge-tag badge-active">PLAYING</span>';
-      } else if (l.isComplete) {
-        statusBadge = '<span class="badge-tag" style="background: rgba(34,197,94,0.15); color: #22c55e; border: 1px solid rgba(34,197,94,0.3); font-weight: 600;">READY</span>';
-      } else {
-        statusBadge = '<span class="badge-tag" style="background: rgba(234,179,8,0.15); color: #eab308; border: 1px solid rgba(234,179,8,0.3); font-weight: 600;">PENDING PAIR</span>';
-      }
-
-      let chkAreaHtml = '';
-      if (isSelected) {
-        chkAreaHtml = `
-          <label class="video-chk-label" title="Deselect from loop playlist">
-            <input type="checkbox" class="video-select-chk" data-id="${l.id}" checked>
-          </label>
-          <span class="playlist-seq-badge" title="Position #${orderIndex + 1}">#${orderIndex + 1}</span>
-        `;
-      } else {
-        chkAreaHtml = `
-          <label class="video-chk-label" title="Select for loop playlist">
-            <input type="checkbox" class="video-select-chk" data-id="${l.id}">
-          </label>
-        `;
-      }
-
-      const vertInfo = l.vertical ? `9:16 (${l.vertical.probe?.width || 1080}x${l.vertical.probe?.height || 1920})` : '9:16 Missing';
-      const horizInfo = l.horizontal ? `16:9 (${l.horizontal.probe?.width || 1920}x${l.horizontal.probe?.height || 1080})` : '16:9 Missing';
-
-      item.innerHTML = `
-        <div class="video-item-leading">
-          ${chkAreaHtml}
-        </div>
-        <div class="video-item-content">
-          <div class="video-name" title="${l.label}">${l.label}</div>
-          <div class="video-meta">
-            <span class="meta-tag" style="color: ${l.vertical ? '#22c55e' : '#eab308'}; font-weight: 500;">Vertical: ${l.vertical ? '✓ ' + vertInfo : '✗ Pending'}</span>
-            <span class="meta-tag" style="color: ${l.horizontal ? '#22c55e' : '#eab308'}; font-weight: 500;">Horizontal: ${l.horizontal ? '✓ ' + horizInfo : '✗ Pending'}</span>
-            ${statusBadge}
-          </div>
-        </div>
-        <div class="video-actions">
-          ${isPlaying
-            ? '<span class="badge-tag badge-active">NOW PLAYING</span>'
-            : isSelected
-              ? `<span class="badge-tag badge-active">IN PLAYLIST (#${orderIndex + 1})</span>`
-              : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${l.id}" title="Play this logical video solo">
-                   <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                   Play Solo
-                 </button>`
-          }
-          <button class="btn btn-outline btn-sm btn-delete" data-id="${l.verticalVideoId || l.id}" title="Delete video">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          </button>
-        </div>
-      `;
-
-      videosList.appendChild(item);
-    });
-
-    // Attach Checkbox Events
-    videosList.querySelectorAll('.video-select-chk').forEach(chk => {
-      chk.addEventListener('change', async () => {
-        const id = chk.getAttribute('data-id');
-        let updated = [..._currentPlaylist];
-        if (chk.checked) {
-          if (!updated.includes(id)) updated.push(id);
-        } else {
-          updated = updated.filter(x => x !== id);
-        }
-        await updatePlaylist(updated, _currentPlaybackOrder);
-      });
-    });
-
-    // Attach Play Solo Events
-    videosList.querySelectorAll('.btn-play-solo').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-id');
-        await updatePlaylist([id], _currentPlaybackOrder);
-      });
-    });
-
-    // Attach Delete Events
-    videosList.querySelectorAll('.btn-delete').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const id = btn.getAttribute('data-id');
-        if (confirm('Are you sure you want to delete this video?')) {
-          try {
-            await apiDelete(`/api/videos/${id}`);
-            showToast('Video deleted successfully', 'success');
-            await fetchVideos();
-          } catch (err) {
-            showToast(err.message, 'error', 'Delete Failed');
-          }
-        }
-      });
-    });
-
-    return;
-  }
-
-  // Update active video header summary
-  const hasPairedHorizontalInPlaylist = videos.some(v =>
-    (v.orientation === 'horizontal' || (v.probe?.width > v.probe?.height)) &&
-    v.paired &&
-    playlist.includes(v.paired.id)
-  );
-
-  if (playlistSelectedCount) {
-    const count = playlist.length;
-    let countText = `${count} ${count === 1 ? 'Video' : 'Videos'} in Playlist`;
-    if (hasPairedHorizontalInPlaylist) {
-      countText += ' (16:9 Feed Auto-Paired)';
-    }
-    playlistSelectedCount.textContent = countText;
-  }
-
   if (playlist.length === 0) {
     activeVideoName.textContent = 'Active: None';
   } else if (playlist.length === 1) {
-    const single = videos.find(v => v.id === playlist[0]);
+    const single = tabVideos.find(v => v.id === playlist[0]) || videos.find(v => v.id === playlist[0]);
     const label = single ? (single.label || single.originalName) : playlist[0];
-    const isPaired = single && videos.some(h => (h.orientation === 'horizontal' || (h.probe?.width > h.probe?.height)) && h.paired?.id === single.id);
-    activeVideoName.textContent = isPaired
-      ? `Looping: ${label} + Dual 16:9 Feed Active`
-      : `Looping 1: ${label}`;
+    activeVideoName.textContent = `Looping 1: ${label}`;
   } else {
-    activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'})${hasPairedHorizontalInPlaylist ? ' + Dual Feeds' : ''}`;
+    activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'}) [${_currentTabMode.toUpperCase()}]`;
   }
 
-  videos.forEach(v => {
+  tabVideos.forEach(v => {
     const isSelected = playlist.includes(v.id);
     const orderIndex = playlist.indexOf(v.id);
+    const isPlaying = (v.id === currentVideoId) && (_activeStreamMode === _currentTabMode);
     const isSoloActive = isSelected && playlist.length === 1;
 
-    // Detect if this horizontal video is the auto-paired feed companion of a selected vertical video
-    const isHorizontal = v.orientation === 'horizontal' || (v.probe?.width > v.probe?.height);
-    const isPairedFeedActive = isHorizontal && v.paired && playlist.includes(v.paired.id);
-    const pairedVerticalPos = isPairedFeedActive ? playlist.indexOf(v.paired.id) + 1 : 0;
-
     const item = document.createElement('div');
-    item.className = `video-item ${isSelected ? 'in-playlist' : ''} ${isSoloActive ? 'active' : ''} ${isPairedFeedActive ? 'paired-feed-active' : ''}`;
+    item.className = `video-item ${isSelected ? 'in-playlist' : ''} ${isPlaying ? 'active' : ''}`;
 
+    const isHorizontal = (v.probe?.width || 0) >= (v.probe?.height || 0);
     const compat = v.compatibility?.status === 'COMPATIBLE' ? 'compatible' : 'transcode';
     const compatLabel = v.compatibility?.status === 'COMPATIBLE' ? 'Stream-Copy Ready' : 'Needs Transcode';
 
     let chkAreaHtml = '';
     if (isSelected) {
       chkAreaHtml = `
-        <label class="video-chk-label" title="Deselect from loop playlist">
+        <label class="video-chk-label" title="Deselect from playlist">
           <input type="checkbox" class="video-select-chk" data-id="${v.id}" checked>
         </label>
         <span class="playlist-seq-badge" title="Position #${orderIndex + 1}">#${orderIndex + 1}</span>
       `;
-    } else if (isPairedFeedActive) {
-      chkAreaHtml = `
-        <label class="video-chk-label" title="Automatically linked & active for 16:9 Dual Streaming Feed (Paired with #${pairedVerticalPos})">
-          <input type="checkbox" class="video-select-chk" data-id="${v.id}" checked disabled style="opacity: 0.8; cursor: default;">
-        </label>
-        <span class="playlist-seq-badge" title="Auto-Paired 16:9 Feed for #${pairedVerticalPos}">16:9</span>
-      `;
     } else {
       chkAreaHtml = `
-        <label class="video-chk-label" title="Select for loop playlist">
+        <label class="video-chk-label" title="Select for playlist">
           <input type="checkbox" class="video-select-chk" data-id="${v.id}">
         </label>
       `;
@@ -1603,30 +1508,23 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
         <div class="video-name" title="${v.label || v.originalName}">${v.label || v.originalName}</div>
         <div class="video-meta">
           <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
-          <span class="meta-tag">${v.probe?.aspectRatio || (isHorizontal ? '1920:1080' : '1080:1920')}</span>
+          <span class="meta-tag">${v.probe?.width || 0}×${v.probe?.height || 0}</span>
           <span class="meta-tag">${v.probe?.fps || 30}fps</span>
           <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
           ${v.probe?.durationSec ? `<span class="meta-tag">${formatDuration(v.probe.durationSec)}</span>` : ''}
-          <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \n ') || compatLabel}">${compatLabel}</span>
+          <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \\n ') || compatLabel}">${compatLabel}</span>
         </div>
-        ${v.paired
-        ? `<div class="video-pair-info" title="Paired companion: ${v.paired.label || v.paired.originalName}">
-               <span class="pair-label">Pair:</span>
-               <span class="pair-val">${v.paired.label || v.paired.originalName}</span>
-             </div>`
-        : ''
-      }
       </div>
       <div class="video-actions">
-        ${isSelected
-        ? `<span class="badge-tag badge-active">${isSoloActive ? 'ACTIVE LOOP' : `IN LOOP (#${orderIndex + 1})`}</span>`
-        : isPairedFeedActive
-          ? `<span class="badge-tag badge-paired">DUAL FEED (16:9)</span>`
-          : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Stream only this video in loop">
+        ${isPlaying
+          ? '<span class="badge-tag badge-active">NOW PLAYING</span>'
+          : isSelected
+            ? `<span class="badge-tag badge-active">${isSoloActive ? 'ACTIVE SOLO' : `IN PLAYLIST (#${orderIndex + 1})`}</span>`
+            : `<button class="btn btn-secondary btn-sm btn-play-solo" data-id="${v.id}" title="Play only this video in active playlist">
                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                  Play Solo
                </button>`
-      }
+        }
         <button class="btn btn-outline btn-sm btn-delete" data-id="${v.id}" title="Delete video">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
         </button>
@@ -1640,18 +1538,40 @@ function renderVideos(videos, activeIdFromApi = null, playlist = _currentPlaylis
   videosList.querySelectorAll('.video-select-chk').forEach(chk => {
     chk.addEventListener('change', async () => {
       const id = chk.getAttribute('data-id');
-      let updated = [..._currentPlaylist];
+      let currentModePlaylist = [...(_playlists[_currentTabMode] || [])];
       if (chk.checked) {
-        if (!updated.includes(id)) updated.push(id);
+        if (!currentModePlaylist.includes(id)) currentModePlaylist.push(id);
       } else {
-        updated = updated.filter(x => x !== id);
+        currentModePlaylist = currentModePlaylist.filter(x => x !== id);
       }
-      await updatePlaylist(updated, _currentPlaybackOrder);
+      await updatePlaylist(currentModePlaylist, _currentPlaybackOrder, _currentTabMode);
     });
   });
 
-  // Attach "Play Solo" Events
+  // Attach Play Solo Events
   videosList.querySelectorAll('.btn-play-solo').forEach(b => {
+    b.addEventListener('click', async () => {
+      const id = b.getAttribute('data-id');
+      await updatePlaylist([id], _currentPlaybackOrder, _currentTabMode);
+    });
+  });
+
+  // Attach Delete Events
+  videosList.querySelectorAll('.btn-delete').forEach(b => {
+    b.addEventListener('click', async () => {
+      const id = b.getAttribute('data-id');
+      if (confirm('Delete this video from library?')) {
+        try {
+          await apiDelete(`/api/videos/${id}`);
+          showToast('Video deleted from library.', 'success', 'Video Removed');
+          await fetchVideos();
+        } catch (err) {
+          showToast(err.message, 'error', 'Delete Failed');
+        }
+      }
+    });
+  });
+}  videosList.querySelectorAll('.btn-play-solo').forEach(b => {
     b.addEventListener('click', async () => {
       const id = b.getAttribute('data-id');
       await updatePlaylist([id], _currentPlaybackOrder);
@@ -1921,6 +1841,7 @@ function handleFileUpload(file) {
 
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('mode', _currentTabMode || _activeStreamMode || 'horizontal');
 
   // Initialize UI state
   uploadBox.style.display = 'block';
@@ -2625,22 +2546,48 @@ async function init() {
   // 4b. Multi-Video Playlist Toolbar Handlers
   if (btnSelectAllVideos) {
     btnSelectAllVideos.addEventListener('click', async () => {
-      const allIds = _cachedVideos.map(v => v.id);
-      await updatePlaylist(allIds, _currentPlaybackOrder);
+      const tabVideos = _cachedVideos.filter(v => {
+        const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
+        return _currentTabMode === 'horizontal' ? isHoriz : !isHoriz;
+      });
+      const allIds = tabVideos.map(v => v.id);
+      await updatePlaylist(allIds, _currentPlaybackOrder, _currentTabMode);
     });
   }
 
   if (btnDeselectAllVideos) {
     btnDeselectAllVideos.addEventListener('click', async () => {
-      await updatePlaylist([], _currentPlaybackOrder);
+      await updatePlaylist([], _currentPlaybackOrder, _currentTabMode);
     });
   }
 
   if (selPlaybackOrder) {
     selPlaybackOrder.addEventListener('change', async (e) => {
       const newOrder = e.target.value;
-      await updatePlaylist(_currentPlaylist, newOrder);
+      await updatePlaylist(_playlists[_currentTabMode] || [], newOrder, _currentTabMode);
     });
+  }
+
+  // Stream Mode Toggle Listeners
+  if (btnModeHorizontal) {
+    btnModeHorizontal.addEventListener('click', () => changeStreamMode('horizontal'));
+  }
+  if (btnModeVertical) {
+    btnModeVertical.addEventListener('click', () => changeStreamMode('vertical'));
+  }
+  if (deckStreamModeBadge) {
+    deckStreamModeBadge.addEventListener('click', () => {
+      const nextMode = _activeStreamMode === 'horizontal' ? 'vertical' : 'horizontal';
+      changeStreamMode(nextMode);
+    });
+  }
+
+  // Playlist Mode Tab Switchers
+  if (tabPlaylistHorizontal) {
+    tabPlaylistHorizontal.addEventListener('click', () => switchPlaylistTab('horizontal'));
+  }
+  if (tabPlaylistVertical) {
+    tabPlaylistVertical.addEventListener('click', () => switchPlaylistTab('vertical'));
   }
 
   // 4c. Stream Scheduler & Auto-Recycle Listeners
@@ -2692,57 +2639,6 @@ async function init() {
   // Live 1-second IST clock ticking
   setInterval(tickLocalSchedulerClock, 1000);
 
-  // 4d. YouTube Live Template Metadata Listeners
-  if (btnSyncTemplate) {
-    btnSyncTemplate.addEventListener('click', syncYouTubeTemplate);
-  }
-
-  if (btnSaveMetadata) {
-    btnSaveMetadata.addEventListener('click', saveYouTubeTemplateMetadata);
-  }
-
-  if (btnUseTemplateThumb) {
-    btnUseTemplateThumb.addEventListener('click', () => {
-      _currentThumbnailState = {
-        ..._templateThumbnailBackup,
-        customDataUrl: '',
-      };
-      renderThumbnailPreview();
-      showToast('Reverted to template video thumbnail.', 'info', 'Thumbnail');
-    });
-  }
-
-  if (btnUploadThumb) {
-    btnUploadThumb.addEventListener('click', () => {
-      if (metaThumbFileInput) metaThumbFileInput.click();
-    });
-  }
-
-  if (metaThumbFileInput) {
-    metaThumbFileInput.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      if (!['image/jpeg', 'image/png'].includes(file.type)) {
-        showToast('Please select a JPEG or PNG image', 'warning', 'Invalid File');
-        return;
-      }
-
-      if (file.size > 2 * 1024 * 1024) {
-        showToast('Thumbnail image must be under 2 MB', 'warning', 'File Too Large');
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        _currentThumbnailState.customDataUrl = reader.result;
-        renderThumbnailPreview();
-        showToast('Custom thumbnail loaded. Click Save Metadata to persist.', 'success', 'Thumbnail Loaded');
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
   // 5. Authenticate Session
   const user = await initSession();
   if (!user) return;
@@ -2761,239 +2657,7 @@ async function init() {
 
   // 7. Initial Data Fetch & Start Background Polling
   await refreshAll();
-  await loadYouTubeTemplateMetadata();
   startPolling();
-}
-
-// ─── YouTube Live Template Metadata Controller ────────────────────────────────
-
-const metaTemplateVideoId       = document.getElementById('meta-template-video-id');
-const btnSyncTemplate           = document.getElementById('btn-sync-template');
-const btnSyncText               = document.getElementById('btn-sync-text');
-const metaSyncHint              = document.getElementById('meta-sync-hint');
-const metaTitleTemplate         = document.getElementById('meta-title-template');
-const metaDescription           = document.getElementById('meta-description');
-const metaCategory              = document.getElementById('meta-category');
-const metaTags                  = document.getElementById('meta-tags');
-const metaThumbnailImg          = document.getElementById('meta-thumbnail-img');
-const metaThumbnailPlaceholder  = document.getElementById('meta-thumbnail-placeholder');
-const metaThumbnailInfo         = document.getElementById('meta-thumbnail-info');
-const btnUseTemplateThumb       = document.getElementById('btn-use-template-thumb');
-const btnUploadThumb            = document.getElementById('btn-upload-thumb');
-const metaThumbFileInput        = document.getElementById('meta-thumb-file-input');
-const btnSaveMetadata           = document.getElementById('btn-save-metadata');
-const metaSaveFeedback          = document.getElementById('meta-save-feedback');
-const ytMetaStatusBadge         = document.getElementById('yt-meta-status-badge');
-
-let _currentThumbnailState = {
-  sourceVideoId: '',
-  sourceUrl: '',
-  selectedResolution: '',
-  customDataUrl: '',
-};
-let _templateThumbnailBackup = {
-  sourceVideoId: '',
-  sourceUrl: '',
-  selectedResolution: '',
-};
-
-function renderThumbnailPreview() {
-  if (!metaThumbnailImg || !metaThumbnailPlaceholder) return;
-  const url = _currentThumbnailState.customDataUrl || _currentThumbnailState.sourceUrl;
-  if (url) {
-    metaThumbnailImg.onerror = () => {
-      metaThumbnailImg.style.display = 'none';
-      metaThumbnailPlaceholder.style.display = 'flex';
-      if (metaThumbnailInfo) metaThumbnailInfo.textContent = 'Thumbnail preview unavailable (synced from template)';
-    };
-    metaThumbnailImg.onload = () => {
-      metaThumbnailImg.style.display = 'block';
-      metaThumbnailPlaceholder.style.display = 'none';
-    };
-    metaThumbnailImg.src = url;
-    metaThumbnailImg.style.display = 'block';
-    metaThumbnailPlaceholder.style.display = 'none';
-    const label = _currentThumbnailState.customDataUrl
-      ? 'Custom Uploaded Image'
-      : `Template Image (${_currentThumbnailState.selectedResolution || 'Synced'})`;
-    if (metaThumbnailInfo) metaThumbnailInfo.textContent = label;
-  } else {
-    metaThumbnailImg.src = '';
-    metaThumbnailImg.style.display = 'none';
-    metaThumbnailPlaceholder.style.display = 'flex';
-    if (metaThumbnailInfo) metaThumbnailInfo.textContent = 'No thumbnail source active';
-  }
-}
-
-async function loadYouTubeCategories(selectedId = '') {
-  if (!metaCategory) return;
-  try {
-    const data = await apiGet('/api/youtube/categories');
-    const categories = data?.categories || [];
-    if (categories.length > 0) {
-      metaCategory.innerHTML = categories.map(c =>
-        `<option value="${c.id}" ${String(c.id) === String(selectedId) ? 'selected' : ''}>${c.title}</option>`
-      ).join('');
-    } else {
-      metaCategory.innerHTML = `<option value="">No categories available</option>`;
-    }
-  } catch (err) {
-    console.error('Failed to load categories:', err);
-    metaCategory.innerHTML = `<option value="">Failed to load categories</option>`;
-  }
-}
-
-async function loadYouTubeTemplateMetadata() {
-  try {
-    const data = await apiGet('/api/youtube/template');
-    if (!data) return;
-
-    if (metaTemplateVideoId) metaTemplateVideoId.value = data.templateVideoId || '';
-    if (metaTitleTemplate) {
-      metaTitleTemplate.value = 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"';
-    }
-    if (metaDescription) metaDescription.value = data.description || '';
-    if (metaTags) metaTags.value = Array.isArray(data.tags) ? data.tags.join(', ') : '';
-
-    await loadYouTubeCategories(data.categoryId || '22');
-
-    if (data.thumbnail) {
-      _currentThumbnailState = {
-        sourceVideoId: data.thumbnail.sourceVideoId || '',
-        sourceUrl: data.thumbnail.sourceUrl || '',
-        selectedResolution: data.thumbnail.selectedResolution || '',
-        customDataUrl: data.thumbnail.customDataUrl || '',
-      };
-      _templateThumbnailBackup = {
-        sourceVideoId: data.thumbnail.sourceVideoId || '',
-        sourceUrl: data.thumbnail.sourceUrl || '',
-        selectedResolution: data.thumbnail.selectedResolution || '',
-      };
-      renderThumbnailPreview();
-    }
-
-    if (ytMetaStatusBadge) {
-      ytMetaStatusBadge.textContent = data.templateVideoId ? 'Template Loaded' : 'Template Ready';
-      ytMetaStatusBadge.className = 'badge-tag compatible';
-    }
-  } catch (err) {
-    console.error('Failed to load template metadata:', err);
-  }
-}
-
-async function syncYouTubeTemplate() {
-  if (!metaTemplateVideoId) return;
-  const videoId = metaTemplateVideoId.value.trim();
-  if (!videoId) {
-    showToast('Please enter a Template Video ID to sync', 'warning', 'Template Sync');
-    metaTemplateVideoId.focus();
-    return;
-  }
-
-  try {
-    if (btnSyncTemplate) btnSyncTemplate.disabled = true;
-    if (btnSyncText) btnSyncText.textContent = 'Syncing...';
-    if (metaSyncHint) {
-      metaSyncHint.textContent = `Connecting to YouTube API for video "${videoId}"...`;
-      metaSyncHint.style.color = 'var(--text-muted)';
-    }
-
-    const res = await apiPost('/api/youtube/template/sync', { videoId });
-    const meta = res?.metadata;
-
-    if (!meta) {
-      throw new Error('No metadata returned from server');
-    }
-
-    // Populate description, category, tags, thumbnail
-    if (metaDescription) metaDescription.value = meta.description || '';
-    if (metaTags) metaTags.value = Array.isArray(meta.tags) ? meta.tags.join(', ') : '';
-    if (metaCategory && meta.categoryId) {
-      metaCategory.value = String(meta.categoryId);
-    }
-
-    // Dynamic title template is NEVER overwritten by template sync
-    if (metaTitleTemplate) {
-      metaTitleTemplate.value = 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"';
-    }
-
-    if (meta.thumbnail) {
-      _currentThumbnailState = {
-        sourceVideoId: meta.thumbnail.sourceVideoId || videoId,
-        sourceUrl: meta.thumbnail.sourceUrl || '',
-        selectedResolution: meta.thumbnail.selectedResolution || '',
-        customDataUrl: '',
-      };
-      _templateThumbnailBackup = { ..._currentThumbnailState };
-      renderThumbnailPreview();
-    }
-
-    if (metaSyncHint) {
-      metaSyncHint.textContent = `Successfully synced metadata from YouTube (${(meta.tags || []).length} tags, category: ${meta.categoryName || meta.categoryId})`;
-      metaSyncHint.style.color = 'var(--status-live)';
-    }
-    if (ytMetaStatusBadge) {
-      ytMetaStatusBadge.textContent = 'Template Synced';
-      ytMetaStatusBadge.className = 'badge-tag compatible';
-    }
-
-    showToast('Template metadata successfully synced from YouTube! Review and click Save Metadata.', 'success', 'Template Sync');
-  } catch (err) {
-    console.error('Template sync error:', err);
-    const msg = err.message || 'Failed to sync template video';
-    if (metaSyncHint) {
-      metaSyncHint.textContent = `Error: ${msg}`;
-      metaSyncHint.style.color = 'var(--status-error)';
-    }
-    showToast(msg, 'error', 'Template Sync Failed');
-  } finally {
-    if (btnSyncTemplate) btnSyncTemplate.disabled = false;
-    if (btnSyncText) btnSyncText.textContent = 'Sync From YouTube';
-  }
-}
-
-async function saveYouTubeTemplateMetadata() {
-  if (!btnSaveMetadata) return;
-
-  try {
-    btnSaveMetadata.disabled = true;
-    if (metaSaveFeedback) {
-      metaSaveFeedback.textContent = 'Saving metadata configuration...';
-      metaSaveFeedback.style.color = 'var(--text-muted)';
-    }
-
-    const payload = {
-      templateVideoId: metaTemplateVideoId ? metaTemplateVideoId.value.trim() : '',
-      titleTemplate: 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"',
-      description: metaDescription ? metaDescription.value : '',
-      categoryId: metaCategory ? metaCategory.value : '22',
-      categoryName: metaCategory && metaCategory.selectedIndex >= 0 ? metaCategory.options[metaCategory.selectedIndex].text : '',
-      tags: metaTags ? metaTags.value.split(',').map(t => t.trim()).filter(Boolean) : [],
-      thumbnail: _currentThumbnailState,
-    };
-
-    const res = await apiPut('/api/youtube/template', payload);
-    if (res?.success) {
-      if (metaSaveFeedback) {
-        metaSaveFeedback.textContent = 'All changes saved. Values will be applied to future broadcasts.';
-        metaSaveFeedback.style.color = 'var(--status-live)';
-      }
-      if (ytMetaStatusBadge) {
-        ytMetaStatusBadge.textContent = 'Saved & Active';
-        ytMetaStatusBadge.className = 'badge-tag compatible';
-      }
-      showToast('YouTube Live Metadata saved successfully!', 'success', 'Metadata Saved');
-    }
-  } catch (err) {
-    console.error('Save metadata error:', err);
-    if (metaSaveFeedback) {
-      metaSaveFeedback.textContent = `Save failed: ${err.message}`;
-      metaSaveFeedback.style.color = 'var(--status-error)';
-    }
-    showToast(`Failed to save metadata: ${err.message}`, 'error', 'Save Failed');
-  } finally {
-    btnSaveMetadata.disabled = false;
-  }
 }
 
 init();

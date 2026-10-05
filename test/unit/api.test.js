@@ -64,6 +64,7 @@ before(async () => {
 
 after(async () => {
   if (server) {
+    server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));
   }
   await fs.rm(tmpDir, { recursive: true, force: true });
@@ -254,7 +255,7 @@ describe('REST API Endpoints', () => {
     assert.equal(res1.status, 200);
     const body1 = await res1.json();
     assert.ok(Array.isArray(body1.playlist));
-    assert.ok(['sequential', 'shuffle'].includes(body1.playbackOrder));
+    assert.ok(['sequential', 'serial', 'shuffle'].includes(body1.playbackOrder));
 
     // POST updated playlist
     const res2 = await fetch(`${baseUrl}/api/videos/playlist`, {

@@ -69,15 +69,22 @@ function validateField(fPath, value, spec, errors) {
       if (!isArray(value))
         errors.push(fieldErr(fPath, 'must be an array'));
       break;
+
+    case 'object':
+      if (!isObject(value))
+        errors.push(fieldErr(fPath, 'must be an object'));
+      break;
   }
 }
 
 // ─── Per-section schemas ─────────────────────────────────────────────────────
 
 const STREAM_SCHEMA = {
+  mode:                  { type: 'string', enum: ['horizontal', 'vertical'] },
   videoId:               { type: 'string', maxLen: 50 },
   playlist:              { type: 'array' },
-  playbackOrder:         { type: 'string', enum: ['sequential', 'shuffle'] },
+  playlists:             { type: 'object' },
+  playbackOrder:         { type: 'string', enum: ['sequential', 'shuffle', 'serial'] },
   modePreference:        { type: 'string', enum: ['auto', 'copy', 'transcode'] },
   allowTranscode:        { type: 'boolean' },
   autoResume:            { type: 'boolean' },
@@ -104,13 +111,13 @@ const YOUTUBE_SCHEMA = {
   streamKey:           { type: 'string', maxLen: 256 },   // special handling below
   horizontalStreamKey: { type: 'string', maxLen: 256 },   // special handling below
   dualStreamEnabled:   { type: 'boolean' },
-  title:               { type: 'string', maxLen: 200 },
-  label:               { type: 'string', maxLen: 100 },
-  templateVideoId:     { type: 'string', maxLen: 100 },
-  titleTemplate:       { type: 'string', maxLen: 200 },
+  title:               { type: 'string', maxLen: 256 },
+  label:               { type: 'string', maxLen: 256 },
+  templateVideoId:     { type: 'string', maxLen: 64 },
+  titleTemplate:       { type: 'string', maxLen: 256 },
   description:         { type: 'string', maxLen: 5000 },
-  categoryId:          { type: 'string', maxLen: 20 },
-  categoryName:        { type: 'string', maxLen: 100 },
+  categoryId:          { type: 'string', maxLen: 32 },
+  categoryName:        { type: 'string', maxLen: 128 },
 };
 
 const BANDWIDTH_ACCOUNTING_SCHEMA = {
@@ -170,10 +177,10 @@ const UI_SCHEMA = {
 
 // Top-level keys that require an FFmpeg restart when changed
 const RESTART_KEYS = new Set([
-  'stream.resolution', 'stream.fps', 'stream.videoBitrateMbps',
+  'stream.mode', 'stream.resolution', 'stream.fps', 'stream.videoBitrateMbps',
   'stream.audioBitrateKbps', 'stream.audioSampleRate', 'stream.keyframeSeconds',
   'stream.keyframeMaxSeconds', 'stream.x264Preset', 'stream.loopStrategy',
-  'stream.videoId', 'stream.playlist', 'stream.playbackOrder', 'youtube.rtmpsUrl', 'youtube.streamKey',
+  'stream.videoId', 'stream.playlist', 'stream.playlists', 'stream.playbackOrder', 'youtube.rtmpsUrl', 'youtube.streamKey',
   'youtube.horizontalStreamKey', 'youtube.dualStreamEnabled',
 ]);
 
@@ -274,6 +281,18 @@ export function validateSettings(input, { partial = true } = {}) {
   if (input.stream !== undefined) {
     const s = input.stream;
     validateSection('stream', s, STREAM_SCHEMA, errors);
+    if (isObject(s) && s.playlists !== undefined) {
+      if (!isObject(s.playlists)) {
+        errors.push(fieldErr('stream.playlists', 'must be an object'));
+      } else {
+        if (s.playlists.horizontal !== undefined && !isArray(s.playlists.horizontal)) {
+          errors.push(fieldErr('stream.playlists.horizontal', 'must be an array'));
+        }
+        if (s.playlists.vertical !== undefined && !isArray(s.playlists.vertical)) {
+          errors.push(fieldErr('stream.playlists.vertical', 'must be an array'));
+        }
+      }
+    }
     // requiresRestart tracking
     if (isObject(s)) {
       for (const k of Object.keys(s)) {

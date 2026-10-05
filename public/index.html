@@ -85,13 +85,13 @@
             title="YouTube Stream Key status. Click to open Settings.">
             Checking Key...
           </span>
-          <span id="deck-dual-stream-badge" class="reachability-pill" style="display: none; cursor: pointer;"
-            title="Dual live streaming active: Shorts (9:16) + Normal (16:9). Click to open Settings.">
-            Dual Live: Shorts + 16:9
+          <span id="deck-stream-mode-badge" class="reachability-pill" style="cursor: pointer; font-weight: 700; color: #38bdf8;"
+            title="Active Stream Mode. Click to toggle between Horizontal 16:9 and Vertical 9:16.">
+            MODE: HORIZONTAL 16:9
           </span>
-          <span id="deck-youtube-api-badge" class="reachability-pill" style="cursor: pointer;"
-            title="YouTube Data API v3 lifecycle management status.">
-            YouTube API: Checking...
+          <span id="deck-active-key-badge" class="reachability-pill" style="cursor: pointer;"
+            title="Active YouTube Stream Key for the current mode. Click to open Settings.">
+            ACTIVE KEY: Horizontal
           </span>
           <span id="deck-auto-recycle-badge" class="reachability-pill" style="display: none; cursor: pointer;"
             title="Auto-Recycle status and countdown. Click to open scheduler settings.">
@@ -134,6 +134,24 @@
         </button>
       </div>
 
+      <!-- Stream Mode Selector Row -->
+      <div class="deck-mode-control-row" style="display: flex; align-items: center; justify-content: space-between; margin-top: 0.625rem; padding: 0.5rem 0.75rem; background: var(--bg-surface-elevated); border-radius: var(--radius-sm); border: 1px solid var(--border-muted);">
+        <div style="display: flex; align-items: center; gap: 0.625rem;">
+          <span style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Stream Mode:</span>
+          <div class="mode-toggle-group" style="display: inline-flex; background: var(--bg-surface); padding: 2px; border-radius: 6px; border: 1px solid var(--border-muted);">
+            <button type="button" id="btn-mode-horizontal" class="btn btn-sm mode-btn active" style="font-size: 0.75rem; padding: 3px 12px; border-radius: 4px; font-weight: 600;">
+              Horizontal 16:9
+            </button>
+            <button type="button" id="btn-mode-vertical" class="btn btn-sm mode-btn" style="font-size: 0.75rem; padding: 3px 12px; border-radius: 4px; font-weight: 600;">
+              Vertical 9:16
+            </button>
+          </div>
+        </div>
+        <span id="mode-lock-warning" style="display: none; font-size: 0.6875rem; color: var(--accent-amber); font-weight: 500;">
+          ⚠️ Stop stream to switch mode
+        </span>
+      </div>
+
       <!-- Secondary Sub-Row: Verdict & Master Kill Switch -->
       <div class="deck-subrow">
         <div class="verdict-box">
@@ -151,17 +169,24 @@
         </div>
       </div>
 
-      <!-- Dual Live Output Channels Health -->
-      <div id="deck-dual-outputs-row" class="dual-outputs-row" style="display: none;">
-        <div class="dual-output-chip" id="chip-horizontal">
-          <span class="status-dot-sm" id="dot-out-horizontal"></span>
-          <span class="dual-output-name">PRIMARY — HORIZONTAL 16:9:</span>
-          <span class="dual-output-state" id="text-out-horizontal">STOPPED</span>
+      <!-- Output Channel Health -->
+      <div id="deck-output-row" class="dual-outputs-row" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <div class="dual-output-chip" id="chip-mode-status" style="flex: 1; min-width: 180px;">
+          <span class="dual-output-name">MODE:</span>
+          <span class="dual-output-state" id="text-mode-status" style="color: #38bdf8; font-weight: 700;">HORIZONTAL 16:9</span>
         </div>
-        <div class="dual-output-chip" id="chip-vertical">
-          <span class="status-dot-sm" id="dot-out-vertical"></span>
-          <span class="dual-output-name">SECONDARY — VERTICAL 9:16:</span>
-          <span class="dual-output-state" id="text-out-vertical">STOPPED</span>
+        <div class="dual-output-chip" id="chip-stream-output" style="flex: 1; min-width: 180px;">
+          <span class="status-dot-sm" id="dot-stream-output"></span>
+          <span class="dual-output-name">OUTPUT:</span>
+          <span class="dual-output-state" id="text-stream-output">DISCONNECTED</span>
+        </div>
+        <div class="dual-output-chip" id="chip-source-status" style="flex: 1; min-width: 200px;">
+          <span class="dual-output-name">SOURCE:</span>
+          <span class="dual-output-state" id="text-source-status">Horizontal Playlist</span>
+        </div>
+        <div class="dual-output-chip" id="chip-key-status" style="flex: 1; min-width: 180px;">
+          <span class="dual-output-name">ACTIVE KEY:</span>
+          <span class="dual-output-state" id="text-key-status">Horizontal</span>
         </div>
       </div>
     </section>
@@ -529,178 +554,7 @@
         </div>
       </div>
 
-      <!-- Panel Y: YouTube Live Metadata (Full Width) -->
-      <div class="card grid-full-width" id="panel-youtube-template">
-        <div class="collapsible-header" data-target="body-youtube-template">
-          <span class="card-title">
-            <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #ef4444;">
-              <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
-              <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" />
-            </svg>
-            YouTube Live Metadata
-          </span>
-          <div class="header-right">
-            <span id="yt-meta-status-badge" class="badge-tag compatible">Template Ready</span>
-            <button class="panel-toggle-btn" data-target="body-youtube-template" aria-label="Toggle YouTube Metadata Panel">
-              <svg class="icon icon-sm" viewBox="0 0 24 24">
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </button>
-          </div>
-        </div>
 
-        <div class="panel-body" id="body-youtube-template">
-          <!-- Active Template Status Banner -->
-          <div id="yt-meta-status-banner" class="yt-meta-banner">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #ef4444; flex-shrink: 0;">
-                <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
-                <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" />
-              </svg>
-              <span id="yt-meta-banner-text">Template Metadata Active: New live broadcasts automatically inherit dynamic IST title, description, category, tags, and thumbnail.</span>
-            </div>
-            <span class="meta-tag" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);">Data API v3</span>
-          </div>
-
-          <!-- 2-Column Responsive Metadata Grid -->
-          <div class="yt-meta-grid">
-            <!-- Left Card: Template Source, Title & Description -->
-            <div class="yt-meta-card">
-              <div class="yt-meta-card-header">
-                <span class="yt-meta-card-title">
-                  <svg class="icon icon-sm" viewBox="0 0 24 24">
-                    <polygon points="5 3 19 12 5 21 5 3" />
-                  </svg>
-                  Template Source &amp; Broadcast Text
-                </span>
-                <span class="meta-tag">Dynamic IST Title</span>
-              </div>
-              <p class="sched-hint">Sync from reference YouTube video, or customize the title template and description.</p>
-
-              <!-- Box 1: Template Video ID -->
-              <div class="yt-meta-box">
-                <label class="form-label" for="meta-template-video-id">Reference Template Video ID</label>
-                <div class="input-action-group">
-                  <input type="text" id="meta-template-video-id" class="form-control" placeholder="e.g. mV2dgTOM3KA">
-                  <button type="button" id="btn-sync-template" class="btn btn-secondary btn-sm input-action-btn" title="Sync metadata from reference video">
-                    <svg class="icon icon-sm" viewBox="0 0 24 24">
-                      <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-                    </svg>
-                    <span id="btn-sync-text">Sync From YouTube</span>
-                  </button>
-                </div>
-                <div id="meta-sync-hint" class="form-hint">Configured video must belong to your authenticated YouTube channel.</div>
-              </div>
-
-              <!-- Box 2: Title Template -->
-              <div class="yt-meta-box">
-                <label class="form-label" for="meta-title-template">Dynamic Title Template</label>
-                <input type="text" id="meta-title-template" class="form-control" readonly value="Chinese Street Food Live Streaming Mochi &quot;{DATE}&quot; &quot;{TIME}&quot;">
-                <div class="form-hint">Variables <code>{DATE}</code> &amp; <code>{TIME}</code> auto-populate in Asia/Kolkata (IST).</div>
-              </div>
-
-              <!-- Box 3: Description -->
-              <div class="yt-meta-box">
-                <label class="form-label" for="meta-description">Broadcast Description</label>
-                <textarea id="meta-description" class="form-control" rows="4" placeholder="Enter stream description (synced from template or custom)"></textarea>
-                <div class="form-hint">Applied to every new broadcast created at session start or auto-recycle.</div>
-              </div>
-            </div>
-
-            <!-- Right Card: Categorization, Tags & Thumbnail -->
-            <div class="yt-meta-card">
-              <div class="yt-meta-card-header">
-                <span class="yt-meta-card-title">
-                  <svg class="icon icon-sm" viewBox="0 0 24 24">
-                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-                    <line x1="7" y1="7" x2="7.01" y2="7" />
-                  </svg>
-                  Category, Tags &amp; Thumbnail
-                </span>
-                <span class="meta-tag">Metadata Sync</span>
-              </div>
-              <p class="sched-hint">Set the YouTube video category, comma-delimited discovery tags, and stream thumbnail.</p>
-
-              <!-- Box 1: Category & Tags -->
-              <div class="yt-meta-box">
-                <div class="form-group" style="margin-bottom: 0;">
-                  <label class="form-label" for="meta-category">YouTube Category</label>
-                  <select id="meta-category" class="form-control">
-                    <option value="">Loading YouTube categories...</option>
-                  </select>
-                  <div id="meta-category-hint" class="form-hint">Category resolved automatically via YouTube Data API.</div>
-                </div>
-
-                <div class="form-group" style="margin-top: 0.65rem; margin-bottom: 0;">
-                  <label class="form-label" for="meta-tags">Broadcast Tags</label>
-                  <textarea id="meta-tags" class="form-control" rows="2" placeholder="Comma-separated tags (e.g. Chinese Street Food, Mochi, Street Food)"></textarea>
-                  <div class="form-hint">Applied via videos.update to each new broadcast video.</div>
-                </div>
-              </div>
-
-              <!-- Box 2: Thumbnail Preview & Actions -->
-              <div class="yt-meta-box">
-                <label class="form-label">Broadcast Thumbnail (16:9)</label>
-                <div class="yt-meta-thumb-container">
-                  <div id="meta-thumbnail-preview-box" class="yt-meta-thumb-preview">
-                    <img id="meta-thumbnail-img" src="" alt="Thumbnail Preview" class="yt-meta-thumb-img">
-                    <div id="meta-thumbnail-placeholder" class="yt-meta-thumb-placeholder">
-                      <svg class="icon icon-md" viewBox="0 0 24 24" style="color: var(--text-muted); opacity: 0.6;">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                        <circle cx="8.5" cy="8.5" r="1.5" />
-                        <polyline points="21 15 16 10 5 21" />
-                      </svg>
-                      <span>No Thumbnail Synced</span>
-                    </div>
-                  </div>
-
-                  <div class="yt-meta-thumb-actions">
-                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                      <button type="button" id="btn-use-template-thumb" class="btn btn-secondary btn-sm" title="Restore template video thumbnail">
-                        <svg class="icon icon-xs" viewBox="0 0 24 24">
-                          <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" />
-                        </svg>
-                        Use Template
-                      </button>
-                      <button type="button" id="btn-upload-thumb" class="btn btn-outline btn-sm" title="Upload custom image file">
-                        <svg class="icon icon-xs" viewBox="0 0 24 24">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="17 8 12 3 7 8" />
-                          <line x1="12" y1="3" x2="12" y2="15" />
-                        </svg>
-                        Upload Custom
-                      </button>
-                      <input type="file" id="meta-thumb-file-input" accept="image/jpeg,image/png" style="display: none;">
-                    </div>
-                    <div id="meta-thumbnail-info" class="form-hint" style="color: var(--text-muted);">No thumbnail source active</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Footer Actions -->
-          <div class="yt-meta-footer">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-              <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #10b981; flex-shrink: 0;">
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                <polyline points="22 4 12 14.01 9 11.01" />
-              </svg>
-              <span id="meta-save-feedback" class="form-hint" style="color: var(--text-muted); margin: 0;">
-                Saved dashboard values will automatically be applied to every future broadcast.
-              </span>
-            </div>
-            <button type="button" id="btn-save-metadata" class="btn btn-primary btn-sm">
-              <svg class="icon icon-sm" viewBox="0 0 24 24">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                <polyline points="17 21 17 13 7 13 7 21" />
-                <polyline points="7 3 7 8 15 8" />
-              </svg>
-              Save Metadata
-            </button>
-          </div>
-        </div>
-      </div>
 
       <!-- Panel S: Stream Scheduler & Auto-Recycle (Full Width) -->
       <div class="card grid-full-width" id="panel-scheduler">
@@ -915,6 +769,20 @@
             <span id="active-video-name" class="active-video-title">None selected</span>
           </div>
 
+          <!-- Mode Playlist Selector Tabs -->
+          <div class="playlist-mode-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <button id="tab-playlist-horizontal" type="button" class="btn btn-sm btn-primary playlist-tab active" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.5rem 0.75rem; border-radius: 6px; font-weight: 600;">
+              <span>Horizontal 16:9 Playlist</span>
+              <span id="badge-count-horizontal" class="meta-tag" style="background: rgba(0,0,0,0.3); font-weight: 700;">0</span>
+              <span class="live-mode-chip" id="chip-live-horizontal" style="display: inline-block; font-size: 0.65rem; background: var(--accent-emerald); color: #fff; padding: 1px 6px; border-radius: 4px; font-weight: 700;">● LIVE MODE</span>
+            </button>
+            <button id="tab-playlist-vertical" type="button" class="btn btn-sm btn-outline playlist-tab" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.5rem 0.75rem; border-radius: 6px; font-weight: 600;">
+              <span>Vertical 9:16 Playlist</span>
+              <span id="badge-count-vertical" class="meta-tag" style="background: rgba(0,0,0,0.3); font-weight: 700;">0</span>
+              <span class="live-mode-chip" id="chip-live-vertical" style="display: none; font-size: 0.65rem; background: var(--accent-emerald); color: #fff; padding: 1px 6px; border-radius: 4px; font-weight: 700;">● LIVE MODE</span>
+            </button>
+          </div>
+
           <!-- Video Ingestion Tab Switcher -->
           <div id="video-ingest-tabs" class="ingest-tabs-nav">
             <button id="tab-upload" class="ingest-tab-btn active">
@@ -941,12 +809,9 @@
               <polyline points="17 8 12 3 7 8" />
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
-            <div style="font-size: 0.8125rem; font-weight: 500; color: var(--text-main);">Tap or Drag Vertical MP4 Video
-              Here</div>
-            <div style="font-size: 0.6875rem; color: var(--text-muted);">Recommended: 1080×1920, H.264 / AAC, 4 Mbps,
-              Constant 30/60 fps</div>
-            <div style="font-size: 0.6875rem; color: var(--text-dim);">Multi-Video Playlist: Select multiple videos to
-              stream sequentially or in shuffle loop.</div>
+            <div id="upload-zone-title" style="font-size: 0.8125rem; font-weight: 500; color: var(--text-main);">Tap or Drag Horizontal (16:9) MP4 Video Here</div>
+            <div id="upload-zone-sub" style="font-size: 0.6875rem; color: var(--text-muted);">Recommended: 1920×1080, H.264 / AAC, 4.5 Mbps, Constant 30/60 fps</div>
+            <div style="font-size: 0.6875rem; color: var(--text-dim);">Single Stream Playlist: Auto-appends to active playlist. Video orientation must match active mode.</div>
             <input type="file" id="file-input" accept=".mp4,.mov,.m4v,.mkv" style="display: none;">
           </div>
 
@@ -1386,29 +1251,20 @@
               placeholder="rtmps://a.rtmps.youtube.com/live2" autocomplete="off">
           </div>
 
-          <!-- Dual Streaming Toggle Row -->
-          <div class="settings-toggle-row">
-            <div class="settings-toggle-info">
-              <span class="settings-toggle-title">
-                <svg class="icon icon-sm" viewBox="0 0 24 24" style="color: #38bdf8;">
-                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                  <line x1="8" y1="21" x2="16" y2="21" />
-                  <line x1="12" y1="17" x2="12" y2="21" />
-                </svg>
-                Dual Feed Live (Horizontal 16:9 + Vertical 9:16)
-              </span>
-              <span class="settings-toggle-desc">Simultaneously broadcast landscape desktop and mobile YouTube Shorts live feeds</span>
+          <!-- Single Stream Mode Architecture Note -->
+          <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.75rem; margin-bottom: 0.75rem;">
+            <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.25rem;">
+              Single Stream Mode Architecture
             </div>
-            <label class="toggle-switch" for="cfg-dual-stream-enabled" title="Toggle dual streaming">
-              <input type="checkbox" id="cfg-dual-stream-enabled" checked>
-              <span class="toggle-slider"></span>
-            </label>
+            <div style="font-size: 0.6875rem; color: var(--text-muted); line-height: 1.45;">
+              The engine operates in strictly one mode at a time (Horizontal 16:9 or Vertical 9:16). Configure both keys below to enable seamless switching between modes when stopped.
+            </div>
           </div>
 
-          <!-- PRIMARY — HORIZONTAL 16:9 ("long") -->
+          <!-- HORIZONTAL 16:9 STREAM KEY -->
           <div class="form-group">
             <label class="form-label" for="cfg-horizontal-stream-key">
-              <span>PRIMARY — HORIZONTAL 16:9 <strong style="color: #38bdf8;">("long")</strong></span>
+              <span>HORIZONTAL 16:9 STREAM KEY <strong style="color: #38bdf8;">("long")</strong></span>
               <span id="horizontal-key-badge" class="badge-tag">Checking...</span>
             </label>
             <div class="input-action-group">
@@ -1428,13 +1284,13 @@
                 <span id="btn-reveal-horiz-text">Show</span>
               </button>
             </div>
-            <div id="horizontal-key-hint-text" class="form-hint">Primary stream key for standard 16:9 landscape broadcast ("long").</div>
+            <div id="horizontal-key-hint-text" class="form-hint">Stream key used whenever Horizontal 16:9 mode is selected.</div>
           </div>
 
-          <!-- SECONDARY — VERTICAL 9:16 ("shot") -->
+          <!-- VERTICAL 9:16 STREAM KEY -->
           <div class="form-group">
             <label class="form-label" for="cfg-stream-key">
-              <span>SECONDARY — VERTICAL 9:16 <strong style="color: #a1a1aa;">("shot")</strong></span>
+              <span>VERTICAL 9:16 STREAM KEY <strong style="color: #a1a1aa;">("shot")</strong></span>
               <span id="key-badge" class="badge-tag">Optional</span>
             </label>
             <div class="input-action-group">
@@ -1454,7 +1310,7 @@
                 <span id="btn-reveal-text">Show</span>
               </button>
             </div>
-            <div id="key-hint-text" class="form-hint">Secondary stream key for vertical 9:16 feed ("shot") when Dual Feed Live is enabled.</div>
+            <div id="key-hint-text" class="form-hint">Stream key used whenever Vertical 9:16 mode is selected.</div>
           </div>
         </div>
 

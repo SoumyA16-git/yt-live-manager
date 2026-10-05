@@ -180,8 +180,8 @@ describe('stream-manager — evaluateStartGates', () => {
     });
 
     await saveSettings({
-      youtube: { streamKey: 'valid-test-key-5555' },
-      stream: { videoId, modePreference: 'auto' },
+      youtube: { horizontalStreamKey: 'valid-test-key-5555' },
+      stream: { mode: 'horizontal', videoId, modePreference: 'auto' },
     });
 
     const gate = await evaluateStartGates();
@@ -221,13 +221,14 @@ describe('stream-manager — evaluateStartGates', () => {
         id: videoId,
         filename: `${videoId}.mp4`,
         originalName: '720p_source.mp4',
+        probe: { width: 1280, height: 720, fps: 30, durationSec: 10 },
         compatibility: { status: 'REQUIRES_TRANSCODING', reasons: ['RES_MISMATCH'], modeAllowed: { copy: false, hybrid: false, transcode: true } },
       }],
     });
 
     await saveSettings({
-      youtube: { streamKey: 'valid-test-key-6666' },
-      stream: { videoId, modePreference: 'auto', allowTranscode: true },
+      youtube: { horizontalStreamKey: 'valid-test-key-6666' },
+      stream: { mode: 'horizontal', videoId, modePreference: 'auto', allowTranscode: true },
     });
 
     const gate = await evaluateStartGates();
@@ -296,8 +297,10 @@ describe('stream-manager — evaluateStartGates', () => {
     });
 
     await saveSettings({
-      youtube: { streamKey: 'valid-test-key-7777' },
+      youtube: { horizontalStreamKey: 'valid-test-key-7777' },
       stream: {
+        mode: 'horizontal',
+        playlists: { horizontal: [vid1, vid2] },
         playlist: [vid1, vid2],
         playbackOrder: 'sequential',
         modePreference: 'copy',

@@ -8,10 +8,11 @@ import {
   stopStream,
   setDisabled,
   setMaintenance,
+  setStreamMode,
 } from '../stream-manager.js';
 import { getState } from '../state-manager.js';
 import { getLatestProgress, getRecentStderr, getOutputsStatus } from '../ffmpeg-manager.js';
-import { getYouTubeLiveApiState } from '../youtube-api-manager.js';
+import { getStreamMode } from '../config-manager.js';
 
 export function createStreamRouter() {
   const router = Router();
@@ -21,18 +22,22 @@ export function createStreamRouter() {
     const state = getState();
     const progress = getLatestProgress();
     const outputs = getOutputsStatus();
+    const currentMode = state.streamMode || getStreamMode() || 'horizontal';
 
-    // Compute Health Verdict (PRD §15.4)
+    // Compute Health Verdict
     const reasons = [];
     let healthStatus = 'HEALTHY';
 
-    if (outputs.horizontal.status === 'FAILED') {
-      healthStatus = 'UNHEALTHY';
-      reasons.push(`RTMPS primary horizontal output failed: ${outputs.horizontal.lastError || 'Connection error'}`);
-    }
-    if (outputs.vertical.enabled && outputs.vertical.status === 'FAILED') {
-      healthStatus = 'UNHEALTHY';
-      reasons.push(`RTMPS secondary vertical output failed: ${outputs.vertical.lastError || 'Connection error'}`);
+    if (currentMode === 'horizontal') {
+      if (outputs.horizontal && outputs.horizontal.status === 'FAILED') {
+        healthStatus = 'UNHEALTHY';
+        reasons.push(`RTMPS horizontal output failed: ${outputs.horizontal.lastError || 'Connection error'}`);
+      }
+    } else {
+      if (outputs.vertical && outputs.vertical.status === 'FAILED') {
+        healthStatus = 'UNHEALTHY';
+        reasons.push(`RTMPS vertical output failed: ${outputs.vertical.lastError || 'Connection error'}`);
+      }
     }
 
     if (state.status === 'ERROR') {
@@ -89,13 +94,32 @@ export function createStreamRouter() {
         status: healthStatus,
         reasons,
       },
-      youtubeIngest:       state.youtubeIngest || (getYouTubeLiveApiState().configured ? (getYouTubeLiveApiState().streamStatus === 'active' ? 'ACTIVE' : 'WAITING') : 'UNMANAGED'),
-      youtubeBroadcast:    state.youtubeBroadcast || (getYouTubeLiveApiState().configured ? (getYouTubeLiveApiState().lifeCycleStatus === 'live' ? 'LIVE' : 'PREPARING') : 'UNMANAGED'),
-      youtubeStreamActive: Boolean(state.youtubeStreamActive),
-      youtubeBroadcastLive: Boolean(state.youtubeBroadcastLive),
-      youtubeLive:         getYouTubeLiveApiState(),
-      recentStderr:        getRecentStderr().slice(-10),
+      streamOutput: (outputs[currentMode]?.status === 'CONNECTED' || (state.status === 'RUNNING' && outputs[currentMode]?.status !== 'FAILED')) ? 'CONNECTED' : 'DISCONNECTED',
+      source: currentMode === 'horizontal' ? 'Horizontal Playlist' : 'Vertical Playlist',
+      recentStderr: getRecentStderr().slice(-10),
     });
+  });
+
+  // GET /api/stream/mode
+  router.get('/mode', (req, res) => {
+    const state = getState();
+    const mode = state.streamMode || getStreamMode() || 'horizontal';
+    res.json({ success: true, mode });
+  });
+
+  // POST /api/stream/mode
+  router.post('/mode', async (req, res) => {
+    const { mode } = req.body || {};
+    try {
+      const result = await setStreamMode(mode);
+      res.json({ success: true, mode: result.mode });
+    } catch (err) {
+      res.status(err.status || 400).json({
+        success: false,
+        code: err.code || 'E_MODE_CHANGE_FAILED',
+        error: err.message,
+      });
+    }
   });
 
   // POST /api/stream/start

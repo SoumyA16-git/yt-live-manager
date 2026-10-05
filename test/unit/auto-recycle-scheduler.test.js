@@ -166,7 +166,7 @@ async function setupTestEnv(testSubdir) {
   await loadState();
 
   await saveSettings({
-    stream: { videoId: 'vid_11111111', playlist: ['vid_11111111'], modePreference: 'auto', allowTranscode: true },
+    stream: { mode: 'vertical', videoId: 'vid_11111111', playlists: { vertical: ['vid_11111111'] }, playlist: ['vid_11111111'], modePreference: 'auto', allowTranscode: true },
     youtube: { rtmpsUrl: 'rtmps://127.0.0.1:1935/live2', streamKey: 'test-key-auto-recycle' },
     scheduler: {
       mode: 'continuous',

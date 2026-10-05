@@ -28,13 +28,18 @@ const MIGRATIONS = {
 export const DEFAULTS = Object.freeze({
   schemaVersion: SCHEMA_VERSION,
   stream: {
+    mode: 'horizontal',
     videoId: '',
     playlist: [],
-    playbackOrder: 'sequential',
+    playlists: {
+      horizontal: [],
+      vertical: [],
+    },
+    playbackOrder: 'serial',
     modePreference: 'auto',
     allowTranscode: true,
     autoResume: true,
-    resolution: '1080x1920',
+    resolution: '1920x1080',
     fps: 30,
     videoBitrateMbps: 4,
     audioBitrateKbps: 128,
@@ -55,21 +60,6 @@ export const DEFAULTS = Object.freeze({
     rtmpsUrl: 'rtmps://a.rtmps.youtube.com:443/live2',
     streamKey: '',
     horizontalStreamKey: '',
-    dualStreamEnabled: true,
-    title: '',
-    label: '',
-    templateVideoId: '',
-    titleTemplate: 'Chinese Street Food Live Streaming Mochi "{DATE}" "{TIME}"',
-    description: '',
-    categoryId: '',
-    categoryName: '',
-    tags: [],
-    thumbnail: {
-      sourceVideoId: '',
-      sourceUrl: '',
-      selectedResolution: '',
-      customDataUrl: '',
-    },
   },
   youtubeGuidance: { recommendedMbps: [3, 9] },
   bandwidth: {
@@ -178,13 +168,25 @@ export async function loadSettings() {
 
   _settings = deepMerge(DEFAULTS, migrate(data ?? {}));
 
-  // Auto-heal stream copy settings: ensure floor is 0.1 Mbps and keyframeMax is 8.0s
+  // Auto-heal stream settings and mode-specific playlists
   if (_settings.stream) {
-    if (!Array.isArray(_settings.stream.playlist)) {
-      _settings.stream.playlist = _settings.stream.videoId ? [_settings.stream.videoId] : [];
+    if (!_settings.stream.mode || !['horizontal', 'vertical'].includes(_settings.stream.mode)) {
+      _settings.stream.mode = 'horizontal';
     }
-    if (!_settings.stream.playbackOrder || !['sequential', 'shuffle'].includes(_settings.stream.playbackOrder)) {
-      _settings.stream.playbackOrder = 'sequential';
+    if (!_settings.stream.playlists || typeof _settings.stream.playlists !== 'object') {
+      _settings.stream.playlists = {
+        horizontal: [],
+        vertical: [],
+      };
+    } else {
+      if (!Array.isArray(_settings.stream.playlists.horizontal)) _settings.stream.playlists.horizontal = [];
+      if (!Array.isArray(_settings.stream.playlists.vertical)) _settings.stream.playlists.vertical = [];
+    }
+    if (!Array.isArray(_settings.stream.playlist)) {
+      _settings.stream.playlist = _settings.stream.playlists[_settings.stream.mode] || [];
+    }
+    if (!_settings.stream.playbackOrder || !['sequential', 'shuffle', 'serial'].includes(_settings.stream.playbackOrder)) {
+      _settings.stream.playbackOrder = 'serial';
     }
     if (_settings.stream.copyMinMbps === undefined || _settings.stream.copyMinMbps > 0.1) {
       _settings.stream.copyMinMbps = 0.1;
@@ -307,10 +309,42 @@ export function getHorizontalStreamKey() {
 }
 
 /**
- * Check if dual streaming is enabled in settings.
+ * Return the current stream mode ('horizontal' | 'vertical').
+ */
+export function getStreamMode() {
+  return _settings?.stream?.mode || 'horizontal';
+}
+
+/**
+ * Return the playlist for a specific mode (or current mode if omitted).
+ *
+ * @param {'horizontal'|'vertical'} [mode]
+ * @returns {string[]}
+ */
+export function getModePlaylist(mode = getStreamMode()) {
+  const playlists = _settings?.stream?.playlists;
+  if (playlists && Array.isArray(playlists[mode])) {
+    return [...playlists[mode]];
+  }
+  return Array.isArray(_settings?.stream?.playlist) ? [..._settings.stream.playlist] : [];
+}
+
+/**
+ * Return copy of both playlists.
+ * @returns {{ horizontal: string[], vertical: string[] }}
+ */
+export function getPlaylists() {
+  return {
+    horizontal: Array.isArray(_settings?.stream?.playlists?.horizontal) ? [..._settings.stream.playlists.horizontal] : [],
+    vertical: Array.isArray(_settings?.stream?.playlists?.vertical) ? [..._settings.stream.playlists.vertical] : [],
+  };
+}
+
+/**
+ * Check if dual streaming is enabled in settings (legacy compatibility).
  */
 export function isDualStreamEnabled() {
-  return _settings?.youtube?.dualStreamEnabled !== false;
+  return false;
 }
 
 // ─── Computed byte helpers ────────────────────────────────────────────────────
