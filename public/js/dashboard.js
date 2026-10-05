@@ -1709,27 +1709,29 @@ function updateDeckStreamKeyBadge(settings) {
   const isDual = settings?.youtube?.dualStreamEnabled !== false;
   const hasKey = Boolean(settings?.youtube?.streamKeySet);
   const hasHorizKey = Boolean(settings?.youtube?.horizontalStreamKeySet);
+  const hasPrimaryKey = hasHorizKey || hasKey;
 
-  if (!hasKey) {
-    deckStreamKeyBadge.textContent = 'YouTube: Key Missing';
+  if (!hasPrimaryKey) {
+    deckStreamKeyBadge.textContent = 'Primary Key Missing';
     deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
     deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = 'YouTube Stream Key is not configured! Click to open Settings.';
-  } else if (isDual && !hasHorizKey) {
-    deckStreamKeyBadge.textContent = `Dual Live: Horiz Key Missing (...${settings.youtube.streamKeyHint})`;
+    deckStreamKeyBadge.title = 'Primary Horizontal 16:9 Stream Key is not configured! Click to open Settings.';
+  } else if (isDual && !hasKey) {
+    deckStreamKeyBadge.textContent = `Dual Live: Vertical Key Missing (...${settings.youtube.horizontalStreamKeyHint || settings.youtube.streamKeyHint})`;
     deckStreamKeyBadge.style.borderColor = 'rgba(234, 179, 8, 0.6)';
     deckStreamKeyBadge.style.color = '#eab308';
-    deckStreamKeyBadge.title = 'Dual Live is enabled, but Horizontal Stream Key is missing. Click to open Settings.';
-  } else if (isDual && hasHorizKey) {
-    deckStreamKeyBadge.textContent = `Dual Live: Shorts + 16:9 (...${settings.youtube.streamKeyHint})`;
+    deckStreamKeyBadge.title = 'Dual Live is enabled, but Secondary Vertical Stream Key ("shot") is missing. Click to open Settings.';
+  } else if (isDual && hasHorizKey && hasKey) {
+    deckStreamKeyBadge.textContent = `Dual Live: 16:9 + 9:16 (...${settings.youtube.horizontalStreamKeyHint})`;
     deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
     deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = `Dual Live configured: Shorts (...${settings.youtube.streamKeyHint}) & Normal (...${settings.youtube.horizontalStreamKeyHint}). Click to change.`;
+    deckStreamKeyBadge.title = `Dual Live configured: Primary Horizontal (...${settings.youtube.horizontalStreamKeyHint}) & Secondary Vertical (...${settings.youtube.streamKeyHint}). Click to change.`;
   } else {
-    deckStreamKeyBadge.textContent = `YouTube: Configured (...${settings.youtube.streamKeyHint})`;
+    const hint = settings.youtube.horizontalStreamKeyHint || settings.youtube.streamKeyHint;
+    deckStreamKeyBadge.textContent = `Horizontal 16:9 (...${hint})`;
     deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
     deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = `YouTube Stream Key is configured (...${settings.youtube.streamKeyHint}). Click to change.`;
+    deckStreamKeyBadge.title = `Primary Horizontal 16:9 Stream Key is configured (...${hint}). Click to change.`;
   }
 }
 
@@ -1739,17 +1741,17 @@ function updateKeyFeedback() {
   if (val.length > 0) {
     keyBadge.textContent = 'Unsaved Entry';
     keyBadge.className = 'badge-tag badge-active';
-    keyHintText.innerHTML = `New stream key entered (${val.length} chars) — Click <strong>Save Configuration</strong> below to apply.`;
+    keyHintText.innerHTML = `New vertical stream key entered (${val.length} chars) — Click <strong>Save Configuration</strong> below to apply.`;
   } else if (_currentSettings?.youtube?.streamKeySet) {
     keyBadge.textContent = `Saved (...${_currentSettings.youtube.streamKeyHint})`;
     keyBadge.className = 'badge-tag';
     cfgStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.streamKeyHint})`;
-    keyHintText.innerHTML = `Active YouTube Stream Key is saved (ends in ...${_currentSettings.youtube.streamKeyHint}). Leave empty to keep unchanged, or paste a new key to update.`;
+    keyHintText.innerHTML = `Secondary Vertical 9:16 Stream Key ("shot") is saved (ends in ...${_currentSettings.youtube.streamKeyHint}). Used when Dual Feed Live is enabled.`;
   } else {
-    keyBadge.textContent = 'Not Configured';
+    keyBadge.textContent = 'Optional';
     keyBadge.className = 'badge-tag';
-    cfgStreamKey.placeholder = 'Paste YouTube Stream Key (e.g. xxxx-xxxx-xxxx-xxxx-xxxx)';
-    keyHintText.innerHTML = 'No stream key saved. You must paste your YouTube Stream Key before you can start streaming.';
+    cfgStreamKey.placeholder = 'Paste Vertical 9:16 Stream Key ("shot")';
+    keyHintText.innerHTML = 'Optional for Dual Feed Live: Stream simultaneously to vertical 9:16 mobile Shorts feed.';
   }
 }
 
@@ -1764,12 +1766,12 @@ function updateHorizontalKeyFeedback() {
     horizontalKeyBadge.textContent = `Saved (...${_currentSettings.youtube.horizontalStreamKeyHint})`;
     horizontalKeyBadge.className = 'badge-tag';
     cfgHorizontalStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint})`;
-    horizontalKeyHintText.innerHTML = `Horizontal stream key saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Stream will broadcast to both Shorts and Normal feeds simultaneously.`;
+    horizontalKeyHintText.innerHTML = `Primary Horizontal 16:9 Stream Key ("long") is saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}).`;
   } else {
-    horizontalKeyBadge.textContent = 'Optional';
+    horizontalKeyBadge.textContent = 'Required';
     horizontalKeyBadge.className = 'badge-tag';
-    cfgHorizontalStreamKey.placeholder = 'Paste Normal Feed Stream Key (optional for dual live)';
-    horizontalKeyHintText.innerHTML = 'Optional: Add a stream key to simultaneously live stream to YouTube Normal 16:9 feed alongside Shorts feed.';
+    cfgHorizontalStreamKey.placeholder = 'Paste Horizontal 16:9 Stream Key ("long")';
+    horizontalKeyHintText.innerHTML = 'Primary stream key for YouTube 16:9 landscape live broadcasts.';
   }
 }
 

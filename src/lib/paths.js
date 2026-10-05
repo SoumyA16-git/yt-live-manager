@@ -43,6 +43,7 @@ const PATHS = {
   ffmpegLock:           r('data', 'ffmpeg.lock'),
   loopConcat:           r('data', 'loop.ffconcat'),
   loopConcatHorizontal: r('data', 'loop_horizontal.ffconcat'),
+  loopConcatVertical:   r('data', 'loop_vertical.ffconcat'),
 
   // Log file
   appLog:          r('logs', 'app.log'),

@@ -26,13 +26,13 @@ export function createStreamRouter() {
     const reasons = [];
     let healthStatus = 'HEALTHY';
 
-    if (outputs.vertical.status === 'FAILED') {
+    if (outputs.horizontal.status === 'FAILED') {
       healthStatus = 'UNHEALTHY';
-      reasons.push(`RTMPS vertical output failed: ${outputs.vertical.lastError || 'Connection error'}`);
+      reasons.push(`RTMPS primary horizontal output failed: ${outputs.horizontal.lastError || 'Connection error'}`);
     }
-    if (outputs.horizontal.enabled && outputs.horizontal.status === 'FAILED') {
+    if (outputs.vertical.enabled && outputs.vertical.status === 'FAILED') {
       healthStatus = 'UNHEALTHY';
-      reasons.push(`RTMPS horizontal output failed: ${outputs.horizontal.lastError || 'Connection error'}`);
+      reasons.push(`RTMPS secondary vertical output failed: ${outputs.vertical.lastError || 'Connection error'}`);
     }
 
     if (state.status === 'ERROR') {

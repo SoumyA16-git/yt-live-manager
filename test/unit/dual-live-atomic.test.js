@@ -242,7 +242,7 @@ describe('Atomic Dual Live Streaming (15 Specifications)', () => {
     const gate = await evaluateStartGates();
     assert.strictEqual(gate.allowed, true);
     assert.strictEqual(gate.isDualStream, true);
-    assert.ok(gate.dualTarget.includes('secondary-key-horiz-444'));
+    assert.ok(gate.dualTarget.includes('primary-key-vert-555'));
     assert.strictEqual(gate.horizontalMeta.id, hId);
   });
 
@@ -294,9 +294,10 @@ describe('Atomic Dual Live Streaming (15 Specifications)', () => {
     const status = getOutputsStatus();
     assert.ok(status.vertical);
     assert.ok(status.horizontal);
-    assert.strictEqual(status.vertical.status, 'INIT');
-    assert.strictEqual(status.horizontal.enabled, false);
+    assert.strictEqual(status.horizontal.enabled, true);
+    assert.strictEqual(status.vertical.enabled, false);
     assert.strictEqual(status.horizontal.status, 'INIT');
+    assert.strictEqual(status.vertical.status, 'INIT');
   });
 
   test('10. clearConfigGateError clears E_DUAL_STREAM_KEYS_IDENTICAL on config fix', async () => {
@@ -433,7 +434,7 @@ describe('Atomic Dual Live Streaming (15 Specifications)', () => {
     const gate = await evaluateStartGates();
     assert.strictEqual(gate.allowed, true);
     assert.strictEqual(gate.isDualStream, true);
-    assert.ok(gate.dualTarget.includes('key-pl-ok-h'));
+    assert.ok(gate.dualTarget.includes('key-pl-ok-v'));
     assert.strictEqual(gate.horizontalMeta.isConcat, true);
   });
 

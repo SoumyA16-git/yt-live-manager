@@ -153,15 +153,15 @@
 
       <!-- Dual Live Output Channels Health -->
       <div id="deck-dual-outputs-row" class="dual-outputs-row" style="display: none;">
-        <div class="dual-output-chip" id="chip-vertical">
-          <span class="status-dot-sm" id="dot-out-vertical"></span>
-          <span class="dual-output-name">Vertical (9:16):</span>
-          <span class="dual-output-state" id="text-out-vertical">STOPPED</span>
-        </div>
         <div class="dual-output-chip" id="chip-horizontal">
           <span class="status-dot-sm" id="dot-out-horizontal"></span>
-          <span class="dual-output-name">Horizontal (16:9):</span>
+          <span class="dual-output-name">PRIMARY — HORIZONTAL 16:9:</span>
           <span class="dual-output-state" id="text-out-horizontal">STOPPED</span>
+        </div>
+        <div class="dual-output-chip" id="chip-vertical">
+          <span class="status-dot-sm" id="dot-out-vertical"></span>
+          <span class="dual-output-name">SECONDARY — VERTICAL 9:16:</span>
+          <span class="dual-output-state" id="text-out-vertical">STOPPED</span>
         </div>
       </div>
     </section>
@@ -1395,10 +1395,9 @@
                   <line x1="8" y1="21" x2="16" y2="21" />
                   <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
-                Dual Feed Live (Shorts 9:16 + Normal 16:9)
+                Dual Feed Live (Horizontal 16:9 + Vertical 9:16)
               </span>
-              <span class="settings-toggle-desc">Simultaneously broadcast to mobile YouTube Shorts and landscape desktop
-                live feeds</span>
+              <span class="settings-toggle-desc">Simultaneously broadcast landscape desktop and mobile YouTube Shorts live feeds</span>
             </div>
             <label class="toggle-switch" for="cfg-dual-stream-enabled" title="Toggle dual streaming">
               <input type="checkbox" id="cfg-dual-stream-enabled" checked>
@@ -1406,14 +1405,40 @@
             </label>
           </div>
 
-          <!-- Primary Stream Key (Shorts Feed 9:16) -->
+          <!-- PRIMARY — HORIZONTAL 16:9 ("long") -->
           <div class="form-group">
-            <label class="form-label" for="cfg-stream-key">
-              <span>YouTube Stream Key <strong style="color: #38bdf8;">(Shorts Feed 9:16)</strong></span>
-              <span id="key-badge" class="badge-tag">Checking...</span>
+            <label class="form-label" for="cfg-horizontal-stream-key">
+              <span>PRIMARY — HORIZONTAL 16:9 <strong style="color: #38bdf8;">("long")</strong></span>
+              <span id="horizontal-key-badge" class="badge-tag">Checking...</span>
             </label>
             <div class="input-action-group">
-              <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Shorts stream key"
+              <input type="password" id="cfg-horizontal-stream-key" class="form-control"
+                placeholder="Enter Horizontal 16:9 stream key (\"long\")" autocomplete="new-password">
+              <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm input-action-btn"
+                title="Show or hide stream key">
+                <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;">
+                  <path
+                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+                <span id="btn-reveal-horiz-text">Show</span>
+              </button>
+            </div>
+            <div id="horizontal-key-hint-text" class="form-hint">Primary stream key for standard 16:9 landscape broadcast ("long").</div>
+          </div>
+
+          <!-- SECONDARY — VERTICAL 9:16 ("shot") -->
+          <div class="form-group">
+            <label class="form-label" for="cfg-stream-key">
+              <span>SECONDARY — VERTICAL 9:16 <strong style="color: #a1a1aa;">("shot")</strong></span>
+              <span id="key-badge" class="badge-tag">Optional</span>
+            </label>
+            <div class="input-action-group">
+              <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Vertical 9:16 stream key (\"shot\")"
                 autocomplete="new-password">
               <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm input-action-btn"
                 title="Show or hide stream key">
@@ -1429,34 +1454,7 @@
                 <span id="btn-reveal-text">Show</span>
               </button>
             </div>
-            <div id="key-hint-text" class="form-hint">Checking key configuration...</div>
-          </div>
-
-          <!-- Secondary Stream Key (Normal 16:9 Feed) -->
-          <div class="form-group">
-            <label class="form-label" for="cfg-horizontal-stream-key">
-              <span>Horizontal Stream Key <strong style="color: #a1a1aa;">(Normal Feed 16:9)</strong></span>
-              <span id="horizontal-key-badge" class="badge-tag">Optional</span>
-            </label>
-            <div class="input-action-group">
-              <input type="password" id="cfg-horizontal-stream-key" class="form-control"
-                placeholder="Enter normal feed stream key (optional)" autocomplete="new-password">
-              <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm input-action-btn"
-                title="Show or hide stream key">
-                <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;">
-                  <path
-                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-                <span id="btn-reveal-horiz-text">Show</span>
-              </button>
-            </div>
-            <div id="horizontal-key-hint-text" class="form-hint">Optional: Stream simultaneously to YouTube Shorts
-              (9:16) and Normal Live (16:9).</div>
+            <div id="key-hint-text" class="form-hint">Secondary stream key for vertical 9:16 feed ("shot") when Dual Feed Live is enabled.</div>
           </div>
         </div>
 
