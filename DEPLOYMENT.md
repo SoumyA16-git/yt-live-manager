@@ -1,13 +1,42 @@
 # Complete Deployment & Operations Runbook
-## 24×7 YouTube Vertical Live Streaming Manager (`yt-live-manager`)
+## 24×7 YouTube Live Streaming Manager (`yt-live-manager`)
+### Strict Single Stream Mode (Horizontal 16:9 OR Vertical 9:16)
 
 This runbook guides you through deploying, operating, updating, and troubleshooting the live streaming server on an **Oracle Cloud Infrastructure (OCI) Always Free VM.Standard.E2.1.Micro (AMD x86_64)** or **Ampere A1 (ARM64)** Ubuntu instance.
 
 ---
 
+## ⚡ Core Architecture: Strict Single Stream Mode
+
+The system enforces **Strict Single Stream Mode**. Dual simultaneous streaming has been permanently eliminated. At any moment, **strictly ONE mode** is active:
+
+1. **HORIZONTAL 16:9 (Standard Landscape)**
+   - **Stream Key**: `settings.youtube.horizontalStreamKey`
+   - **Resolution**: `1920 × 1080` (16:9 aspect ratio)
+   - **Playlist**: `stream.playlists.horizontal`
+   - **Processes**: Exactly 1 FFmpeg publisher process + 1 video feeder
+   - **YouTube Broadcast**: Resolved and bound strictly to the Horizontal LiveStream
+   - **Orientation Gate**: Video files must have $width \ge height$. Vertical videos are rejected with HTTP 422 `E_HORIZONTAL_VIDEO_REQUIRED`.
+
+2. **VERTICAL 9:16 (YouTube Shorts Portrait)**
+   - **Stream Key**: `settings.youtube.streamKey`
+   - **Resolution**: `1080 × 1920` (9:16 aspect ratio)
+   - **Playlist**: `stream.playlists.vertical`
+   - **Processes**: Exactly 1 FFmpeg publisher process + 1 video feeder
+   - **YouTube Broadcast**: Resolved and bound strictly to the Vertical LiveStream
+   - **Orientation Gate**: Video files must have $height > width$. Horizontal videos are rejected with HTTP 422 `E_VERTICAL_VIDEO_REQUIRED`.
+
+### Invariants:
+- **Zero Simultaneous Streaming**: Never runs horizontal and vertical publishers together. Secondary PID is permanently `null`.
+- **Zero Cross-Mode Fallback**: Missing key or empty playlist fails stream start immediately.
+- **Mode Switch Lock**: Changing mode while the stream is running returns HTTP 409 Conflict (`E_STREAM_RUNNING`). The stream must be stopped before switching modes.
+- **Hot Playlist Updates**: Updating the playlist of the active mode applies smoothly at the next video boundary without restarting playback. Modifying the inactive mode playlist never disturbs current playback.
+
+---
+
 ## ⚡ Quick-Reference Command Cheat Sheet
 
-For quick daily administration, copy and run these commands:
+For daily administration, copy and run these commands:
 
 ### 1. Connect & Open Dashboard (Run on Local Machine)
 ```bash
@@ -36,7 +65,41 @@ sudo systemctl status yt-live-manager
 npm start   # or: node src/server.js
 ```
 
-### 3. One-Time YouTube OAuth Setup (Autonomous Lifecycle)
+### 3. Check Stream Mode & Switch Modes via CLI
+```bash
+# Check currently selected stream mode (horizontal or vertical):
+curl -s http://127.0.0.1:3000/api/stream/mode
+
+# Switch to Horizontal 16:9 mode (stream must be stopped):
+curl -s -X POST http://127.0.0.1:3000/api/stream/mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"horizontal"}'
+
+# Switch to Vertical 9:16 mode (stream must be stopped):
+curl -s -X POST http://127.0.0.1:3000/api/stream/mode \
+  -H "Content-Type: application/json" \
+  -d '{"mode":"vertical"}'
+```
+
+### 4. Run Acceptance Verification Suite
+```bash
+# Run complete Single Stream production verification on VPS:
+cd /opt/yt-live-manager && sudo -u ytlive node scripts/verify-single-stream-prod.js
+
+# Run advanced multi-mode, auto-recycle, hot-playlist acceptance test:
+cd /opt/yt-live-manager && sudo -u ytlive node scripts/verify-advanced-acceptance.js
+```
+
+### 5. Check Live Stream Telemetry & Dashboard Status
+```bash
+# View full terminal telemetry dashboard:
+node scripts/status.js
+
+# Check YouTube Live broadcast lifecycle:
+curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
+```
+
+### 6. One-Time YouTube OAuth Setup (Autonomous Lifecycle)
 ```bash
 # Run one-time OAuth 2.0 bootstrap on VPS (or locally):
 node scripts/oauth-setup.js
@@ -51,28 +114,19 @@ sudo nano /etc/yt-live-manager/env
 sudo systemctl restart yt-live-manager
 ```
 
-### 4. Check YouTube Live Lifecycle & Ingest Status (Run on VPS)
-```bash
-# Verify autonomous YouTube Live API state:
-curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
-
-# View full streaming telemetry, bandwidth, and destination states:
-node scripts/status.js
-```
-
-### 5. Update Application Code (Run on VPS)
+### 7. Update Application Code (Run on VPS)
 ```bash
 # Pull latest code and run safe update with automated backup & health check:
 cd ~/yt-live-manager && git pull origin main && sudo bash update.sh
 ```
 
-### 6. Reclaim ~250 MB+ RAM (Run on VPS)
+### 8. Reclaim ~250 MB+ RAM (Run on VPS)
 ```bash
 # Trim heavy idle background daemons (snapd, journald buffers, caches):
 sudo bash /opt/yt-live-manager/scripts/optimize-vps.sh
 ```
 
-### 7. View Live Logs (Run on VPS)
+### 9. View Live Logs (Run on VPS)
 ```bash
 # View live stream logs (stream keys & OAuth tokens automatically redacted):
 sudo journalctl -u yt-live-manager -f
@@ -125,8 +179,8 @@ On your OCI VM:
    ```
    The installer automatically executes:
    - **Architecture Detection:** Identifies `x86_64` (E2.1.Micro) or `aarch64` (A1.Flex).
-   - **Swap Protection:** Automatically sets up a **2 GB swapfile** (`/swapfile`, `swappiness=10`) if total swap is under 1 GB, protecting the 1 GB RAM instance from Linux OOM kills.
-   - **Package Dependencies:** Installs `ffmpeg`, `ffprobe`, `curl`, `ca-certificates`.
+   - **Swap Protection:** Sets up a **2 GB swapfile** (`/swapfile`, `swappiness=10`) if total swap is under 1 GB, protecting the 1 GB RAM instance from Linux OOM kills.
+   - **Package Dependencies:** Installs `ffmpeg`, `ffprobe`, `curl`, `ca-certificates`, `yt-dlp`.
    - **Node.js LTS:** Installs Node.js 22 LTS via NodeSource.
    - **Dedicated User:** Creates system service user `ytlive`.
    - **Directory Structure:** Sets up `/opt/yt-live-manager` with strict `0700` permissions.
@@ -180,20 +234,20 @@ Streaming to YouTube involves two distinct layers:
 1. **RTMPS Ingest Transport (FFmpeg)**:
    - Connects to Google's edge ingest server (`rtmps://a.rtmps.youtube.com:443/live2/<streamKey>`).
    - TCP packets and ACK bytes confirm physical data delivery to Google.
-   - YouTube Studio reports `Connection: Excellent`, but the broadcast remains at `Preparing stream` until the lifecycle is transitioned.
+   - Ingest uses the stream key corresponding to the selected mode (`horizontalStreamKey` for 16:9, `streamKey` for 9:16).
 
 2. **Broadcast Lifecycle Management (YouTube Data API v3)**:
-   - **Stream Resolution:** Resolves the `liveStream` resource matching your reusable stream key (`cdn.ingestionInfo.streamName === streamKey`), paginating across channels with >50 streams.
+   - **Stream Resolution:** Resolves the `liveStream` resource matching the active mode's stream key (`cdn.ingestionInfo.streamName === streamKey`).
    - **Ingest Health Polling:** Verifies `liveStream.status.streamStatus === 'active'` before attempting any transition.
    - **Broadcast Binding:** Resolves the `liveBroadcast` bound to the active stream, prioritizing `live` > `testing` > `ready`.
    - **Auto-Start Handling:**
      - If `enableAutoStart === true`: Awaits YouTube's automated ingest-to-live transition (up to 30s).
-     - If `enableAutoStart === false` (or auto-start stalls): Explicitly dispatches `liveBroadcasts.transition(broadcastStatus='live')`.
-   - **Auto-Recycle Rollover:** Once a broadcast ends and transitions to `complete`, YouTube permanently locks it. On the next session start, the manager automatically instantiates a fresh broadcast via `createAndBindBroadcast()`, binds it to the reusable stream, and transitions it to `live`.
+     - If `enableAutoStart === false` (or auto-start stalls): Explicitly transitions broadcast to `live`.
+   - **Auto-Recycle Rollover:** Once a broadcast ends and transitions to `complete`, YouTube permanently locks it. On the next session cycle, the manager automatically instantiates a fresh broadcast via `createAndBindBroadcast()`, binds it to the mode's reusable stream, and transitions it to `live`.
 
 ---
 
-### 5.2 Decoupled Dashboard Telemetry States
+### 5.2 Telemetry States
 
 The dashboard and internal telemetry strictly separate encoder health from YouTube publication:
 
@@ -201,8 +255,8 @@ The dashboard and internal telemetry strictly separate encoder health from YouTu
 |:---|:---|:---|
 | **FFmpeg Running (Unmanaged)** | `FFMPEG RUNNING (RTMPS ACTIVE • API UNCONFIGURED)` | FFmpeg is transmitting to YouTube RTMPS ingest; YouTube API credentials are not set. The server **never claims YouTube LIVE** without verification. |
 | **Ingest Active, Preparing** | `FFMPEG HEALTHY (INGEST ACTIVE • BROADCAST: PREPARING)` | Google ingest server has received valid video chunks (`streamStatus: active`); broadcast is awaiting auto-start or transition. |
-| **YouTube Broadcast Live** | `YOUTUBE LIVE (BROADCAST LIVE)` | Data API confirms `lifeCycleStatus: live`. Video is published and viewable by your audience. |
-| **Dual Live (Shorts + 16:9)** | `DUAL LIVE (YOUTUBE BROADCAST LIVE)` | Primary Vertical (Shorts) broadcast is verified LIVE, and Secondary Horizontal (16:9) stream is actively transmitting. |
+| **YouTube Broadcast Live (Horizontal)** | `YOUTUBE LIVE (HORIZONTAL 16:9 • BROADCAST LIVE)` | Data API confirms `lifeCycleStatus: live` for the Horizontal stream key. |
+| **YouTube Broadcast Live (Vertical)** | `YOUTUBE LIVE (VERTICAL 9:16 • BROADCAST LIVE)` | Data API confirms `lifeCycleStatus: live` for the Vertical Shorts stream key. |
 
 ---
 
@@ -241,17 +295,14 @@ node scripts/oauth-setup.js --client-id="<YOUR_CLIENT_ID>" --client-secret="<YOU
 ```
 
 #### What Happens:
-1. The tool prints a Google authorization link:
-   ```
-   https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=http%3A%2F%2Flocalhost%3A8085%2Foauth2callback&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fyoutube&access_type=offline&prompt=consent&state=...
-   ```
+1. The tool prints a Google authorization link.
 2. Open that URL in your browser, sign in with the Google account for your YouTube channel, and click **Allow**.
 3. **If running locally or with SSH port forwarding (`ssh -L 8085:localhost:8085 ...`)**:
    The browser redirects to `http://localhost:8085/oauth2callback` and the CLI automatically captures the code.
 4. **If running directly on the VPS without port forwarding**:
    Your browser will show a connection error after redirecting to `http://localhost:8085/oauth2callback?code=4/0A...`.
    **Copy the full URL from your browser's address bar and paste it into the CLI prompt.**
-5. The CLI exchanges the authorization code for a persistent `refresh_token`, verifies your YouTube channel title via `channels.list(mine=true)`, and outputs the exact configuration block.
+5. The CLI exchanges the authorization code for a persistent `refresh_token`, verifies your YouTube channel title, and outputs the exact configuration block.
 
 ---
 
@@ -277,64 +328,78 @@ Restart the service:
 sudo systemctl restart yt-live-manager
 ```
 
-Verify that the lifecycle manager is now configured:
+Verify that the lifecycle manager is configured:
 ```bash
 curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
-```
-
-**Expected Output:**
-```json
-{
-  "configured": true,
-  "liveStreamId": null,
-  "broadcastId": null,
-  "streamStatus": "unknown",
-  "healthStatus": "unknown",
-  "lifeCycleStatus": "unknown",
-  "isBroadcastLive": false,
-  "lastCheckedAt": null,
-  "lastError": null
-}
 ```
 
 Now, clicking **START** in the dashboard or triggering automated scheduling will autonomously connect FFmpeg, verify ingest stream activation, resolve the bound broadcast, and transition your YouTube channel to **LIVE** with no browser or YouTube Studio window required!
 
 ---
 
-## Phase 6: Video Export & Going Live
+## Phase 6: Mode-Specific Playlists, Video Export & Going Live
 
-### Video Export Guidelines (Zero CPU Stream-Copy Mode)
-On your editing software (Premiere / DaVinci / CapCut / Handbrake), export your vertical video with these parameters:
+### 6.1 Configuring Both Stream Keys
+In **Settings ⚙️** (or directly in `/opt/yt-live-manager/config/settings.json`):
+1. **Vertical 9:16 Stream Key (`settings.youtube.streamKey`)**:
+   - Set to your YouTube Live key for Shorts/portrait broadcasts.
+2. **Horizontal 16:9 Stream Key (`settings.youtube.horizontalStreamKey`)**:
+   - Set to your YouTube Live key for standard landscape broadcasts.
 
+Both keys are encrypted at rest with AES-256-GCM and masked in all logs and API responses.
+
+---
+
+### 6.2 Video Export Guidelines (Zero CPU Stream-Copy Mode)
+
+#### For HORIZONTAL 16:9 Mode:
 | Parameter | Recommended Setting | Purpose |
 |:---|:---|:---|
-| **Resolution** | `1080 × 1920` (9:16 Vertical) | Native vertical HD format for Shorts & Live |
+| **Resolution** | `1920 × 1080` (16:9 Landscape) | Standard full HD format for landscape live |
 | **Video Codec** | `H.264 (AVC)` High Profile | Standard H.264 profile for YouTube RTMP ingestion |
-| **Audio Codec** | `AAC` (128 kbps, 44.1 kHz, Stereo) | Standard AAC stereo audio |
+| **Audio Codec** | `AAC` (128 kbps, 44.1 or 48 kHz, Stereo) | Standard AAC stereo audio |
 | **Frame Rate** | `30 fps` (or 24 / 25 / 60) | Constant frame rate |
 | **Keyframe Interval (GOP)** | `2.0 seconds` (GOP = 60 at 30 fps) | Required by YouTube live ingestion buffer |
-| **Bitrate** | `4 Mbps (4000 kbps)` CBR / VBR | Consumes ~49 GB/day (~1.47 TB/30d), well under OCI 10 TB allowance |
+| **Bitrate** | `4 Mbps (4000 kbps)` CBR / VBR | Optimal balance of quality and egress bandwidth |
 
-### Going Live on the Dashboard
-1. **Upload Video:**
-   - In the **Video Library** card, drag & drop your exported `.mp4` file.
-   - Once probed, confirm the green badge shows **COMPATIBLE**.
-   - Click **Set Active** to assign it as the live stream source.
+#### For VERTICAL 9:16 Mode:
+| Parameter | Recommended Setting | Purpose |
+|:---|:---|:---|
+| **Resolution** | `1080 × 1920` (9:16 Portrait) | Native vertical HD format for YouTube Shorts Feed |
+| **Video Codec** | `H.264 (AVC)` High Profile | Standard H.264 profile for YouTube RTMP ingestion |
+| **Audio Codec** | `AAC` (128 kbps, 44.1 or 48 kHz, Stereo) | Standard AAC stereo audio |
+| **Frame Rate** | `30 fps` (or 24 / 25 / 60) | Constant frame rate |
+| **Keyframe Interval (GOP)** | `2.0 seconds` (GOP = 60 at 30 fps) | Required by YouTube live ingestion buffer |
+| **Bitrate** | `4 Mbps (4000 kbps)` CBR / VBR | Optimal balance of quality and egress bandwidth |
 
-2. **Configure Settings:**
-   - Open **Settings ⚙️**.
-   - Paste your YouTube **Stream Key**.
-   - Confirm RTMPS URL: `rtmps://a.rtmps.youtube.com:443/live2`
-   - Confirm Stream Mode: `auto` (or `copy`)
-   - Confirm Video Bitrate: `4 Mbps`
-   - Click **Save Configuration**. Confirm prompt displays `✅ Settings saved! YouTube stream key is active.`
+---
 
-3. **Start the Stream (Autonomous Headless Flow):**
-   - In **Stream Control**, click **START STREAM**.
-   - The encoder status will update: `STOPPED` → `STARTING` → `RUNNING`.
-   - The autonomous lifecycle manager resolves your stream key (`shot`), polls for Google ingest `streamStatus: active`, resolves the bound broadcast, and triggers the transition to `live`.
-   - The status badge will display: `YOUTUBE LIVE (BROADCAST LIVE)` (or `DUAL LIVE (YOUTUBE BROADCAST LIVE)` if dual output is enabled).
-   - Your channel is now live to viewers with **Google Chrome and YouTube Studio completely closed**!
+### 6.3 Going Live on the Dashboard
+
+1. **Select Active Stream Mode:**
+   - Under **Stream Mode Selection**, choose:
+     - `HORIZONTAL (16:9 Landscape)` OR `VERTICAL (9:16 Portrait)`
+   - The UI displays the active stream key indicator and active live mode badge.
+   - *Note: Mode selection is locked while the stream is running.*
+
+2. **Manage Mode-Specific Playlists:**
+   - Switch between **[ Horizontal 16:9 Playlist ]** and **[ Vertical 9:16 Playlist ]** tabs.
+   - The active streaming mode shows a `● LIVE MODE` chip.
+   - Set playback order: `Serial` (sequential loop) or `Shuffle` (randomized loop).
+
+3. **Upload Videos:**
+   - Click **+ Add Video**. The dialog automatically indicates the required orientation:
+     - In Horizontal mode: Accepts 16:9 videos ($width \ge height$). Rejects 9:16 files with `E_HORIZONTAL_VIDEO_REQUIRED`.
+     - In Vertical mode: Accepts 9:16 videos ($height > width$). Rejects 16:9 files with `E_VERTICAL_VIDEO_REQUIRED`.
+   - Valid uploads are automatically appended to the selected mode's playlist.
+
+4. **Start the Stream:**
+   - Click **START STREAM**.
+   - The engine validates:
+     1. Active mode stream key is present (`E_MISSING_STREAM_KEY` if missing).
+     2. Active mode playlist contains at least one playable video (`E_PLAYLIST_EMPTY` if empty).
+     3. Scheduler window allows streaming (`E_SCHEDULED` if outside window).
+   - Once validated, exactly 1 FFmpeg publisher starts, and YouTube Live transitions to **LIVE**.
 
 ---
 
@@ -343,23 +408,25 @@ On your editing software (Premiere / DaVinci / CapCut / Handbrake), export your 
 | ID | Test | Procedure & Verification | Status |
 |:---|:---|:---|:---:|
 | **A1** | Clean Ubuntu install | `sudo bash install.sh` completes cleanly; dashboard reachable via SSH tunnel | ✅ Pass |
-| **A2** | Compatible video upload | Upload 1080×1920 H.264/AAC file; badge shows `COMPATIBLE`; stream starts in **copy** mode | ✅ Pass |
-| **A3** | Non-compliant video probe | Upload a 1920×1080 (landscape) video; badge shows `REQUIRES TRANSCODING` with plain-language explanation | ✅ Pass |
-| **A4** | Transcode benchmark | If transcode is selected, speed gauge and CPU are logged; copy mode runs at < 4% CPU | ✅ Pass |
+| **A2** | Compatible video upload | Upload 1080×1920 (vertical) or 1920×1080 (horizontal); badge shows `COMPATIBLE`; stream starts in **copy** mode | ✅ Pass |
+| **A3** | Orientation mismatch rejection | Upload 9:16 in Horizontal mode $\to$ HTTP 422 `E_HORIZONTAL_VIDEO_REQUIRED`. Upload 16:9 in Vertical mode $\to$ HTTP 422 `E_VERTICAL_VIDEO_REQUIRED`. Temp files unlinked | ✅ Pass |
+| **A4** | Transcode benchmark | Stream-copy mode runs at < 4% CPU on 1 OCPU instance | ✅ Pass |
 | **A5** | Continuous loop test | Video loops seamlessly forever; zero frame drops, PTS remains monotonic | ✅ Pass |
 | **A6** | Crash recovery test | Run `sudo kill -9 $(pgrep ffmpeg)` on VM; dashboard shows `RECONNECTING` and restarts within 15s | ✅ Pass |
 | **A7** | Egress network recovery | Block egress: `sudo iptables -A OUTPUT -p tcp --dport 443 -j DROP`. Wait 1 min, then unblock: `sudo iptables -D OUTPUT -p tcp --dport 443 -j DROP`. Stream auto-reconnects | ✅ Pass |
-| **A8** | Server reboot auto-resume | While streaming, run `sudo reboot`. Reconnect SSH tunnel after 60s: stream resumes automatically with usage intact | ✅ Pass |
+| **A8** | Server reboot auto-resume | While streaming, run `sudo reboot`. Reconnect SSH tunnel after 60s: stream resumes automatically in active mode with usage intact | ✅ Pass |
 | **A9** | Safety limit shutdown | In Settings, set safety limit to `0.01 GB`. Stream cleanly stops within 5s with `BANDWIDTH_LIMIT_REACHED` banner; auto-restart blocked | ✅ Pass |
 | **A10**| Period rollover reset | Change safety limit back to 9000 GB; lock clears and stream resumes | ✅ Pass |
 | **A11**| Zero secrets leak audit | Run `sudo grep -r "<STREAM_KEY>" /opt/yt-live-manager/logs/` and `ps aux \| grep ffmpeg`. Matches found: **0** | ✅ Pass |
 | **A12**| Disk space protection | Video upload rejects files if remaining free space is under 5 GB disk reserve | ✅ Pass |
 | **A13**| Bitrate calculation | Adjust target bitrate in Settings; monthly forecast and daily allowance update immediately | ✅ Pass |
 | **A14**| Safe updater & rollback | Run `sudo bash update.sh`; settings and data are preserved intact; automatic rollback on failure | ✅ Pass |
-| **A15**| Autonomous YouTube Lifecycle | START triggers FFmpeg → `streamStatus: active` → resolves bound broadcast → transitions to `live` (Chrome CLOSED) | ✅ Pass |
-| **A16**| Auto-Recycle Rollover | After recycle, completed broadcast is detected and fresh broadcast is created/bound/transitioned automatically | ✅ Pass |
+| **A15**| Autonomous YouTube Lifecycle | START triggers FFmpeg $\to$ `streamStatus: active` $\to$ resolves bound broadcast $\to$ transitions to `live` (Chrome CLOSED) | ✅ Pass |
+| **A16**| Auto-Recycle Rollover | After recycle, completed broadcast is detected and fresh broadcast is created/bound/transitioned automatically in active mode | ✅ Pass |
 | **A17**| Zero secrets leak audit (OAuth) | Audit logs and `/api/status`: `YOUTUBE_CLIENT_SECRET` and `YOUTUBE_REFRESH_TOKEN` matches found: **0** | ✅ Pass |
-| **A18**| Decoupled Dual Live | Primary vertical process runs independently from secondary horizontal process; secondary error cannot crash primary | ✅ Pass |
+| **A18**| Single Stream Invariant | Exactly 1 publisher process runs; secondary PID is `null`; zero dual-streaming | ✅ Pass |
+| **A19**| Mode-Specific Playlist Isolation | Horizontal playlist and Vertical playlist operate independently. Hot sync updates active mode smoothly at boundary | ✅ Pass |
+| **A20**| Mode Switch Lock | Attempting to switch mode while streaming returns HTTP 409 `E_STREAM_RUNNING`. Switching after clean stop succeeds seamlessly | ✅ Pass |
 
 ---
 
@@ -456,34 +523,19 @@ systemctl show yt-live-manager -p MemoryCurrent,MemoryMax
 Before uploading videos, pre-encode them locally on your computer to ensure **100% stream-copy mode** compatibility (Zero CPU encoding on your VPS):
 
 #### Windows (Using the included Smart GPU Converter):
-Simply double-click **`YT_Live_GPU_Converter.bat`** in the repository root.
-- Automatically selects any video with a file dialog.
-- Detects the source video's bitrate and duration.
-- **Preserves original file size** (e.g. 2 GB remains ~2 GB, never bloating into 8 GB).
-- Automatically caps high-bitrate videos (e.g. 10 Mbps) at **4 Mbps** to stay within YouTube Live & bandwidth limits.
-- Outputs 1080×1920 30fps vertical video that is **100% Stream-Copy Ready** (No re-encode errors on upload!).
+Double-click **`YT_Live_GPU_Converter.bat`** in the repository root.
+- Automatically prompts for any video file with a file dialog.
+- Converts video with NVIDIA NVENC hardware acceleration.
+- Strips 100% of metadata (EXIF, camera serials, timestamps).
+- Generates both:
+  1. `<name>_Vertical_Shorts.mp4` (1080×1920 9:16 for Vertical mode)
+  2. `<name>_Horizontal_16x9.mp4` (1920×1080 16:9 for Horizontal mode)
+- Outputs are **100% Stream-Copy Ready**!
 
-#### Windows PowerShell Command (Manual):
-```powershell
-# Probe source bitrate and cap at 4000k max
-$input = "input.mp4"
-$raw = & ffprobe -v error -select_streams v:0 -show_entries stream=bit_rate -of default=noprint_wrappers=1:nokey=1 "$input"
-$b = 0; if ($raw -and [int64]::TryParse($raw.Trim(), [ref]$b) -and $b -gt 0) { } else { $b = 4000000 }
-$kb = [Math]::Min([Math]::Max(500, [int][Math]::Round($b / 1000)), 4000)
-$buf = [Math]::Min($kb * 2, 8000)
+#### Manual FFmpeg Commands:
 
-ffmpeg -i "$input" `
-  -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" `
-  -c:v libx264 -preset slow -profile:v high -b:v "${kb}k" -maxrate "${kb}k" -bufsize "${buf}k" `
-  -g 60 -keyint_min 60 -sc_threshold 0 `
-  -c:a aac -b:a 128k -ar 48000 -ac 2 `
-  -pix_fmt yuv420p -movflags +faststart `
-  "output_1080x1920.mp4"
-```
-
-#### Linux / macOS Terminal Command:
+##### To generate Vertical 9:16 Video (1080×1920):
 ```bash
-# Uses -crf 20 with -maxrate 4M to adapt to source complexity without bloating file size
 ffmpeg -i "input.mp4" \
   -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" \
   -c:v libx264 -preset slow -profile:v high -crf 20 -maxrate 4000k -bufsize 8000k \
@@ -493,11 +545,22 @@ ffmpeg -i "input.mp4" \
   "output_1080x1920.mp4"
 ```
 
+##### To generate Horizontal 16:9 Video (1920×1080):
+```bash
+ffmpeg -i "input.mp4" \
+  -vf "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1" \
+  -c:v libx264 -preset slow -profile:v high -crf 20 -maxrate 4000k -bufsize 8000k \
+  -g 60 -keyint_min 60 -sc_threshold 0 \
+  -c:a aac -b:a 128k -ar 48000 -ac 2 \
+  -pix_fmt yuv420p -movflags +faststart \
+  "output_1920x1080.mp4"
+```
+
 ---
 
 ### 8.5 Direct CLI Video Upload to VPS (Bypassing Browser)
 
-If your browser upload is interrupted or you are transferring large videos (> 2 GB), transfer directly via SSH:
+If transferring large videos (> 2 GB), transfer directly via SSH:
 
 #### Windows PowerShell (via SCP):
 ```powershell
@@ -522,7 +585,6 @@ sudo mv /home/ubuntu/output_1080x1920.mp4 /opt/yt-live-manager/videos/
 sudo chown ytlive:ytlive /opt/yt-live-manager/videos/output_1080x1920.mp4
 sudo chmod 0644 /opt/yt-live-manager/videos/output_1080x1920.mp4
 ```
-*(Once moved, the video will appear immediately in your dashboard Video Library upon refresh.)*
 
 ---
 
@@ -542,7 +604,6 @@ sudo systemctl restart yt-live-manager
 ```
 
 #### 2. Clear Stale Maintenance Mode or Pre-Flight Errors
-If the dashboard reports `In maintenance mode (admin)` or pre-flight gate errors:
 ```bash
 # Run schema and state auto-healer:
 cd /opt/yt-live-manager && sudo node scripts/migrate.js
@@ -550,7 +611,6 @@ sudo systemctl restart yt-live-manager
 ```
 
 #### 3. Terminate Stuck FFmpeg Processes & Clear Locks
-If an FFmpeg process becomes unresponsive or the engine reports a lock collision:
 ```bash
 # Force-kill any lingering ffmpeg instances
 sudo pkill -9 ffmpeg || true
@@ -563,9 +623,8 @@ sudo systemctl restart yt-live-manager
 ```
 
 #### 4. Test YouTube Ingestion Connectivity
-Verify that your OCI VM can reach YouTube's RTMP ingestion endpoints over port 443:
 ```bash
-# Test TCP connection to primary YouTube RTMPS server:
+# Test TCP connection to YouTube RTMPS server:
 curl -v telnet://a.rtmps.youtube.com:443 --connect-timeout 5
 
 # Test TLS handshake:
@@ -573,7 +632,6 @@ openssl s_client -connect a.rtmps.youtube.com:443 -servername a.rtmps.youtube.co
 ```
 
 #### 5. Inspect or Unlock Bandwidth Safety Lock
-If the 9 TB safety limit was reached and streaming locked:
 ```bash
 # View current month bandwidth statistics:
 cat /opt/yt-live-manager/data/bandwidth-usage.json
@@ -582,40 +640,20 @@ cat /opt/yt-live-manager/data/bandwidth-usage.json
 cat /opt/yt-live-manager/data/stream-state.json
 ```
 
-#### 6. Create Manual Snapshot Backup
+#### 6. Run Acceptance Verification Test Suites on VPS
 ```bash
-# Create an on-demand snapshot of settings and state data:
-sudo mkdir -p /opt/yt-live-manager/backups
-sudo tar -czf /opt/yt-live-manager/backups/manual-snapshot-$(date +%Y%m%d%H%M%S).tar.gz -C /opt/yt-live-manager config data
-sudo chown ytlive:ytlive /opt/yt-live-manager/backups/*.tar.gz
-```
+# Run core single-stream verification:
+cd /opt/yt-live-manager && sudo -u ytlive node scripts/verify-single-stream-prod.js
 
-#### 7. YouTube Live API Diagnostic & Token Verification
-```bash
-# Verify whether YouTube Data API is configured and view active state:
-curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
-
-# View active stream ingest status and broadcast lifecycle status:
-curl -s http://127.0.0.1:3000/api/stream/status | jq '{status, youtubeIngest, youtubeBroadcast, youtubeStreamActive, youtubeBroadcastLive, youtubeLive}'
-
-# Re-run one-time OAuth setup if tokens need refreshing or updating:
-cd /opt/yt-live-manager && node scripts/oauth-setup.js
-
-# Test Google OAuth token refresh directly from command line (reads /etc/yt-live-manager/env):
-sudo -u ytlive env $(cat /etc/yt-live-manager/env | grep -v '^#' | xargs) node -e "
-import('./src/youtube-api-manager.js').then(async m => {
-  m.initYouTubeApi(process.env);
-  const token = await m.getAccessToken();
-  console.log('✔ OAuth access token refreshed successfully!');
-}).catch(err => console.error('❌ Token refresh failed:', err.message));
-"
+# Run full multi-mode, auto-recycle, hot-playlist acceptance test:
+cd /opt/yt-live-manager && sudo -u ytlive node scripts/verify-advanced-acceptance.js
 ```
 
 ---
 
-## YouTube URL Direct Import (yt-dlp Feature)
+## Phase 9: YouTube URL Direct Import (`yt-dlp` Feature)
 
-The dashboard includes a **"▶️ YouTube URL"** tab in the Video Library panel that downloads and auto-converts any YouTube video directly into the correct vertical stream format.
+The dashboard includes a **"▶️ YouTube URL"** tab in the Video Library panel that downloads and auto-converts any YouTube video directly into the required stream format.
 
 ### How It Works
 
@@ -623,24 +661,14 @@ The dashboard includes a **"▶️ YouTube URL"** tab in the Video Library panel
 2. Paste any YouTube URL (watch, shorts, live, youtu.be).
 3. Click **Download** — the server runs a two-stage pipeline:
    - **Stage 1 (Download):** `yt-dlp` downloads the best-quality MP4 stream from YouTube to the server.
-   - **Stage 2 (Convert):** FFmpeg re-encodes the video to **1080×1920 30fps** with the exact output format:
-     ```
-     scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2
-     libx264 · veryfast preset · 4 Mbps CBR · 2s GOP · AAC 128k 48kHz stereo · +faststart
-     ```
+   - **Stage 2 (Convert):** FFmpeg re-encodes the video to the target stream format with optimal GOP, bitrate, and audio specs.
 4. Real-time progress (Download % with speed/ETA, then Conversion % with encode speed) is shown in the UI.
-5. On completion, a prompt asks whether to set the video as the active live stream source.
+5. On completion, the video is automatically added to the mode's library and playlist.
 
 ### yt-dlp Requirement
 
-`yt-dlp` must be installed on the VPS. Both `install.sh` and `update.sh` handle this automatically:
-
+`yt-dlp` is installed automatically by `install.sh` and `update.sh`:
 ```bash
-# Installed automatically during setup or update:
-sudo bash install.sh
-# or
-sudo bash update.sh
-
 # Verify installation:
 yt-dlp --version
 
@@ -648,22 +676,3 @@ yt-dlp --version
 sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
   -o /usr/local/bin/yt-dlp && sudo chmod a+rx /usr/local/bin/yt-dlp
 ```
-
-### Supported URL Formats
-
-| Type | Example |
-|------|---------|
-| Standard watch | `https://www.youtube.com/watch?v=VIDEO_ID` |
-| Short URL | `https://youtu.be/VIDEO_ID` |
-| Shorts | `https://www.youtube.com/shorts/VIDEO_ID` |
-| Live | `https://www.youtube.com/live/VIDEO_ID` |
-| Mobile | `https://m.youtube.com/watch?v=VIDEO_ID` |
-
-### Notes & Constraints
-
-- Only **one** download/conversion job runs at a time. A second request returns HTTP 409.
-- No video length limit — existing disk space reserve checks apply.
-- The raw download temp file is cleaned up after conversion.
-- Cancel button stops both download and conversion and cleans up temp files.
-- If the page is refreshed mid-job, the UI auto-resumes polling on page load.
-- If `yt-dlp` is not installed, the button shows a clear error message with the `bash update.sh` command.
