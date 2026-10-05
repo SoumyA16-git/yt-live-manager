@@ -177,7 +177,7 @@
         </div>
         <div class="dual-output-chip" id="chip-stream-output" style="flex: 1; min-width: 180px;">
           <span class="status-dot-sm" id="dot-stream-output"></span>
-          <span class="dual-output-name">OUTPUT:</span>
+          <span class="dual-output-name" id="label-stream-output">OUTPUT:</span>
           <span class="dual-output-state" id="text-stream-output">DISCONNECTED</span>
         </div>
         <div class="dual-output-chip" id="chip-source-status" style="flex: 1; min-width: 200px;">
@@ -719,22 +719,23 @@
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- Save Footer Actions -->
-          <div class="sched-actions-footer">
-            <button type="button" id="btn-save-schedule" class="btn btn-primary btn-sm">
-              <svg class="icon icon-sm" viewBox="0 0 24 24">
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                <polyline points="17 21 17 13 7 13 7 21" />
-                <polyline points="7 3 7 8 15 8" />
-              </svg>
-              Save & Apply Schedule
-            </button>
-            <span id="sched-save-feedback" class="sched-feedback" style="display: none;">Schedule updated
-              successfully</span>
-          </div>
+        <!-- Save Footer Actions -->
+        <div class="sched-actions-footer">
+          <button type="button" id="btn-save-schedule" class="btn btn-primary btn-sm">
+            <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            Save & Apply Schedule
+          </button>
+          <span id="sched-save-feedback" class="sched-feedback" style="display: none;">Schedule updated
+            successfully</span>
         </div>
       </div>
+    </div>
 
       <!-- Panel C: Video Library & Media Switcher -->
       <div class="card" id="panel-videos">

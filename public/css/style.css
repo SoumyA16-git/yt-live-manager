@@ -547,6 +547,7 @@ input:checked + .slider:before {
   width: 100%;
   height: auto;
   box-sizing: border-box;
+  min-width: 0;
 }
 
 .card:hover {

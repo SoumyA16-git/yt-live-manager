@@ -42,7 +42,15 @@ export function createVideosRouter() {
       const playlist = Array.isArray(streamSettings.playlist) ? streamSettings.playlist : (activeVideoId ? [activeVideoId] : []);
       const playbackOrder = streamSettings.playbackOrder || 'sequential';
       const logicalVideos = buildLogicalVideos(videos, playlist, activeVideoId);
-      res.json({ videos, logicalVideos, activeVideoId, playlist, playbackOrder });
+      res.json({
+        videos,
+        logicalVideos,
+        activeVideoId,
+        playlist,
+        playlists: streamSettings.playlists || { horizontal: [], vertical: [] },
+        streamMode: streamSettings.mode || 'horizontal',
+        playbackOrder,
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

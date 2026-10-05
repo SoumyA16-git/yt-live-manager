@@ -345,7 +345,6 @@ async function fetchStatus() {
 
 function renderStatus(data) {
   _currentStatus = data.status || 'STOPPED';
-  const isDual = Boolean(data.isDualStream);
 
   // Update Active Key and Stream Mode Badges
   const streamMode = (data.streamMode || _activeStreamMode || 'horizontal').toLowerCase();
@@ -517,9 +516,6 @@ function renderBandwidthSpeedMeter(data) {
         currentKbps = Math.round(activeVideo.probe.videoBitrate / 1000) + Math.round((activeVideo.probe.audioBitrate || 128000) / 1000);
       } else {
         currentKbps = Math.round((_currentSettings?.stream?.videoBitrateMbps || 4.0) * 1000);
-      }
-      if (data.isDualStream) {
-        currentKbps = Math.round(currentKbps * 1.85); // vertical shorts + horizontal normal feed
       }
     }
   }
@@ -1595,7 +1591,7 @@ function renderLogs(lines) {
     const lvl = l.level || 'info';
     row.className = `log-line ${lvl}`;
     const time = l.ts ? new Date(l.ts).toLocaleTimeString() : '';
-    row.textContent = `[${time}] [${lvl.toUpperCase()}] ${l.event || ''}: ${l.msg || l.raw || ''}`;
+    row.textContent = `[${time}] [${lvl.toUpperCase()}] ${l.event || ''}: ${l.msg || l.message || l.raw || ''}`;
     logViewer.appendChild(row);
   });
   logViewer.scrollTop = logViewer.scrollHeight;
@@ -1605,32 +1601,27 @@ function renderLogs(lines) {
 
 function updateDeckStreamKeyBadge(settings) {
   if (!deckStreamKeyBadge) return;
-  const isDual = settings?.youtube?.dualStreamEnabled !== false;
-  const hasKey = Boolean(settings?.youtube?.streamKeySet);
+  const hasVertKey = Boolean(settings?.youtube?.streamKeySet);
   const hasHorizKey = Boolean(settings?.youtube?.horizontalStreamKeySet);
-  const hasPrimaryKey = hasHorizKey || hasKey;
+  const isHoriz = _activeStreamMode === 'horizontal';
+  const activeKeyConfigured = isHoriz ? hasHorizKey : hasVertKey;
 
-  if (!hasPrimaryKey) {
-    deckStreamKeyBadge.textContent = 'Primary Key Missing';
+  if (!hasHorizKey && !hasVertKey) {
+    deckStreamKeyBadge.textContent = 'Stream Keys Missing';
     deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-    deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = 'Primary Horizontal 16:9 Stream Key is not configured! Click to open Settings.';
-  } else if (isDual && !hasKey) {
-    deckStreamKeyBadge.textContent = `Dual Live: Vertical Key Missing (...${settings.youtube.horizontalStreamKeyHint || settings.youtube.streamKeyHint})`;
-    deckStreamKeyBadge.style.borderColor = 'rgba(234, 179, 8, 0.6)';
-    deckStreamKeyBadge.style.color = '#eab308';
-    deckStreamKeyBadge.title = 'Dual Live is enabled, but Secondary Vertical Stream Key ("shot") is missing. Click to open Settings.';
-  } else if (isDual && hasHorizKey && hasKey) {
-    deckStreamKeyBadge.textContent = `Dual Live: 16:9 + 9:16 (...${settings.youtube.horizontalStreamKeyHint})`;
-    deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
-    deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = `Dual Live configured: Primary Horizontal (...${settings.youtube.horizontalStreamKeyHint}) & Secondary Vertical (...${settings.youtube.streamKeyHint}). Click to change.`;
+    deckStreamKeyBadge.style.color = '#f87171';
+    deckStreamKeyBadge.title = 'No YouTube stream keys configured! Click to open Settings.';
+  } else if (!activeKeyConfigured) {
+    deckStreamKeyBadge.textContent = isHoriz ? 'Horizontal Key Missing' : 'Vertical Key Missing';
+    deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+    deckStreamKeyBadge.style.color = '#f87171';
+    deckStreamKeyBadge.title = `${isHoriz ? 'Horizontal 16:9' : 'Vertical 9:16'} stream key is missing for the active mode. Click to open Settings.`;
   } else {
-    const hint = settings.youtube.horizontalStreamKeyHint || settings.youtube.streamKeyHint;
-    deckStreamKeyBadge.textContent = `Horizontal 16:9 (...${hint})`;
+    const hint = isHoriz ? settings.youtube?.horizontalStreamKeyHint : settings.youtube?.streamKeyHint;
+    deckStreamKeyBadge.textContent = `${isHoriz ? 'Horizontal 16:9' : 'Vertical 9:16'} (...${hint || 'Set'})`;
     deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
     deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = `Primary Horizontal 16:9 Stream Key is configured (...${hint}). Click to change.`;
+    deckStreamKeyBadge.title = `Active mode (${isHoriz ? 'Horizontal 16:9' : 'Vertical 9:16'}) stream key configured (...${hint || 'Set'}). Click to change.`;
   }
 }
 
@@ -1645,12 +1636,12 @@ function updateKeyFeedback() {
     keyBadge.textContent = `Saved (...${_currentSettings.youtube.streamKeyHint})`;
     keyBadge.className = 'badge-tag';
     cfgStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.streamKeyHint})`;
-    keyHintText.innerHTML = `Secondary Vertical 9:16 Stream Key ("shot") is saved (ends in ...${_currentSettings.youtube.streamKeyHint}). Used when Dual Feed Live is enabled.`;
+    keyHintText.innerHTML = `Vertical 9:16 Stream Key ("shot") is saved (ends in ...${_currentSettings.youtube.streamKeyHint}). Used for Vertical 9:16 live streams.`;
   } else {
     keyBadge.textContent = 'Optional';
     keyBadge.className = 'badge-tag';
     cfgStreamKey.placeholder = 'Paste Vertical 9:16 Stream Key ("shot")';
-    keyHintText.innerHTML = 'Optional for Dual Feed Live: Stream simultaneously to vertical 9:16 mobile Shorts feed.';
+    keyHintText.innerHTML = 'Stream key for YouTube 9:16 vertical / Shorts live broadcasts.';
   }
 }
 
@@ -1665,7 +1656,7 @@ function updateHorizontalKeyFeedback() {
     horizontalKeyBadge.textContent = `Saved (...${_currentSettings.youtube.horizontalStreamKeyHint})`;
     horizontalKeyBadge.className = 'badge-tag';
     cfgHorizontalStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint})`;
-    horizontalKeyHintText.innerHTML = `Primary Horizontal 16:9 Stream Key ("long") is saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}).`;
+    horizontalKeyHintText.innerHTML = `Horizontal 16:9 Stream Key ("long") is saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Used for Horizontal 16:9 live streams.`;
   } else {
     horizontalKeyBadge.textContent = 'Required';
     horizontalKeyBadge.className = 'badge-tag';
@@ -1707,9 +1698,6 @@ async function openSettings() {
       if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'none';
       if (btnRevealHorizText) btnRevealHorizText.textContent = 'Show';
       updateHorizontalKeyFeedback();
-    }
-    if (cfgDualStreamEnabled) {
-      cfgDualStreamEnabled.checked = settings.youtube?.dualStreamEnabled !== false;
     }
 
     cfgModePref.value = settings.stream?.modePreference || 'auto';
@@ -2166,6 +2154,7 @@ function startPolling() {
     fetchBandwidth();
     fetchScheduler();
     fetchSystem();
+    fetchLogs();
   }, 10000);
 }
 
@@ -2452,10 +2441,6 @@ async function init() {
   if (deckStreamKeyBadge) {
     deckStreamKeyBadge.addEventListener('click', openSettings);
   }
-  if (deckDualStreamBadge) {
-    deckDualStreamBadge.addEventListener('click', openSettings);
-  }
-
   settingsForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -2480,7 +2465,6 @@ async function init() {
       },
       youtube: {
         rtmpsUrl,
-        dualStreamEnabled: cfgDualStreamEnabled ? Boolean(cfgDualStreamEnabled.checked) : true,
       },
       bandwidth: {
         ...(Number.isFinite(safetyLimit) ? { safetyLimitTB: safetyLimit } : {}),
@@ -2502,10 +2486,10 @@ async function init() {
       modalSettings.classList.remove('open');
       await refreshAll();
 
-      showToast('YouTube stream configuration and dual stream preferences are active.', 'success', 'Settings Saved');
+      showToast('YouTube stream configuration saved successfully.', 'success', 'Settings Saved');
 
       if (res.requiresRestart) {
-        const isLive = statusText.textContent === 'RUNNING' || statusText.textContent === 'STARTING' || statusText.textContent === 'DUAL LIVE';
+        const isLive = statusText.textContent === 'RUNNING' || statusText.textContent === 'STARTING' || statusText.textContent.includes('LIVE');
         if (isLive && confirm('Settings saved! You modified parameters that require an FFmpeg restart. Restart the live stream now to apply changes?')) {
           await apiPost('/api/stream/restart');
           await fetchStatus();
