@@ -599,3 +599,43 @@ yt-dlp --version
 sudo curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
   -o /usr/local/bin/yt-dlp && sudo chmod a+rx /usr/local/bin/yt-dlp
 ```
+
+---
+
+## Phase 10: YouTube Studio Browser Automation Layer (Playwright)
+
+Every live start (Manual START, Scheduled START, and Auto-Recycle START) is gated behind YouTube Studio preparation via Playwright.
+
+### Quick Deploy & Update Command (Run on VPS)
+
+```bash
+# Option 1: Run the all-in-one update script
+cd ~/yt-live-manager   # or /opt/yt-live-manager
+bash scripts/update.sh
+
+# Option 2: Run step-by-step
+git pull origin main
+npm install
+npx playwright install --with-deps chromium
+sudo apt-get update && sudo apt-get install -y xvfb x11vnc
+sudo systemctl daemon-reload
+sudo systemctl restart yt-live-manager
+```
+
+### One-Time YouTube Studio Login Bootstrap
+
+1. On the VPS:
+   ```bash
+   npm run youtube:login
+   ```
+2. From your local computer, open an SSH port-forwarding tunnel:
+   ```bash
+   ssh -L 5900:localhost:5900 ubuntu@<YOUR_VPS_IP>
+   ```
+3. Open any VNC viewer (RealVNC, TigerVNC, etc.) and connect to:
+   ```
+   localhost:5900
+   ```
+4. Sign in to your Google Account and complete 2FA in the browser window.
+5. Once YouTube Studio is loaded, the script detects the session, saves the persistent profile to `data/youtube-browser-profile/`, closes the browser, and tears down Xvfb/VNC automatically.
+

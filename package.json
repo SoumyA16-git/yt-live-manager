@@ -13,7 +13,8 @@
     "migrate": "node scripts/migrate.js",
     "status": "node scripts/status.js",
     "seek": "node scripts/seek.js",
-    "youtube:login": "node scripts/youtube-login.js"
+    "youtube:login": "node scripts/youtube-login.js",
+    "update": "bash scripts/update.sh"
   },
   "dependencies": {
     "busboy": "^1.6.0",
