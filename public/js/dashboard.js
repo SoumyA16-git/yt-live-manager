@@ -397,11 +397,13 @@ function renderStatus(data) {
   if (textStreamOutput) {
     const isConnected = data.status === 'RUNNING' && data.streamOutput === 'CONNECTED';
     const isStarting = data.status === 'STARTING';
-    const outStatus = isConnected ? 'CONNECTED' : (isStarting ? 'CONNECTING' : 'DISCONNECTED');
+    let outStatus = isConnected ? 'CONNECTED' : (isStarting ? 'CONNECTING' : 'DISCONNECTED');
+    if (data.stage === 'PREPARING_YOUTUBE') outStatus = 'PREPARING STUDIO';
+    else if (data.stage === 'WAITING_FOR_YOUTUBE_PREVIEW') outStatus = 'VERIFYING INGEST';
     textStreamOutput.textContent = outStatus;
     if (dotStreamOutput) {
       if (outStatus === 'CONNECTED') dotStreamOutput.className = 'status-dot-sm live';
-      else if (outStatus === 'CONNECTING') dotStreamOutput.className = 'status-dot-sm starting';
+      else if (isStarting) dotStreamOutput.className = 'status-dot-sm starting';
       else dotStreamOutput.className = 'status-dot-sm';
     }
   }
@@ -409,11 +411,27 @@ function renderStatus(data) {
   if (data.status === 'RUNNING') {
     statusText.textContent = `LIVE (${streamMode.toUpperCase()} 1080p)`;
     statusDot.className = 'status-dot live';
+  } else if (data.status === 'STARTING') {
+    statusDot.className = 'status-dot starting';
+    if (data.stage === 'PREPARING_YOUTUBE') {
+      statusText.textContent = 'PREPARING YOUTUBE...';
+    } else if (data.stage === 'STARTING_FFMPEG') {
+      statusText.textContent = 'STARTING FFMPEG...';
+    } else if (data.stage === 'WAITING_FOR_YOUTUBE_PREVIEW') {
+      statusText.textContent = 'VERIFYING INGEST...';
+    } else {
+      statusText.textContent = 'STARTING...';
+    }
+  } else if (data.youtubeStatus === 'YOUTUBE_AUTH_REQUIRED' || data.stage === 'YOUTUBE_AUTH_REQUIRED') {
+    statusText.textContent = 'AUTH REQUIRED (npm run youtube:login)';
+    statusDot.className = 'status-dot error';
+  } else if (data.youtubeStatus === 'YOUTUBE_PREPARATION_FAILED') {
+    statusText.textContent = 'YOUTUBE PREP FAILED';
+    statusDot.className = 'status-dot error';
   } else {
     statusText.textContent = data.status;
     statusDot.className = 'status-dot';
-    if (data.status === 'STARTING') statusDot.classList.add('starting');
-    else if (data.status === 'ERROR' || data.status === 'BANDWIDTH_LIMIT_REACHED') statusDot.classList.add('error');
+    if (data.status === 'ERROR' || data.status === 'BANDWIDTH_LIMIT_REACHED') statusDot.classList.add('error');
   }
 
   // Control buttons state

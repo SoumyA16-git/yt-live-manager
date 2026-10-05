@@ -39,6 +39,7 @@ import { recordProgressBytes, flushUsage, resetProcessBaseline } from './usage-m
 import { logger } from './logger.js';
 import { isInsideWindow } from './scheduler.js';
 import PATHS from './lib/paths.js';
+import { YouTubeStudioAutomationService, YOUTUBE_STATES } from './youtube-studio-service.js';
 
 export const streamEvents = new EventEmitter();
 
@@ -719,6 +720,27 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
     resetProcessBaseline();
     _lastProgressTimestamp = Date.now();
+
+    // 4. PREPARE YOUTUBE STUDIO GATE (Playwright):
+    // Every live start (manual, scheduled, auto-recycle) must first prepare YouTube Studio
+    // in the persistent profile, verify authentication, dismiss stream-ended popups,
+    // and verify that the Live Control Room is ready for encoder input.
+    let youtubeSession = null;
+    try {
+      youtubeSession = await YouTubeStudioAutomationService.prepareNextLiveSession({ reason });
+    } catch (ytErr) {
+      logger.error('stream.youtube_prepare_failed', `YouTube Studio preparation failed: ${ytErr.message}`);
+      await transitionState('ERROR', ytErr.message);
+      await saveState({
+        stage: 'ERROR',
+        youtubeStatus: ytErr.code || YOUTUBE_STATES.YOUTUBE_PREPARATION_FAILED,
+        lastError: { code: ytErr.code || 'YOUTUBE_PREPARATION_FAILED', message: ytErr.message, at: new Date().toISOString() },
+      });
+      return { started: false, code: ytErr.code || 'YOUTUBE_PREPARATION_FAILED', message: ytErr.message };
+    }
+
+    await saveState({ stage: 'STARTING_FFMPEG' });
+
     try {
       const { pid } = await spawnFfmpeg({
         args: publisherArgs,
@@ -749,6 +771,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
             pairedHorizontalVideoId: null,
             resumeBookmark: null,
             lastError: null,
+            stage: 'RUNNING',
+            youtubeStatus: 'RUNNING',
           });
 
           await appendHistory({
@@ -836,6 +860,24 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         ffmpegPid: pid,
       });
 
+      // 5. OBSERVE YOUTUBE PREVIEW / DATA BEFORE CLOSING CHROMIUM:
+      // Keep Chromium open until YouTube confirms encoder ingest / preview data.
+      if (youtubeSession && typeof youtubeSession.confirmIngestAndClose === 'function') {
+        try {
+          await youtubeSession.confirmIngestAndClose();
+        } catch (previewErr) {
+          logger.error('stream.youtube_preview_failed', `YouTube preview confirmation failed: ${previewErr.message}`);
+          await stopFfmpeg({ reason: 'youtube_preview_timeout' });
+          await transitionState('ERROR', previewErr.message);
+          await saveState({
+            stage: 'ERROR',
+            youtubeStatus: previewErr.code || 'YOUTUBE_PREVIEW_TIMEOUT',
+            lastError: { code: previewErr.code || 'YOUTUBE_PREVIEW_TIMEOUT', message: previewErr.message, at: new Date().toISOString() },
+          });
+          return { started: false, code: previewErr.code || 'YOUTUBE_PREVIEW_TIMEOUT', message: previewErr.message };
+        }
+      }
+
       return {
         started: true,
         pid,
@@ -844,6 +886,9 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         isDualStream: false,
       };
     } catch (err) {
+      if (youtubeSession && typeof youtubeSession.abort === 'function') {
+        await youtubeSession.abort(err).catch(() => {});
+      }
       logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);
       await transitionState('ERROR', err.message);
       await saveState({
@@ -968,7 +1013,8 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
         clearAutoRecycleTimer();
       }
 
-      const settings = getSettings();
+      let settings = {};
+      try { settings = getSettings(); } catch {}
       logger.info('stream.stop', `Stop requested (${reason}); stopping feeders and publisher cleanly`);
       _currentSessionStartOffset = 0;
       _lastProgressTimestamp = null;
@@ -995,6 +1041,8 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
         youtubeBroadcast: 'INACTIVE',
         ...(reason === 'auto_recycle' ? {} : { resumeBookmark: null, recyclingUntil: null }),
         currentSeekOffset: 0,
+        stage: 'STOPPED',
+        youtubeStatus: YOUTUBE_STATES.IDLE,
       });
 
       const graceSec = settings.stream?.stopGraceSeconds ?? 8;

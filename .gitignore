@@ -1,6 +1,8 @@
 # Runtime data — never committed
 config/settings.json
 data/
+data/youtube-browser-profile/
+*.lock
 videos/
 logs/
 backups/

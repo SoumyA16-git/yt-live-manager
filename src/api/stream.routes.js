@@ -73,6 +73,8 @@ export function createStreamRouter() {
 
     res.json({
       status:              state.status,
+      stage:               state.stage || null,
+      youtubeStatus:       state.youtubeStatus || null,
       desiredState:        state.desiredState,
       disabled:            state.disabled,
       maintenance:         state.maintenance,

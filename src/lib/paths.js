@@ -44,6 +44,8 @@ const PATHS = {
   loopConcat:           r('data', 'loop.ffconcat'),
   loopConcatHorizontal: r('data', 'loop_horizontal.ffconcat'),
   loopConcatVertical:   r('data', 'loop_vertical.ffconcat'),
+  youtubeProfile:       process.env.YOUTUBE_PROFILE_DIR || r('data', 'youtube-browser-profile'),
+  youtubeLock:          r('data', 'youtube-browser.lock'),
 
   // Log file
   appLog:          r('logs', 'app.log'),

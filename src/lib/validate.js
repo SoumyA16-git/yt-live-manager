@@ -104,6 +104,7 @@ const STREAM_SCHEMA = {
   minSpeed:              { type: 'number', min: 0.1, max: 2.0 },
   startupTimeoutSeconds: { type: 'number', integer: true, min: 5, max: 120 },
   stopGraceSeconds:      { type: 'number', integer: true, min: 1, max: 60 },
+  rtmpSettleSeconds:     { type: 'number', min: 0, max: 60 },
 };
 
 const YOUTUBE_SCHEMA = {
@@ -375,10 +376,41 @@ export function validateSettings(input, { partial = true } = {}) {
         }
       }
 
+      // studioAutomation: object
+      if (yt.studioAutomation !== undefined) {
+        if (!isObject(yt.studioAutomation)) {
+          errors.push(fieldErr('youtube.studioAutomation', 'must be an object'));
+        } else {
+          if (yt.studioAutomation.enabled !== undefined && typeof yt.studioAutomation.enabled !== 'boolean') {
+            errors.push(fieldErr('youtube.studioAutomation.enabled', 'must be a boolean'));
+          }
+          if (yt.studioAutomation.headless !== undefined && typeof yt.studioAutomation.headless !== 'boolean') {
+            errors.push(fieldErr('youtube.studioAutomation.headless', 'must be a boolean'));
+          }
+          if (yt.studioAutomation.prepareTimeoutMs !== undefined && (!isNumber(yt.studioAutomation.prepareTimeoutMs) || yt.studioAutomation.prepareTimeoutMs < 5000)) {
+            errors.push(fieldErr('youtube.studioAutomation.prepareTimeoutMs', 'must be a number >= 5000'));
+          }
+          if (yt.studioAutomation.previewTimeoutMs !== undefined && (!isNumber(yt.studioAutomation.previewTimeoutMs) || yt.studioAutomation.previewTimeoutMs < 5000)) {
+            errors.push(fieldErr('youtube.studioAutomation.previewTimeoutMs', 'must be a number >= 5000'));
+          }
+          if (yt.studioAutomation.channelUrl !== undefined && typeof yt.studioAutomation.channelUrl !== 'string') {
+            errors.push(fieldErr('youtube.studioAutomation.channelUrl', 'must be a string'));
+          }
+          if (yt.studioAutomation.bypassInTest !== undefined && typeof yt.studioAutomation.bypassInTest !== 'boolean') {
+            errors.push(fieldErr('youtube.studioAutomation.bypassInTest', 'must be a boolean'));
+          }
+          for (const k of Object.keys(yt.studioAutomation)) {
+            if (!['enabled', 'headless', 'prepareTimeoutMs', 'previewTimeoutMs', 'channelUrl', 'bypassInTest'].includes(k)) {
+              errors.push(fieldErr(`youtube.studioAutomation.${k}`, 'unknown field'));
+            }
+          }
+        }
+      }
+
       const KNOWN_YT = new Set([
         'rtmpsUrl', 'streamKey', 'horizontalStreamKey', 'dualStreamEnabled',
         'title', 'label', 'templateVideoId', 'titleTemplate', 'description',
-        'categoryId', 'categoryName', 'tags', 'thumbnail',
+        'categoryId', 'categoryName', 'tags', 'thumbnail', 'studioAutomation',
       ]);
       for (const k of Object.keys(yt)) {
         if (!KNOWN_YT.has(k))

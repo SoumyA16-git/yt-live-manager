@@ -59,6 +59,13 @@ export const DEFAULTS = Object.freeze({
   youtube: {
     rtmpsUrl: 'rtmps://a.rtmps.youtube.com:443/live2',
     streamKey: '',
+    studioAutomation: {
+      enabled: true,
+      headless: true,
+      prepareTimeoutMs: 90000,
+      previewTimeoutMs: 45000,
+      channelUrl: '',
+    },
   },
   youtubeGuidance: { recommendedMbps: [3, 9] },
   bandwidth: {

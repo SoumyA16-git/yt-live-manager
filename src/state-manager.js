@@ -42,6 +42,8 @@ const STATE_DEFAULTS = {
   streamStartedAt:     null,
   currentSeekOffset:   0,
   resumeBookmark:      null,
+  stage:               null,
+  youtubeStatus:       null,
 };
 
 // ─── Module state ─────────────────────────────────────────────────────────────

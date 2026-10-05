@@ -12,11 +12,13 @@
     "hash-password": "node scripts/hash-password.js",
     "migrate": "node scripts/migrate.js",
     "status": "node scripts/status.js",
-    "seek": "node scripts/seek.js"
+    "seek": "node scripts/seek.js",
+    "youtube:login": "node scripts/youtube-login.js"
   },
   "dependencies": {
     "busboy": "^1.6.0",
     "express": "^4.19.2",
-    "helmet": "^7.1.0"
+    "helmet": "^7.1.0",
+    "playwright": "^1.49.0"
   }
 }
