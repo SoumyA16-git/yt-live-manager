@@ -753,11 +753,31 @@ export async function manageBroadcastLifecycleOnStart({
 
   if (isDualMode) {
     // ══════════════════════════════════════════════════════════════════════
-    // DUAL LIVE BROADCAST LIFECYCLE (Vertical 9:16 + Horizontal 16:9)
+    // DUAL LIVE BROADCAST LIFECYCLE — OFFICIAL YOUTUBE DUAL STREAM MODEL
+    //
+    // Architecture: ONE broadcast, TWO stream ingestion points.
+    //
+    // YouTube's official Dual Stream feature (enabled once in YouTube Studio
+    // → Stream Settings → "Dual stream" toggle) associates BOTH the
+    // horizontal (16:9) and vertical (9:16) stream keys with the SAME
+    // liveBroadcast resource internally. The YouTube Data API v3 does NOT
+    // expose an endpoint to configure this association programmatically.
+    //
+    // "Official YouTube Dual Stream association requires the YouTube
+    // Live Control Room configuration and is not exposed as a public
+    // YouTube Data API operation."
+    //
+    // Therefore:
+    //   - Resolve/create ONE broadcast (bound to the PRIMARY stream key)
+    //   - Do NOT create a secondary broadcast for the secondary stream key
+    //   - Both FFmpeg publishers push to their respective stream keys
+    //   - YouTube internally routes horizontal viewers and Shorts viewers
+    //   - The secondary liveStream is confirmed active (health gate) but
+    //     is NOT used to create or bind an additional broadcast resource
     // ══════════════════════════════════════════════════════════════════════
-    logger.info('youtube_api.dual_lifecycle_start', 'Starting dual YouTube live broadcast lifecycle management...');
+    logger.info('youtube_api.dual_lifecycle_start', 'Starting dual YouTube live broadcast lifecycle (single-broadcast model)...');
 
-    // 1. Resolve PRIMARY and SECONDARY liveStreams
+    // 1. Resolve PRIMARY and SECONDARY liveStreams by their stream keys
     const primaryStream = await resolveLiveStreamByStreamKey(streamKey);
     if (!primaryStream) {
       logger.warn('youtube_api.dual_lifecycle_aborted', 'Could not resolve primary liveStream for primary stream key');
@@ -767,13 +787,16 @@ export async function manageBroadcastLifecycleOnStart({
 
     const secondaryStream = await resolveLiveStreamByStreamKey(secondaryStreamKey);
     if (!secondaryStream) {
-      logger.warn('youtube_api.dual_lifecycle_aborted', 'Could not resolve secondary liveStream for horizontal stream key');
+      logger.warn('youtube_api.dual_lifecycle_aborted', 'Could not resolve secondary liveStream for secondary (vertical) stream key');
       return { success: false, reason: 'SECONDARY_STREAM_KEY_NOT_MATCHED' };
     }
     _secondaryStreamId = secondaryStream.id;
 
-    // 2. Poll until both PRIMARY and SECONDARY streams are active
-    logger.info('youtube_api.waiting_dual_streams_active', `Waiting for primary (${primaryStream.id}) and secondary (${secondaryStream.id}) streams to become active (up to ${streamTimeoutSec}s)...`);
+    // 2. Poll until BOTH streams are active (dual health gate).
+    //    Both FFmpeg publishers must be confirmed delivering data before
+    //    the broadcast is transitioned to LIVE.
+    logger.info('youtube_api.waiting_dual_streams_active',
+      `Waiting for primary (${primaryStream.id}) and secondary (${secondaryStream.id}) streams to become active (up to ${streamTimeoutSec}s)...`);
     const streamStart = Date.now();
     let pActive = primaryStream.streamStatus === 'active';
     let sActive = secondaryStream.streamStatus === 'active';
@@ -803,7 +826,8 @@ export async function manageBroadcastLifecycleOnStart({
         : !pActive
           ? 'PRIMARY_STREAM_INACTIVE_TIMEOUT'
           : 'SECONDARY_STREAM_INACTIVE_TIMEOUT';
-      logger.warn('youtube_api.dual_streams_timeout', `Dual ingest timeout: primaryActive=${pActive}, secondaryActive=${sActive}`);
+      logger.warn('youtube_api.dual_streams_timeout',
+        `Dual ingest timeout: primaryActive=${pActive}, secondaryActive=${sActive}`);
       return {
         success: false,
         reason,
@@ -811,96 +835,88 @@ export async function manageBroadcastLifecycleOnStart({
         secondaryStreamStatus: _secondaryStreamStatus,
       };
     }
-    logger.info('youtube_api.dual_streams_active', `Both primary (${primaryStream.id}) and secondary (${secondaryStream.id}) streams are ACTIVE!`);
+    logger.info('youtube_api.dual_streams_active',
+      `Both primary (${primaryStream.id}) and secondary (${secondaryStream.id}) streams are ACTIVE — dual health gate passed.`);
 
-    // 3. Resolve or create PRIMARY and SECONDARY broadcasts with dynamic titles and metadata
-    // For ONE Dual Live session, generate ONE session timestamp.
-    // Do NOT call dynamic title generator independently for primary and secondary broadcasts.
+    // 3. Resolve or create the SINGLE broadcast for this Dual Stream session.
+    //    The broadcast is bound to the PRIMARY stream key only.
+    //    The secondary stream key is YouTube's internal vertical ingestion
+    //    point for the same broadcast — NOT a separate broadcast resource.
+    //    ONE session timestamp is generated and shared across the broadcast title.
     const sessionStart = new Date();
     const sessionTitle = title || generateBroadcastTitle(sessionStart);
 
-    let primaryBroadcast = await resolveOrCreatePrimaryBroadcast({
+    let broadcast = await resolveOrCreateBroadcastForStream({
       streamId: primaryStream.id,
       title: sessionTitle,
     });
-    _primaryBroadcastId = primaryBroadcast.id;
-    _primaryLifeCycleStatus = primaryBroadcast.lifeCycleStatus || 'ready';
+    _primaryBroadcastId = broadcast.id;
+    _primaryLifeCycleStatus = broadcast.lifeCycleStatus || 'ready';
 
-    let secondaryBroadcast = await resolveOrCreateSecondaryBroadcast({
-      streamId: secondaryStream.id,
-      title: sessionTitle,
-    });
-    _secondaryBroadcastId = secondaryBroadcast.id;
-    _secondaryLifeCycleStatus = secondaryBroadcast.lifeCycleStatus || 'ready';
+    // Secondary broadcast variables track the secondary STREAM status only.
+    // There is NO separate secondary broadcast resource in this model.
+    _secondaryBroadcastId = null;
+    _secondaryLifeCycleStatus = 'n/a-single-broadcast-model';
 
-    // 4. Transition both broadcasts to LIVE
-    if (primaryBroadcast.lifeCycleStatus !== 'live') {
-      const trP = await transitionBroadcastResourceToLive(primaryBroadcast, primaryStream.id, liveTimeoutSec);
-      if (trP.broadcast) primaryBroadcast = trP.broadcast;
-      _primaryLifeCycleStatus = trP.lifeCycleStatus;
+    logger.info('youtube_api.dual_single_broadcast_resolved',
+      `Dual Stream using single broadcast ${broadcast.id} (status: ${broadcast.lifeCycleStatus}). Secondary stream ${secondaryStream.id} is active as YouTube internal vertical ingest.`);
+
+    // 4. Transition the single broadcast to LIVE
+    if (broadcast.lifeCycleStatus !== 'live') {
+      const tr = await transitionBroadcastResourceToLive(broadcast, primaryStream.id, liveTimeoutSec);
+      if (tr.broadcast) broadcast = tr.broadcast;
+      _primaryLifeCycleStatus = tr.lifeCycleStatus;
+    } else {
+      _primaryLifeCycleStatus = 'live';
     }
 
-    if (secondaryBroadcast.lifeCycleStatus !== 'live') {
-      const trS = await transitionBroadcastResourceToLive(secondaryBroadcast, secondaryStream.id, liveTimeoutSec);
-      if (trS.broadcast) secondaryBroadcast = trS.broadcast;
-      _secondaryLifeCycleStatus = trS.lifeCycleStatus;
-    }
-
-    // 5. Final poll to verify both broadcasts reach LIVE
+    // 5. Final poll to verify broadcast reaches LIVE
     const livePollStart = Date.now();
-    let pLive = _primaryLifeCycleStatus === 'live';
-    let sLive = _secondaryLifeCycleStatus === 'live';
+    let broadcastLive = _primaryLifeCycleStatus === 'live';
 
-    while ((!pLive || !sLive) && Date.now() - livePollStart < liveTimeoutSec * 1000) {
+    while (!broadcastLive && Date.now() - livePollStart < liveTimeoutSec * 1000) {
       await new Promise(r => setTimeout(r, 2000));
-      if (!pLive) {
-        const pb = await resolveBoundBroadcast(primaryStream.id);
-        if (pb) {
-          primaryBroadcast = pb;
-          _primaryLifeCycleStatus = pb.lifeCycleStatus;
-          if (pb.lifeCycleStatus === 'live') pLive = true;
-        }
-      }
-      if (!sLive) {
-        const sb = await resolveBoundBroadcast(secondaryStream.id);
-        if (sb) {
-          secondaryBroadcast = sb;
-          _secondaryLifeCycleStatus = sb.lifeCycleStatus;
-          if (sb.lifeCycleStatus === 'live') sLive = true;
-        }
+      const bCheck = await resolveBoundBroadcast(primaryStream.id);
+      if (bCheck && (!broadcast.id || bCheck.id === broadcast.id || (!bCheck.isComplete && bCheck.lifeCycleStatus !== 'complete'))) {
+        broadcast = bCheck;
+        _primaryLifeCycleStatus = bCheck.lifeCycleStatus;
+        if (bCheck.lifeCycleStatus === 'live') broadcastLive = true;
       }
     }
 
-    const allLive = pLive && sLive;
     _currentStreamId = _primaryStreamId;
     _currentBroadcastId = _primaryBroadcastId;
     _currentStreamStatus = _primaryStreamStatus;
     _currentLifeCycleStatus = _primaryLifeCycleStatus;
     _lastCheckedAt = new Date().toISOString();
 
-    if (allLive) {
-      logger.info('youtube_api.dual_lifecycle_success', `Dual Live fully verified: Primary broadcast ${primaryBroadcast.id} is LIVE and Secondary broadcast ${secondaryBroadcast.id} is LIVE!`);
+    if (broadcastLive) {
+      logger.info('youtube_api.dual_lifecycle_success',
+        `Dual Stream verified: Single broadcast ${broadcast.id} is LIVE. Primary ingest active. Secondary (vertical) ingest active. Watch URL: https://www.youtube.com/watch?v=${broadcast.id}`);
     } else {
-      logger.warn('youtube_api.dual_lifecycle_incomplete', `Dual Live incomplete: Primary status='${_primaryLifeCycleStatus}', Secondary status='${_secondaryLifeCycleStatus}'`);
+      logger.warn('youtube_api.dual_lifecycle_incomplete',
+        `Dual Stream broadcast ${broadcast.id} status='${_primaryLifeCycleStatus}' (both streams are active; broadcast not yet LIVE)`);
     }
 
     return {
-      success: allLive,
+      success: broadcastLive,
       isDual: true,
       liveStreamId: primaryStream.id,
-      broadcastId: primaryBroadcast.id,
+      broadcastId: broadcast.id,
       primaryStreamId: primaryStream.id,
       secondaryStreamId: secondaryStream.id,
-      primaryBroadcastId: primaryBroadcast.id,
-      secondaryBroadcastId: secondaryBroadcast.id,
+      // Both references point to the same single broadcast
+      primaryBroadcastId: broadcast.id,
+      secondaryBroadcastId: broadcast.id,
       primaryStreamStatus: _primaryStreamStatus,
       secondaryStreamStatus: _secondaryStreamStatus,
       primaryLifeCycleStatus: _primaryLifeCycleStatus,
-      secondaryLifeCycleStatus: _secondaryLifeCycleStatus,
+      // Secondary lifecycle mirrors primary — same broadcast
+      secondaryLifeCycleStatus: _primaryLifeCycleStatus,
       streamStatus: (_primaryStreamStatus === 'active' && _secondaryStreamStatus === 'active') ? 'active' : 'waiting',
-      lifeCycleStatus: allLive ? 'live' : 'preparing',
-      reason: allLive ? null : (!pLive && !sLive ? 'BOTH_BROADCASTS_NOT_LIVE' : (!pLive ? 'PRIMARY_BROADCAST_NOT_LIVE' : 'SECONDARY_BROADCAST_NOT_LIVE')),
-      error: allLive ? null : `Dual broadcast transition to live failed: primary=${_primaryLifeCycleStatus}, secondary=${_secondaryLifeCycleStatus}`,
+      lifeCycleStatus: broadcastLive ? 'live' : 'preparing',
+      reason: broadcastLive ? null : `Broadcast failed to reach LIVE status (current: ${_primaryLifeCycleStatus})`,
+      error: broadcastLive ? null : `Dual stream broadcast transition to live failed: ${_primaryLifeCycleStatus}`,
     };
   }
 
@@ -1020,7 +1036,14 @@ export function getYouTubeLiveApiState() {
     secondaryStreamStatus: _secondaryStreamStatus,
     primaryHealthStatus: _primaryHealthStatus,
     secondaryHealthStatus: _secondaryHealthStatus,
-    isDualLive: Boolean(_primaryLifeCycleStatus === 'live' && _secondaryLifeCycleStatus === 'live'),
+    isDualLive: Boolean(
+      _primaryLifeCycleStatus === 'live' && (
+        // Single-broadcast dual stream model: secondary stream is active (not an independent broadcast)
+        _secondaryStreamStatus === 'active' ||
+        // Legacy two-broadcast model fallback
+        _secondaryLifeCycleStatus === 'live'
+      )
+    ),
     lastCheckedAt: _lastCheckedAt,
     lastError: _lastApiError,
     metadataStatus: {

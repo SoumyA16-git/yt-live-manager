@@ -347,12 +347,13 @@ function renderStatus(data) {
     } else {
       if (isDual && yt.isDualLive) {
         deckYoutubeApiBadge.className = 'reachability-pill healthy';
-        deckYoutubeApiBadge.textContent = 'Dual Broadcast: BOTH LIVE';
-        deckYoutubeApiBadge.title = `Vertical (${yt.primaryBroadcastId}) and Horizontal (${yt.secondaryBroadcastId}) are both confirmed LIVE via Data API.`;
-      } else if (isDual && (yt.primaryBroadcastId || yt.secondaryBroadcastId)) {
+        deckYoutubeApiBadge.textContent = 'Dual Stream: LIVE (Single Event)';
+        deckYoutubeApiBadge.title = `Single broadcast (${yt.broadcastId || yt.primaryBroadcastId}) is confirmed LIVE via Data API. Primary (horizontal/vertical) & secondary streams active. Watch URL: https://www.youtube.com/watch?v=${yt.broadcastId || yt.primaryBroadcastId}`;
+      } else if (isDual && (yt.primaryBroadcastId || yt.broadcastId)) {
         deckYoutubeApiBadge.className = 'reachability-pill starting';
-        deckYoutubeApiBadge.textContent = `Dual: V:${(yt.primaryBroadcastStatus || 'WAITING').toUpperCase()} • H:${(yt.secondaryBroadcastStatus || 'WAITING').toUpperCase()}`;
-        deckYoutubeApiBadge.title = `Vertical: ${yt.primaryBroadcastId || 'N/A'} (${yt.primaryBroadcastStatus}), Horizontal: ${yt.secondaryBroadcastId || 'N/A'} (${yt.secondaryBroadcastStatus})`;
+        const bStatus = (yt.primaryBroadcastStatus || yt.lifeCycleStatus || 'WAITING').toUpperCase();
+        deckYoutubeApiBadge.textContent = `Dual: INGEST ACTIVE • BCAST: ${bStatus}`;
+        deckYoutubeApiBadge.title = `Broadcast: ${yt.primaryBroadcastId || yt.broadcastId || 'N/A'} (${bStatus}), Primary Stream: ${yt.primaryStreamStatus || 'unknown'}, Secondary Stream: ${yt.secondaryStreamStatus || 'unknown'}`;
       } else if (yt.isBroadcastLive) {
         deckYoutubeApiBadge.className = 'reachability-pill healthy';
         deckYoutubeApiBadge.textContent = `Broadcast: LIVE (${yt.broadcastId || ''})`;
@@ -440,13 +441,14 @@ function renderStatus(data) {
       statusDot.className = 'status-dot error';
     } else if (yt && yt.configured) {
       if (isDual) {
-        if (yt.isDualLive || (yt.primaryBroadcastStatus === 'live' && yt.secondaryBroadcastStatus === 'live')) {
-          statusText.textContent = 'DUAL LIVE (BOTH BROADCASTS LIVE)';
+        if (yt.isDualLive) {
+          statusText.textContent = 'DUAL STREAM LIVE (1 BROADCAST • DUAL INGEST)';
           statusDot.className = 'status-dot live';
         } else {
-          const pStatus = (yt.primaryBroadcastStatus || 'preparing').toUpperCase();
-          const sStatus = (yt.secondaryBroadcastStatus || 'preparing').toUpperCase();
-          statusText.textContent = `DUAL STARTING (VERTICAL: ${pStatus} • HORIZONTAL: ${sStatus})`;
+          const bStatus = (yt.primaryBroadcastStatus || yt.lifeCycleStatus || 'PREPARING').toUpperCase();
+          const pStatus = (yt.primaryStreamStatus || 'WAITING').toUpperCase();
+          const sStatus = (yt.secondaryStreamStatus || 'WAITING').toUpperCase();
+          statusText.textContent = `DUAL STARTING (INGEST P:${pStatus} S:${sStatus} • BCAST: ${bStatus})`;
           statusDot.className = 'status-dot starting';
         }
       } else if (yt.isBroadcastLive) {

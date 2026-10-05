@@ -317,25 +317,26 @@ describe('Dual YouTube Broadcast Lifecycle', () => {
 
     assert.strictEqual(result.success, true);
     assert.strictEqual(result.broadcastId, 'bcast_vert_100');
-    assert.strictEqual(result.secondaryBroadcastId, 'bcast_horiz_200');
+    // In single-broadcast model, secondary broadcast references point to the same broadcast ID
+    assert.strictEqual(result.primaryBroadcastId, 'bcast_vert_100');
+    assert.strictEqual(result.secondaryBroadcastId, 'bcast_vert_100');
 
-    // Verify bindings: Primary to Primary stream, Secondary to Secondary stream
-    assert.strictEqual(bindings.length, 2);
+    // Verify bindings: Only the single broadcast is bound to the primary stream
+    assert.strictEqual(bindings.length, 1, 'Should bind exactly ONE broadcast to primary stream');
     assert.deepStrictEqual(bindings[0], { broadcastId: 'bcast_vert_100', streamId: primaryStreamId });
-    assert.deepStrictEqual(bindings[1], { broadcastId: 'bcast_horiz_200', streamId: secondaryStreamId });
 
-    // Verify transitions to live
-    assert.strictEqual(transitions.length, 2);
+    // Verify transitions to live: Only the single broadcast is transitioned to live
+    assert.strictEqual(transitions.length, 1, 'Should transition exactly ONE broadcast to LIVE');
     assert.deepStrictEqual(transitions[0], { broadcastId: 'bcast_vert_100', status: 'live' });
-    assert.deepStrictEqual(transitions[1], { broadcastId: 'bcast_horiz_200', status: 'live' });
 
     // Verify state
     const apiState = getYouTubeLiveApiState();
     assert.strictEqual(apiState.isDualLive, true);
     assert.strictEqual(apiState.primaryBroadcastId, 'bcast_vert_100');
-    assert.strictEqual(apiState.secondaryBroadcastId, 'bcast_horiz_200');
+    assert.strictEqual(apiState.secondaryBroadcastId, null, 'No separate secondary broadcast resource');
     assert.strictEqual(apiState.primaryBroadcastStatus, 'live');
-    assert.strictEqual(apiState.secondaryBroadcastStatus, 'live');
+    assert.strictEqual(apiState.primaryStreamStatus, 'active');
+    assert.strictEqual(apiState.secondaryStreamStatus, 'active');
     assert.strictEqual(apiState.primaryStreamId, primaryStreamId);
     assert.strictEqual(apiState.secondaryStreamId, secondaryStreamId);
   });
@@ -515,9 +516,7 @@ describe('Dual YouTube Broadcast Lifecycle', () => {
     });
 
     assert.strictEqual(result.success, true);
-    assert.strictEqual(createdTitles.length, 2, 'Should create two broadcasts');
-    // Crucial requirement: Both broadcasts must receive the exact same title with identical timestamp!
-    assert.strictEqual(createdTitles[0], createdTitles[1], 'Both broadcasts must have identical dynamic session title');
+    assert.strictEqual(createdTitles.length, 1, 'Should create exactly ONE broadcast for Dual Stream session');
     assert.match(createdTitles[0], /^Chinese Street Food Live Streaming Mochi "\d{2}-\d{2}-\d{4}" "\d{2}:\d{2} (?:AM|PM)"$/);
   });
 });

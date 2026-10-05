@@ -831,7 +831,12 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
                   youtubeBroadcastLive: false,
                 });
               } else if (youtubeResult && youtubeResult.success && youtubeResult.lifeCycleStatus === 'live') {
-                logger.info('stream.youtube_live_confirmed', `YouTube broadcast lifecycle confirmed: LIVE (primary: ${youtubeResult.primaryBroadcastId || youtubeResult.broadcastId}, secondary: ${youtubeResult.secondaryBroadcastId || 'N/A'})`);
+                const isSingleBroadcastDual = isDual && youtubeResult.isDual && youtubeResult.primaryBroadcastId === youtubeResult.secondaryBroadcastId;
+                if (isSingleBroadcastDual) {
+                  logger.info('stream.youtube_live_confirmed', `YouTube Dual Stream lifecycle confirmed: LIVE (single broadcast: ${youtubeResult.broadcastId}) — one broadcast, two stream ingests. Watch URL: https://www.youtube.com/watch?v=${youtubeResult.broadcastId}`);
+                } else {
+                  logger.info('stream.youtube_live_confirmed', `YouTube broadcast lifecycle confirmed: LIVE (primary: ${youtubeResult.primaryBroadcastId || youtubeResult.broadcastId}, secondary: ${youtubeResult.secondaryBroadcastId || 'N/A'})`);
+                }
                 await saveState({
                   youtubeStreamActive: true,
                   youtubeBroadcastLive: true,
@@ -840,9 +845,9 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
                   liveStreamId: youtubeResult.liveStreamId,
                   broadcastId: youtubeResult.broadcastId,
                   primaryBroadcastId: youtubeResult.primaryBroadcastId || youtubeResult.broadcastId,
-                  secondaryBroadcastId: youtubeResult.secondaryBroadcastId || null,
+                  secondaryBroadcastId: isSingleBroadcastDual ? null : (youtubeResult.secondaryBroadcastId || null),
                   primaryBroadcastStatus: youtubeResult.primaryLifeCycleStatus || 'live',
-                  secondaryBroadcastStatus: youtubeResult.secondaryLifeCycleStatus || (isDual ? 'live' : 'inactive'),
+                  secondaryBroadcastStatus: isSingleBroadcastDual ? 'active' : (youtubeResult.secondaryLifeCycleStatus || (isDual ? 'live' : 'inactive')),
                 });
               } else {
                 logger.warn('stream.youtube_lifecycle_incomplete', `YouTube lifecycle could not confirm LIVE: ${youtubeResult?.reason || 'Status incomplete'}`);
