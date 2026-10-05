@@ -185,8 +185,8 @@
           <span class="dual-output-state" id="text-source-status">Horizontal Playlist</span>
         </div>
         <div class="dual-output-chip" id="chip-key-status" style="flex: 1; min-width: 180px;">
-          <span class="dual-output-name">ACTIVE KEY:</span>
-          <span class="dual-output-state" id="text-key-status">Horizontal</span>
+          <span class="dual-output-name">KEY:</span>
+          <span class="dual-output-state" id="text-key-status">Default Key</span>
         </div>
       </div>
     </section>
@@ -1255,48 +1255,22 @@
           <!-- Single Stream Mode Architecture Note -->
           <div style="background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.75rem; margin-bottom: 0.75rem;">
             <div style="font-size: 0.75rem; font-weight: 600; color: var(--text-main); margin-bottom: 0.25rem;">
-              Single Stream Mode Architecture
+              Single Default YouTube Stream Key
             </div>
             <div style="font-size: 0.6875rem; color: var(--text-muted); line-height: 1.45;">
-              The engine operates in strictly one mode at a time (Horizontal 16:9 or Vertical 9:16). Configure both keys below to enable seamless switching between modes when stopped.
+              The engine operates in strict Single Stream Mode. The same default/reusable YouTube stream key below is used for live streaming in both Horizontal (16:9) and Vertical (9:16) modes.
             </div>
           </div>
 
-          <!-- HORIZONTAL 16:9 STREAM KEY -->
-          <div class="form-group">
-            <label class="form-label" for="cfg-horizontal-stream-key">
-              <span>HORIZONTAL 16:9 STREAM KEY <strong style="color: #38bdf8;">("long")</strong></span>
-              <span id="horizontal-key-badge" class="badge-tag">Checking...</span>
-            </label>
-            <div class="input-action-group">
-              <input type="password" id="cfg-horizontal-stream-key" class="form-control"
-                placeholder="Enter Horizontal 16:9 stream key (\"long\")" autocomplete="new-password">
-              <button type="button" id="btn-reveal-horizontal-key" class="btn btn-secondary btn-sm input-action-btn"
-                title="Show or hide stream key">
-                <svg id="icon-eye-show-horiz" class="icon icon-sm" viewBox="0 0 24 24">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-                <svg id="icon-eye-hide-horiz" class="icon icon-sm" viewBox="0 0 24 24" style="display: none;">
-                  <path
-                    d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                  <line x1="1" y1="1" x2="23" y2="23" />
-                </svg>
-                <span id="btn-reveal-horiz-text">Show</span>
-              </button>
-            </div>
-            <div id="horizontal-key-hint-text" class="form-hint">Stream key used whenever Horizontal 16:9 mode is selected.</div>
-          </div>
-
-          <!-- VERTICAL 9:16 STREAM KEY -->
+          <!-- YOUTUBE DEFAULT / REUSABLE STREAM KEY -->
           <div class="form-group">
             <label class="form-label" for="cfg-stream-key">
-              <span>VERTICAL 9:16 STREAM KEY <strong style="color: #a1a1aa;">("shot")</strong></span>
-              <span id="key-badge" class="badge-tag">Optional</span>
+              <span>YOUTUBE STREAM KEY <strong style="color: #38bdf8;">(DEFAULT / REUSABLE)</strong></span>
+              <span id="key-badge" class="badge-tag">Required</span>
             </label>
             <div class="input-action-group">
-              <input type="password" id="cfg-stream-key" class="form-control" placeholder="Enter Vertical 9:16 stream key (\"shot\")"
-                autocomplete="new-password">
+              <input type="password" id="cfg-stream-key" class="form-control"
+                placeholder="Enter default YouTube stream key" autocomplete="new-password">
               <button type="button" id="btn-reveal-key" class="btn btn-secondary btn-sm input-action-btn"
                 title="Show or hide stream key">
                 <svg id="icon-eye-show" class="icon icon-sm" viewBox="0 0 24 24">
@@ -1311,7 +1285,7 @@
                 <span id="btn-reveal-text">Show</span>
               </button>
             </div>
-            <div id="key-hint-text" class="form-hint">Stream key used whenever Vertical 9:16 mode is selected.</div>
+            <div id="key-hint-text" class="form-hint">Canonical YouTube stream key used for live broadcast transmission in both Horizontal and Vertical modes.</div>
           </div>
         </div>
 

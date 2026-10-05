@@ -243,15 +243,6 @@ const iconEyeShow = document.getElementById('icon-eye-show');
 const iconEyeHide = document.getElementById('icon-eye-hide');
 const btnRevealText = document.getElementById('btn-reveal-text');
 
-// Horizontal Stream Key DOM Elements
-const cfgHorizontalStreamKey = document.getElementById('cfg-horizontal-stream-key');
-const btnRevealHorizKey = document.getElementById('btn-reveal-horizontal-key');
-const horizontalKeyBadge = document.getElementById('horizontal-key-badge');
-const horizontalKeyHintText = document.getElementById('horizontal-key-hint-text');
-const iconEyeShowHoriz = document.getElementById('icon-eye-show-horiz');
-const iconEyeHideHoriz = document.getElementById('icon-eye-hide-horiz');
-const btnRevealHorizText = document.getElementById('btn-reveal-horiz-text');
-
 // Mode Selection & Output Status DOM Elements
 const btnModeHorizontal = document.getElementById('btn-mode-horizontal');
 const btnModeVertical = document.getElementById('btn-mode-vertical');
@@ -399,7 +390,8 @@ function renderStatus(data) {
     textSourceStatus.textContent = isHoriz ? 'Horizontal Playlist' : 'Vertical Playlist';
   }
   if (textKeyStatus) {
-    textKeyStatus.textContent = isHoriz ? 'Horizontal' : 'Vertical';
+    const hint = _currentSettings?.youtube?.streamKeyHint;
+    textKeyStatus.textContent = hint ? `Default (...${hint})` : (_currentSettings?.youtube?.streamKeySet ? 'Default' : 'Missing');
   }
 
   if (textStreamOutput) {
@@ -493,44 +485,40 @@ function renderBandwidthSpeedMeter(data) {
   if (!speedGaugeFill || !speedReadoutNum) return;
 
   const isRunning = data.status === 'RUNNING';
-  const activeVideo = _cachedVideos.find(v => v.id === data.activeVideoId) || _cachedVideos[0];
-  let currentKbps = 0;
+  let currentMbps = 0;
+  let currentKBps = 0;
 
   if (isRunning) {
-    if (data.progress?.bitrate && data.progress.bitrate !== 'N/A' && data.progress.bitrate !== '0kbits/s') {
-      const bStr = String(data.progress.bitrate).toLowerCase().trim();
-      const numMatch = bStr.match(/([\d.]+)/);
-      if (numMatch) {
-        const val = parseFloat(numMatch[1]) || 0;
-        if (bStr.includes('mbits') || bStr.includes('mb/s')) {
-          currentKbps = val * 1000;
-        } else {
-          currentKbps = val; // default kbits/s
+    if (typeof data.progress?.outputMbps === 'number' && data.progress.outputMbps > 0) {
+      currentMbps = data.progress.outputMbps;
+      currentKBps = data.progress.outputKBps || Math.round((currentMbps * 1000) / 8);
+    } else {
+      let currentKbps = 0;
+      if (data.progress?.bitrate && data.progress.bitrate !== 'N/A' && data.progress.bitrate !== '0kbits/s') {
+        const bStr = String(data.progress.bitrate).toLowerCase().trim();
+        const numMatch = bStr.match(/([\d.]+)/);
+        if (numMatch) {
+          const val = parseFloat(numMatch[1]) || 0;
+          currentKbps = (bStr.includes('mbits') || bStr.includes('mb/s')) ? val * 1000 : val;
         }
       }
-    }
-
-    // Fallback for copy mode where FFmpeg muxer outputs N/A bitrate
-    if (!currentKbps || currentKbps <= 0) {
-      if (activeVideo?.probe?.videoBitrate) {
-        currentKbps = Math.round(activeVideo.probe.videoBitrate / 1000) + Math.round((activeVideo.probe.audioBitrate || 128000) / 1000);
-      } else {
+      if (!currentKbps || currentKbps <= 0) {
         currentKbps = Math.round((_currentSettings?.stream?.videoBitrateMbps || 4.0) * 1000);
       }
+      currentMbps = currentKbps / 1000;
+      currentKBps = Math.round(currentKbps / 8);
     }
   }
 
-  const currentMbps = isRunning ? (currentKbps / 1000) : 0;
   _lastCurrentMbps = currentMbps;
 
-  // 1. MUI x-charts Arc Gauge Calculation: 0 to 10 Mbps scale (-110° to +110°)
-  // Arc stroke length is ~288px
+  // 1. Arc Gauge Calculation: 0 to 10 Mbps scale (-110° to +110°)
   const maxScaleMbps = 10.0;
   const ratio = Math.max(0, Math.min(1.0, currentMbps / maxScaleMbps));
   const offset = 288 * (1 - ratio);
   speedGaugeFill.style.strokeDashoffset = offset.toFixed(1);
 
-  // 2. MUI GaugePointer Angle Calculation (-110° to +110°)
+  // 2. GaugePointer Angle Calculation (-110° to +110°)
   const valueAngleDeg = -110 + ratio * 220;
   if (gaugePointerNeedle) {
     gaugePointerNeedle.style.transform = `rotate(${valueAngleDeg.toFixed(1)}deg)`;
@@ -547,13 +535,12 @@ function renderBandwidthSpeedMeter(data) {
 
   // 3. Stats Breakdown
   if (speedValKbps) {
-    const rawKBps = Math.round(currentKbps / 8);
-    speedValKbps.textContent = `${rawKBps.toLocaleString()} KB/s`;
+    speedValKbps.textContent = `${currentKBps.toLocaleString()} KB/s`;
   }
 
   if (speedValHourly) {
-    // GB per hour = (Mbps * 3600 / 8) / 1024
-    const gbHour = isRunning ? (currentMbps * 3600 / 8 / 1024) : 0;
+    // GB per hour = (Mbps * 3600 / 8) / 1000
+    const gbHour = isRunning ? (currentMbps * 3600 / 8 / 1000) : 0;
     speedValHourly.textContent = `${gbHour.toFixed(2)} GB/h`;
   }
 
@@ -1601,27 +1588,19 @@ function renderLogs(lines) {
 
 function updateDeckStreamKeyBadge(settings) {
   if (!deckStreamKeyBadge) return;
-  const hasVertKey = Boolean(settings?.youtube?.streamKeySet);
-  const hasHorizKey = Boolean(settings?.youtube?.horizontalStreamKeySet);
-  const isHoriz = _activeStreamMode === 'horizontal';
-  const activeKeyConfigured = isHoriz ? hasHorizKey : hasVertKey;
+  const hasKey = Boolean(settings?.youtube?.streamKeySet);
+  const hint = settings?.youtube?.streamKeyHint;
 
-  if (!hasHorizKey && !hasVertKey) {
-    deckStreamKeyBadge.textContent = 'Stream Keys Missing';
+  if (!hasKey) {
+    deckStreamKeyBadge.textContent = 'Default Key Missing';
     deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
     deckStreamKeyBadge.style.color = '#f87171';
-    deckStreamKeyBadge.title = 'No YouTube stream keys configured! Click to open Settings.';
-  } else if (!activeKeyConfigured) {
-    deckStreamKeyBadge.textContent = isHoriz ? 'Horizontal Key Missing' : 'Vertical Key Missing';
-    deckStreamKeyBadge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
-    deckStreamKeyBadge.style.color = '#f87171';
-    deckStreamKeyBadge.title = `${isHoriz ? 'Horizontal 16:9' : 'Vertical 9:16'} stream key is missing for the active mode. Click to open Settings.`;
+    deckStreamKeyBadge.title = 'No YouTube default stream key configured! Click to open Settings.';
   } else {
-    const hint = isHoriz ? settings.youtube?.horizontalStreamKeyHint : settings.youtube?.streamKeyHint;
-    deckStreamKeyBadge.textContent = `${isHoriz ? 'Horizontal 16:9' : 'Vertical 9:16'} (...${hint || 'Set'})`;
+    deckStreamKeyBadge.textContent = `Default Key (...${hint || 'Set'})`;
     deckStreamKeyBadge.style.borderColor = 'var(--border-muted)';
     deckStreamKeyBadge.style.color = 'var(--text-main)';
-    deckStreamKeyBadge.title = `Active mode (${isHoriz ? 'Horizontal 16:9' : 'Vertical 9:16'}) stream key configured (...${hint || 'Set'}). Click to change.`;
+    deckStreamKeyBadge.title = `Canonical YouTube stream key configured (...${hint || 'Set'}). Used for both Horizontal and Vertical live streaming. Click to change.`;
   }
 }
 
@@ -1631,37 +1610,17 @@ function updateKeyFeedback() {
   if (val.length > 0) {
     keyBadge.textContent = 'Unsaved Entry';
     keyBadge.className = 'badge-tag badge-active';
-    keyHintText.innerHTML = `New vertical stream key entered (${val.length} chars) — Click <strong>Save Configuration</strong> below to apply.`;
+    keyHintText.innerHTML = `New default stream key entered (${val.length} chars) — Click <strong>Save Configuration</strong> below to apply.`;
   } else if (_currentSettings?.youtube?.streamKeySet) {
     keyBadge.textContent = `Saved (...${_currentSettings.youtube.streamKeyHint})`;
     keyBadge.className = 'badge-tag';
     cfgStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.streamKeyHint})`;
-    keyHintText.innerHTML = `Vertical 9:16 Stream Key ("shot") is saved (ends in ...${_currentSettings.youtube.streamKeyHint}). Used for Vertical 9:16 live streams.`;
+    keyHintText.innerHTML = `YouTube Default Stream Key is saved (ends in ...${_currentSettings.youtube.streamKeyHint}). Used for all live streams in both Horizontal 16:9 and Vertical 9:16 modes.`;
   } else {
-    keyBadge.textContent = 'Optional';
+    keyBadge.textContent = 'Required';
     keyBadge.className = 'badge-tag';
-    cfgStreamKey.placeholder = 'Paste Vertical 9:16 Stream Key ("shot")';
-    keyHintText.innerHTML = 'Stream key for YouTube 9:16 vertical / Shorts live broadcasts.';
-  }
-}
-
-function updateHorizontalKeyFeedback() {
-  if (!horizontalKeyBadge || !horizontalKeyHintText || !cfgHorizontalStreamKey) return;
-  const val = cfgHorizontalStreamKey.value.trim();
-  if (val.length > 0) {
-    horizontalKeyBadge.textContent = 'Unsaved Entry';
-    horizontalKeyBadge.className = 'badge-tag badge-active';
-    horizontalKeyHintText.innerHTML = `New horizontal stream key entered (${val.length} chars) — Click <strong>Save Configuration</strong> to apply.`;
-  } else if (_currentSettings?.youtube?.horizontalStreamKeySet) {
-    horizontalKeyBadge.textContent = `Saved (...${_currentSettings.youtube.horizontalStreamKeyHint})`;
-    horizontalKeyBadge.className = 'badge-tag';
-    cfgHorizontalStreamKey.placeholder = `Saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint})`;
-    horizontalKeyHintText.innerHTML = `Horizontal 16:9 Stream Key ("long") is saved (ends in ...${_currentSettings.youtube.horizontalStreamKeyHint}). Used for Horizontal 16:9 live streams.`;
-  } else {
-    horizontalKeyBadge.textContent = 'Required';
-    horizontalKeyBadge.className = 'badge-tag';
-    cfgHorizontalStreamKey.placeholder = 'Paste Horizontal 16:9 Stream Key ("long")';
-    horizontalKeyHintText.innerHTML = 'Primary stream key for YouTube 16:9 landscape live broadcasts.';
+    cfgStreamKey.placeholder = 'Paste YouTube Default Stream Key';
+    keyHintText.innerHTML = 'Canonical YouTube stream key used for live broadcast transmission in both Horizontal and Vertical modes.';
   }
 }
 
@@ -1690,15 +1649,6 @@ async function openSettings() {
     if (btnRevealText) btnRevealText.textContent = 'Show';
 
     updateKeyFeedback();
-
-    if (cfgHorizontalStreamKey) {
-      cfgHorizontalStreamKey.value = '';
-      cfgHorizontalStreamKey.type = 'password';
-      if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'inline';
-      if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'none';
-      if (btnRevealHorizText) btnRevealHorizText.textContent = 'Show';
-      updateHorizontalKeyFeedback();
-    }
 
     cfgModePref.value = settings.stream?.modePreference || 'auto';
     if (cfgAllowTranscode) {
@@ -2380,50 +2330,6 @@ async function init() {
   // Live input feedback on key typing
   cfgStreamKey.addEventListener('input', updateKeyFeedback);
 
-  if (cfgHorizontalStreamKey) {
-    cfgHorizontalStreamKey.addEventListener('input', updateHorizontalKeyFeedback);
-  }
-
-  if (btnRevealHorizKey) {
-    btnRevealHorizKey.addEventListener('click', async () => {
-      // If input currently has text typed, toggle visibility
-      if (cfgHorizontalStreamKey.value.length > 0) {
-        if (cfgHorizontalStreamKey.type === 'password') {
-          cfgHorizontalStreamKey.type = 'text';
-          if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'none';
-          if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'inline';
-          if (btnRevealHorizText) btnRevealHorizText.textContent = 'Hide';
-        } else {
-          cfgHorizontalStreamKey.type = 'password';
-          if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'inline';
-          if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'none';
-          if (btnRevealHorizText) btnRevealHorizText.textContent = 'Show';
-        }
-        return;
-      }
-
-      // Input is empty: if horizontal key is configured on server, reveal it securely
-      if (_currentSettings?.youtube?.horizontalStreamKeySet) {
-        const password = prompt('Re-enter admin password to reveal saved horizontal stream key:');
-        if (!password) return;
-
-        try {
-          const res = await apiPost('/api/settings/reveal-stream-key', { password });
-          cfgHorizontalStreamKey.value = res.horizontalStreamKey || '';
-          cfgHorizontalStreamKey.type = 'text';
-          if (iconEyeShowHoriz) iconEyeShowHoriz.style.display = 'none';
-          if (iconEyeHideHoriz) iconEyeHideHoriz.style.display = 'inline';
-          if (btnRevealHorizText) btnRevealHorizText.textContent = 'Hide';
-          updateHorizontalKeyFeedback();
-        } catch (err) {
-          showToast(`Key reveal failed: ${err.message}`, 'error', 'Reveal Failed');
-        }
-      } else {
-        showToast('No horizontal stream key is configured yet. Paste your horizontal stream key into the box.', 'info', 'Stream Key Empty');
-      }
-    });
-  }
-
   // Wire up maintenance banner disable button
   if (btnDisableMaintenance) {
     btnDisableMaintenance.addEventListener('click', async () => {
@@ -2474,9 +2380,6 @@ async function init() {
 
     if (cfgStreamKey.value.trim()) {
       patch.youtube.streamKey = cfgStreamKey.value.trim();
-    }
-    if (cfgHorizontalStreamKey && cfgHorizontalStreamKey.value.trim() !== '') {
-      patch.youtube.horizontalStreamKey = cfgHorizontalStreamKey.value.trim();
     }
 
     try {

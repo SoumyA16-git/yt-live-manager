@@ -25,7 +25,7 @@ import {
   getFfmpegPid,
   getLatestProgress,
 } from './ffmpeg-manager.js';
-import { getSettings, loadSettings, getStreamKey, getHorizontalStreamKey } from './config-manager.js';
+import { getSettings, loadSettings, getStreamKey } from './config-manager.js';
 import { getState, saveState, appendHistory } from './state-manager.js';
 import {
   getVideo,
@@ -35,7 +35,7 @@ import {
   getFreshPlayablePlaylist,
 } from './video-manager.js';
 import { evaluateCompatibility } from './ffprobe-manager.js';
-import { recordProgressBytes, flushUsage } from './usage-manager.js';
+import { recordProgressBytes, flushUsage, resetProcessBaseline } from './usage-manager.js';
 import { logger } from './logger.js';
 import { isInsideWindow } from './scheduler.js';
 import PATHS from './lib/paths.js';
@@ -55,6 +55,7 @@ const _spawnTimestamps = []; // for circuit breaker (> 30 in 10 min)
 let _lastCycleOrder    = []; // active cycle order of { id, duration }
 let _currentSessionStartOffset = 0; // seek offset applied at session start
 let _startInProgress   = false; // re-entrancy mutex for startStream
+let _lastProgressTimestamp = null;
 
 export function getCurrentLifecyclePromise() {
   return null;
@@ -162,19 +163,15 @@ export async function evaluateStartGates(options = {}) {
     return { allowed: false, code: 'E_BW_LIMIT', reason: 'Monthly bandwidth safety limit reached' };
   }
 
-  // 4. YouTube Stream Key Configured for Active Mode
+  // 4. YouTube Stream Key Configured (Single Canonical Key)
   const streamMode = (settings.stream?.mode || 'horizontal').toLowerCase();
-  let streamKey = '';
-  if (streamMode === 'horizontal') {
-    streamKey = (getHorizontalStreamKey() || settings.youtube?.horizontalStreamKey || '').trim();
-    if (!streamKey) {
-      return { allowed: false, code: 'E_KEY_MISSING', reason: 'Horizontal YouTube stream key is not configured' };
-    }
-  } else {
-    streamKey = (getStreamKey() || settings.youtube?.streamKey || '').trim();
-    if (!streamKey) {
-      return { allowed: false, code: 'E_KEY_MISSING', reason: 'Vertical YouTube stream key is not configured' };
-    }
+  const streamKey = (getStreamKey() || settings.youtube?.streamKey || '').trim();
+  if (!streamKey) {
+    return {
+      allowed: false,
+      code: 'E_KEY_MISSING',
+      reason: `Default YouTube stream key is not configured for ${streamMode === 'horizontal' ? 'Horizontal (16:9)' : 'Vertical (9:16)'} mode. Please configure the default YouTube Stream Key in Settings.`,
+    };
   }
 
   // 5. Video / Mode-Specific Playlist Selected and Valid
@@ -687,6 +684,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       streamMode,
     });
 
+    resetProcessBaseline();
+    _lastProgressTimestamp = Date.now();
     try {
       const { pid } = await spawnFfmpeg({
         args: publisherArgs,
@@ -695,7 +694,10 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         pipeMode: true,
         onProgress: (p) => {
           const overhead = settings.bandwidth?.overheadPercent ?? 10;
-          recordProgressBytes(p.total_size, 1, overhead);
+          const now = Date.now();
+          const dtSec = _lastProgressTimestamp ? Math.max(0.1, (now - _lastProgressTimestamp) / 1000) : 1;
+          _lastProgressTimestamp = now;
+          recordProgressBytes(p.total_size, dtSec, overhead);
         },
         onHealthy: async () => {
           _streamStartTime = Date.now();
@@ -930,6 +932,8 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
   const settings = getSettings();
   logger.info('stream.stop', `Stop requested (${reason}); stream will start from 00:00 on next run`);
   _currentSessionStartOffset = 0;
+  _lastProgressTimestamp = null;
+  resetProcessBaseline();
 
   await stopFeeders();
   await saveState({
@@ -1462,7 +1466,7 @@ export async function setStreamMode(newMode) {
   }
 
   const curState = getState();
-  if (isFfmpegRunning() || curState.status === 'RUNNING' || curState.status === 'STARTING') {
+  if (isFfmpegRunning() || curState.status === 'RUNNING' || curState.status === 'STARTING' || curState.status === 'RECONNECTING') {
     throw Object.assign(new Error('Cannot change stream mode while stream is running. Stop stream before switching mode.'), {
       code: 'E_STREAM_RUNNING',
       status: 409,

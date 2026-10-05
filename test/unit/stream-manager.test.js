@@ -180,7 +180,7 @@ describe('stream-manager — evaluateStartGates', () => {
     });
 
     await saveSettings({
-      youtube: { horizontalStreamKey: 'valid-test-key-5555' },
+      youtube: { streamKey: 'valid-test-key-5555' },
       stream: { mode: 'horizontal', videoId, modePreference: 'auto' },
     });
 
@@ -227,7 +227,7 @@ describe('stream-manager — evaluateStartGates', () => {
     });
 
     await saveSettings({
-      youtube: { horizontalStreamKey: 'valid-test-key-6666' },
+      youtube: { streamKey: 'valid-test-key-6666' },
       stream: { mode: 'horizontal', videoId, modePreference: 'auto', allowTranscode: true },
     });
 
@@ -297,7 +297,7 @@ describe('stream-manager — evaluateStartGates', () => {
     });
 
     await saveSettings({
-      youtube: { horizontalStreamKey: 'valid-test-key-7777' },
+      youtube: { streamKey: 'valid-test-key-7777' },
       stream: {
         mode: 'horizontal',
         playlists: { horizontal: [vid1, vid2] },

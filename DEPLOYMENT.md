@@ -8,28 +8,30 @@ This runbook guides you through deploying, operating, updating, and troubleshoot
 
 ## ⚡ Core Architecture: Strict Single Stream Mode
 
-The system enforces **Strict Single Stream Mode**. Dual simultaneous streaming has been permanently eliminated. At any moment, **strictly ONE mode** is active:
+The system enforces **Strict Single Stream Mode**. Dual simultaneous streaming and YouTube API dependencies have been permanently eliminated. At any moment, **strictly ONE mode** is active:
 
 1. **HORIZONTAL 16:9 (Standard Landscape)**
-   - **Stream Key**: `settings.youtube.horizontalStreamKey`
+   - **Stream Key**: `settings.youtube.streamKey` (Default / Reusable YouTube Stream Key)
    - **Resolution**: `1920 × 1080` (16:9 aspect ratio)
    - **Playlist**: `stream.playlists.horizontal`
    - **Processes**: Exactly 1 FFmpeg publisher process + 1 video feeder
-   - **YouTube Broadcast**: Resolved and bound strictly to the Horizontal LiveStream
+   - **YouTube Ingest**: Direct RTMPS push to YouTube Live edge ingest via default stream key
    - **Orientation Gate**: Video files must have $width \ge height$. Vertical videos are rejected with HTTP 422 `E_HORIZONTAL_VIDEO_REQUIRED`.
 
 2. **VERTICAL 9:16 (YouTube Shorts Portrait)**
-   - **Stream Key**: `settings.youtube.streamKey`
+   - **Stream Key**: `settings.youtube.streamKey` (SAME Default / Reusable YouTube Stream Key)
    - **Resolution**: `1080 × 1920` (9:16 aspect ratio)
    - **Playlist**: `stream.playlists.vertical`
    - **Processes**: Exactly 1 FFmpeg publisher process + 1 video feeder
-   - **YouTube Broadcast**: Resolved and bound strictly to the Vertical LiveStream
+   - **YouTube Ingest**: Direct RTMPS push to YouTube Live edge ingest via default stream key
    - **Orientation Gate**: Video files must have $height > width$. Horizontal videos are rejected with HTTP 422 `E_VERTICAL_VIDEO_REQUIRED`.
 
 ### Invariants:
-- **Zero Simultaneous Streaming**: Never runs horizontal and vertical publishers together. Secondary PID is permanently `null`.
-- **Zero Cross-Mode Fallback**: Missing key or empty playlist fails stream start immediately.
-- **Mode Switch Lock**: Changing mode while the stream is running returns HTTP 409 Conflict (`E_STREAM_RUNNING`). The stream must be stopped before switching modes.
+- **Single Default Stream Key**: The identical canonical `settings.youtube.streamKey` powers both horizontal and vertical modes.
+- **Zero Simultaneous Streaming**: Never runs horizontal and vertical publishers together. Exactly one publisher and one feeder process.
+- **Zero API / OAuth Dependencies**: YouTube Studio manages broadcast metadata, scheduling, title, tags, and audience. Ingest is direct RTMPS.
+- **Zero Cross-Mode Fallback**: Missing key or empty playlist fails stream start immediately (`E_KEY_MISSING`).
+- **Mode Switch Lock**: Changing mode while the stream is running, starting, or reconnecting returns HTTP 409 Conflict (`E_STREAM_RUNNING`). The stream must be stopped before switching modes.
 - **Hot Playlist Updates**: Updating the playlist of the active mode applies smoothly at the next video boundary without restarting playback. Modifying the inactive mode playlist never disturbs current playback.
 
 ---
@@ -95,23 +97,17 @@ cd /opt/yt-live-manager && sudo -u ytlive node scripts/verify-advanced-acceptanc
 # View full terminal telemetry dashboard:
 node scripts/status.js
 
-# Check YouTube Live broadcast lifecycle:
-curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
+# Check health verdict and stream status:
+curl -s http://127.0.0.1:3000/api/stream/status | jq .
 ```
 
-### 6. One-Time YouTube OAuth Setup (Autonomous Lifecycle)
+### 6. Configure Single YouTube Stream Key
 ```bash
-# Run one-time OAuth 2.0 bootstrap on VPS (or locally):
-node scripts/oauth-setup.js
-
-# Or pass Client ID and Secret directly:
-node scripts/oauth-setup.js --client-id="<CLIENT_ID>" --client-secret="<CLIENT_SECRET>"
-
-# Append generated YOUTUBE_CLIENT_ID, SECRET, and REFRESH_TOKEN to:
-sudo nano /etc/yt-live-manager/env
-
-# Restart service to activate autonomous lifecycle control:
-sudo systemctl restart yt-live-manager
+# Set your YouTube Live Default/Reusable stream key in Settings modal via Web UI,
+# or directly configure via CLI / API:
+curl -X PUT http://127.0.0.1:3000/api/settings \
+  -H "Content-Type: application/json" \
+  -d '{"youtube": {"streamKey": "<YOUR_DEFAULT_STREAM_KEY>"}}'
 ```
 
 ### 7. Update Application Code (Run on VPS)
@@ -221,132 +217,59 @@ On your **local computer** (Windows Git Bash / PowerShell / Terminal):
 
 ---
 
-## Phase 5: Autonomous YouTube Broadcast Lifecycle & One-Time OAuth Setup
+## Phase 5: YouTube Studio & Direct RTMPS Ingestion Architecture
 
-The streaming manager features an **autonomous, server-side YouTube Live Data API v3 lifecycle manager**. It allows 24×7 streaming to run **headlessly / unattended with Google Chrome and YouTube Studio completely CLOSED**.
-
----
-
-### 5.1 Architecture: Transport vs. Broadcast Lifecycle
-
-Streaming to YouTube involves two distinct layers:
-
-1. **RTMPS Ingest Transport (FFmpeg)**:
-   - Connects to Google's edge ingest server (`rtmps://a.rtmps.youtube.com:443/live2/<streamKey>`).
-   - TCP packets and ACK bytes confirm physical data delivery to Google.
-   - Ingest uses the stream key corresponding to the selected mode (`horizontalStreamKey` for 16:9, `streamKey` for 9:16).
-
-2. **Broadcast Lifecycle Management (YouTube Data API v3)**:
-   - **Stream Resolution:** Resolves the `liveStream` resource matching the active mode's stream key (`cdn.ingestionInfo.streamName === streamKey`).
-   - **Ingest Health Polling:** Verifies `liveStream.status.streamStatus === 'active'` before attempting any transition.
-   - **Broadcast Binding:** Resolves the `liveBroadcast` bound to the active stream, prioritizing `live` > `testing` > `ready`.
-   - **Auto-Start Handling:**
-     - If `enableAutoStart === true`: Awaits YouTube's automated ingest-to-live transition (up to 30s).
-     - If `enableAutoStart === false` (or auto-start stalls): Explicitly transitions broadcast to `live`.
-   - **Auto-Recycle Rollover:** Once a broadcast ends and transitions to `complete`, YouTube permanently locks it. On the next session cycle, the manager automatically instantiates a fresh broadcast via `createAndBindBroadcast()`, binds it to the mode's reusable stream, and transitions it to `live`.
+The streaming manager connects directly to YouTube Live via secure **RTMPS edge ingest** without any runtime dependency on YouTube Data API or OAuth tokens.
 
 ---
 
-### 5.2 Telemetry States
+### 5.1 Architecture: YouTube Studio Responsibility vs. Media Ingestion
 
-The dashboard and internal telemetry strictly separate encoder health from YouTube publication:
+1. **YouTube Studio Responsibilities**:
+   - Title, description, tags, and category
+   - Live stream privacy (Public, Unlisted, Private)
+   - Custom thumbnail and playlist placement
+   - Audience restrictions ("Made for Kids" or age restrictions)
+   - Chat settings, DVR, and stream latency (Normal vs. Low latency)
+   - Auto-start / Auto-stop settings in YouTube Studio
 
-| State | Status Text | Meaning |
-|:---|:---|:---|
-| **FFmpeg Running (Unmanaged)** | `FFMPEG RUNNING (RTMPS ACTIVE • API UNCONFIGURED)` | FFmpeg is transmitting to YouTube RTMPS ingest; YouTube API credentials are not set. The server **never claims YouTube LIVE** without verification. |
-| **Ingest Active, Preparing** | `FFMPEG HEALTHY (INGEST ACTIVE • BROADCAST: PREPARING)` | Google ingest server has received valid video chunks (`streamStatus: active`); broadcast is awaiting auto-start or transition. |
-| **YouTube Broadcast Live (Horizontal)** | `YOUTUBE LIVE (HORIZONTAL 16:9 • BROADCAST LIVE)` | Data API confirms `lifeCycleStatus: live` for the Horizontal stream key. |
-| **YouTube Broadcast Live (Vertical)** | `YOUTUBE LIVE (VERTICAL 9:16 • BROADCAST LIVE)` | Data API confirms `lifeCycleStatus: live` for the Vertical Shorts stream key. |
-
----
-
-### 5.3 One-Time Google Cloud OAuth 2.0 Credentials Setup
-
-YouTube Data API v3 requires OAuth 2.0 user credentials (Service Accounts are **not** supported by YouTube Live Streaming API).
-
-#### Step 1: Create OAuth Client in Google Cloud Console
-1. Open the [Google Cloud Console](https://console.cloud.google.com).
-2. Create a new project (e.g., `YT-Live-Manager`) or select an existing project.
-3. In the left navigation, go to **APIs & Services** → **Library**.
-4. Search for **YouTube Data API v3** and click **Enable**.
-5. Go to **APIs & Services** → **OAuth consent screen**:
-   - Select User Type: **External** and click **Create**.
-   - Fill in **App name** (e.g. `YT Live Manager`) and **User support email**.
-   - Under **Scopes**, click **Add or Remove Scopes**, select `https://www.googleapis.com/auth/youtube`, and click **Update**.
-   - Under **Test users**, click **Add Users** and enter the Google/Gmail address that owns your YouTube channel. Click **Save and Continue**.
-6. Go to **APIs & Services** → **Credentials**:
-   - Click **Create Credentials** → **OAuth client ID**.
-   - Application type: Select **Desktop app** (recommended: works with localhost on any port) *or* **Web application** (Authorized redirect URI: `http://localhost:8085/oauth2callback`).
-   - Click **Create**.
-   - Copy the generated **Client ID** and **Client Secret**.
+2. **Server Responsibilities (Media Engine)**:
+   - Feeds media files continuously into FFmpeg
+   - Connects to Google's edge ingest server (`rtmps://a.rtmps.youtube.com:443/live2/<streamKey>`)
+   - Uses the identical **Default / Reusable YouTube Stream Key** (`settings.youtube.streamKey`) for both Horizontal (16:9) and Vertical (9:16) modes
+   - Enforces playlist isolation, hot updates, and orientation safety
+   - Recycles FFmpeg cleanly on scheduled auto-recycle boundaries
 
 ---
 
-### 5.4 Run the One-Time OAuth Setup CLI
+### 5.2 Obtaining Your YouTube Default Stream Key
 
-On your OCI VM (or on your local computer), run the included OAuth setup utility:
-
-```bash
-# Interactive mode (prompts for Client ID and Secret):
-node scripts/oauth-setup.js
-
-# Or pass them directly via flags:
-node scripts/oauth-setup.js --client-id="<YOUR_CLIENT_ID>" --client-secret="<YOUR_CLIENT_SECRET>"
-```
-
-#### What Happens:
-1. The tool prints a Google authorization link.
-2. Open that URL in your browser, sign in with the Google account for your YouTube channel, and click **Allow**.
-3. **If running locally or with SSH port forwarding (`ssh -L 8085:localhost:8085 ...`)**:
-   The browser redirects to `http://localhost:8085/oauth2callback` and the CLI automatically captures the code.
-4. **If running directly on the VPS without port forwarding**:
-   Your browser will show a connection error after redirecting to `http://localhost:8085/oauth2callback?code=4/0A...`.
-   **Copy the full URL from your browser's address bar and paste it into the CLI prompt.**
-5. The CLI exchanges the authorization code for a persistent `refresh_token`, verifies your YouTube channel title, and outputs the exact configuration block.
+1. Open **[YouTube Studio](https://studio.youtube.com)**.
+2. Click **Go Live** (or the red camera icon in the top right).
+3. Under **Stream**, select your default reusable stream key (or create a reusable stream key named e.g. `24-7 Live Stream Key`).
+4. Copy the **Stream key** (keep it confidential).
+5. Ensure **"Enable Auto-start"** and **"Enable Auto-stop"** are configured according to your channel workflow in YouTube Studio.
 
 ---
 
-### 5.5 Configure Production Environment & Restart
+### 5.3 Configuring Your Stream Key in the Application
 
-On your OCI VM, append the three generated variables to `/etc/yt-live-manager/env`:
-
-```bash
-sudo nano /etc/yt-live-manager/env
-```
-
-Add these three lines at the bottom:
-```bash
-YOUTUBE_CLIENT_ID="<your-client-id>.apps.googleusercontent.com"
-YOUTUBE_CLIENT_SECRET="<your-client-secret>"
-YOUTUBE_REFRESH_TOKEN="<your-refresh-token>"
-```
-
-Save and exit (`Ctrl+O`, `Enter`, `Ctrl+X`).
-
-Restart the service:
-```bash
-sudo systemctl restart yt-live-manager
-```
-
-Verify that the lifecycle manager is configured:
-```bash
-curl -s http://127.0.0.1:3000/api/internal/cli-status | jq .youtubeLive
-```
-
-Now, clicking **START** in the dashboard or triggering automated scheduling will autonomously connect FFmpeg, verify ingest stream activation, resolve the bound broadcast, and transition your YouTube channel to **LIVE** with no browser or YouTube Studio window required!
+In **Settings ⚙️** on the web dashboard:
+1. Paste your key into **YouTube Default Stream Key**.
+2. Click **Save Settings**.
+3. The stream key is stored encrypted at rest with AES-256-GCM and never logged in plain text.
+4. When streaming in **Horizontal 16:9**, the default stream key is used with the horizontal playlist.
+5. When streaming in **Vertical 9:16**, the SAME default stream key is used with the vertical playlist.
 
 ---
 
 ## Phase 6: Mode-Specific Playlists, Video Export & Going Live
 
-### 6.1 Configuring Both Stream Keys
-In **Settings ⚙️** (or directly in `/opt/yt-live-manager/config/settings.json`):
-1. **Vertical 9:16 Stream Key (`settings.youtube.streamKey`)**:
-   - Set to your YouTube Live key for Shorts/portrait broadcasts.
-2. **Horizontal 16:9 Stream Key (`settings.youtube.horizontalStreamKey`)**:
-   - Set to your YouTube Live key for standard landscape broadcasts.
-
-Both keys are encrypted at rest with AES-256-GCM and masked in all logs and API responses.
+### 6.1 Single Canonical Stream Key
+- **YouTube Stream Key**: `settings.youtube.streamKey`
+- Powers both horizontal and vertical modes.
+- No separate or mismatched keys to maintain.
+- Mode switching determines the media dimensions, upload validation, and active playlist (Horizontal vs. Vertical), while retaining the exact same YouTube ingest destination.
 
 ---
 

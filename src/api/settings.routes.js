@@ -64,16 +64,9 @@ export function createSettingsRouter(envConfig) {
       delete patch.youtube.streamKey;
     }
 
-    // Clean and normalize horizontalStreamKey
-    if (patch.youtube && typeof patch.youtube.horizontalStreamKey === 'string') {
-      let hKey = patch.youtube.horizontalStreamKey.trim();
-      if (hKey.includes('/live2/')) {
-        hKey = hKey.split('/live2/').pop().trim();
-      } else if (hKey.startsWith('rtmp://') || hKey.startsWith('rtmps://')) {
-        hKey = hKey.split('/').pop().trim();
-      }
-      hKey = hKey.replace(/\s+/g, '');
-      patch.youtube.horizontalStreamKey = hKey;
+    // Delete legacy horizontalStreamKey if sent by legacy clients
+    if (patch.youtube && patch.youtube.horizontalStreamKey !== undefined) {
+      delete patch.youtube.horizontalStreamKey;
     }
 
     // Validate patch BEFORE writing — return descriptive errors immediately
@@ -95,8 +88,6 @@ export function createSettingsRouter(envConfig) {
         settings: updated,
         streamKeySet: Boolean(updated.youtube?.streamKeySet),
         streamKeyHint: updated.youtube?.streamKeyHint || '',
-        horizontalStreamKeySet: Boolean(updated.youtube?.horizontalStreamKeySet),
-        horizontalStreamKeyHint: updated.youtube?.horizontalStreamKeyHint || '',
         requiresRestart: Boolean(requiresRestart),
       });
     } catch (err) {
@@ -142,7 +133,6 @@ export function createSettingsRouter(envConfig) {
     logger.info('settings.key_revealed', 'Admin revealed stream key');
     res.json({
       streamKey: getStreamKey(),
-      horizontalStreamKey: getHorizontalStreamKey(),
     });
   });
 

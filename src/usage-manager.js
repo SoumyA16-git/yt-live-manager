@@ -243,6 +243,14 @@ export function getEffectiveUsedBytes() {
 }
 
 /**
+ * Return pure raw publisher output bytes (excluding overhead and manual offsets).
+ */
+export function getRawUsedBytes() {
+  if (!_usage) return 0;
+  return Math.max(0, _usage.estimatedBytes || 0);
+}
+
+/**
  * Evaluates whether period rollover should occur (PRD §7.7).
  * Rollover triggers when computed periodId > stored periodId.
  *

@@ -8,7 +8,7 @@
  * - Compares App estimate vs. OCI-reported usage if available and fresh.
  */
 
-import { getUsage, getEffectiveUsedBytes, markAlertFired, flushUsage } from './usage-manager.js';
+import { getUsage, getEffectiveUsedBytes, getRawUsedBytes, markAlertFired, flushUsage } from './usage-manager.js';
 import { getSettings, getSafetyLimitBytes, getMonthlyAllowanceBytes } from './config-manager.js';
 import { getState, saveState } from './state-manager.js';
 import { calculateBitrateMetrics, bytesToGB, gbToBytes } from './bitrate-calculator.js';
@@ -223,6 +223,9 @@ export async function getBandwidthSummary(now = new Date()) {
 
   return {
     ...evalResult,
+    rawUsedBytes: getRawUsedBytes(),
+    overheadBytes: usage.overheadBytes || 0,
+    effectiveUsedBytes: getEffectiveUsedBytes(),
     periodId: usage.periodId,
     periodStart: usage.periodStart,
     streamingSeconds: usage.streamingSeconds,

@@ -59,7 +59,6 @@ export const DEFAULTS = Object.freeze({
   youtube: {
     rtmpsUrl: 'rtmps://a.rtmps.youtube.com:443/live2',
     streamKey: '',
-    horizontalStreamKey: '',
   },
   youtubeGuidance: { recommendedMbps: [3, 9] },
   bandwidth: {
@@ -199,12 +198,9 @@ export async function loadSettings() {
     }
   }
 
-  // Register stream keys — must happen before any log line that might contain them
+  // Register stream key — must happen before any log line that might contain it
   if (_settings.youtube?.streamKey) {
     setSecret(_settings.youtube.streamKey);
-  }
-  if (_settings.youtube?.horizontalStreamKey) {
-    setSecret(_settings.youtube.horizontalStreamKey);
   }
 
   return _settings;
@@ -242,12 +238,9 @@ export async function saveSettings(patch, { skipBackup = false } = {}) {
 
   await writeJSON(_settingsPath, candidate, { mode: 0o600, backupFn });
 
-  // Update redact module if keys changed
+  // Update redact module if key changed
   if (candidate.youtube?.streamKey) {
     setSecret(candidate.youtube.streamKey);
-  }
-  if (candidate.youtube?.horizontalStreamKey) {
-    setSecret(candidate.youtube.horizontalStreamKey);
   }
 
   _settings = candidate;
@@ -279,21 +272,16 @@ export function getMaskedSettings() {
   }
   delete s.youtube.streamKey;
 
-  const hKey = s.youtube?.horizontalStreamKey;
-  if (hKey) {
-    s.youtube.horizontalStreamKeySet = true;
-    s.youtube.horizontalStreamKeyHint = hKey.slice(-4);
-  } else {
-    s.youtube.horizontalStreamKeySet = false;
-    s.youtube.horizontalStreamKeyHint = '';
-  }
-  delete s.youtube.horizontalStreamKey;
+  // Remove legacy key from masked output if present
+  delete s.youtube?.horizontalStreamKey;
+  s.youtube.horizontalStreamKeySet = s.youtube.streamKeySet;
+  s.youtube.horizontalStreamKeyHint = s.youtube.streamKeyHint;
 
   return s;
 }
 
 /**
- * Return the raw stream key for internal use ONLY.
+ * Return the raw canonical YouTube stream key for internal use ONLY.
  * Never log the return value.
  */
 export function getStreamKey() {
@@ -301,11 +289,11 @@ export function getStreamKey() {
 }
 
 /**
- * Return the raw horizontal stream key for internal use ONLY.
+ * Legacy alias for getStreamKey() — always returns the single canonical streamKey.
  * Never log the return value.
  */
 export function getHorizontalStreamKey() {
-  return _settings?.youtube?.horizontalStreamKey ?? '';
+  return getStreamKey();
 }
 
 /**

@@ -158,7 +158,7 @@ describe('Single Stream Mode Architecture (15 Invariants)', () => {
     assert.strictEqual(gate.code, 'E_HORIZONTAL_VIDEO_REQUIRED');
   });
 
-  test('5. Horizontal mode blocks start if horizontalStreamKey is missing (E_KEY_MISSING)', async () => {
+  test('5. Horizontal mode blocks start if canonical streamKey is missing (E_KEY_MISSING)', async () => {
     const videoId = 'vid_00000002';
     await fs.writeFile(path.join(videosDir, `${videoId}.mp4`), 'fake-data');
 
@@ -181,8 +181,7 @@ describe('Single Stream Mode Architecture (15 Invariants)', () => {
         modePreference: 'auto',
       },
       youtube: {
-        streamKey: 'primary-key-vert-777',
-        horizontalStreamKey: '',
+        streamKey: '',
       },
     });
 
@@ -191,7 +190,7 @@ describe('Single Stream Mode Architecture (15 Invariants)', () => {
     assert.strictEqual(gate.code, 'E_KEY_MISSING');
   });
 
-  test('6. Horizontal mode succeeds with 16:9 video and horizontalStreamKey (isDualStream=false)', async () => {
+  test('6. Horizontal mode succeeds with 16:9 video and canonical streamKey (isDualStream=false)', async () => {
     const hId = 'vid_00000003';
     await fs.writeFile(path.join(videosDir, `${hId}.mp4`), 'fake-data-horiz');
 
@@ -214,8 +213,7 @@ describe('Single Stream Mode Architecture (15 Invariants)', () => {
         modePreference: 'auto',
       },
       youtube: {
-        streamKey: 'primary-key-vert-555',
-        horizontalStreamKey: 'secondary-key-horiz-444',
+        streamKey: 'default-key-single-444',
       },
     });
 
@@ -223,7 +221,7 @@ describe('Single Stream Mode Architecture (15 Invariants)', () => {
     assert.strictEqual(gate.allowed, true);
     assert.strictEqual(gate.isDualStream, false);
     assert.strictEqual(gate.streamMode, 'horizontal');
-    assert.ok(gate.destUrl.includes('secondary-key-horiz-444'));
+    assert.ok(gate.destUrl.includes('default-key-single-444'));
   });
 
   test('7. Vertical mode blocks start if video is horizontal (E_VERTICAL_VIDEO_REQUIRED)', async () => {

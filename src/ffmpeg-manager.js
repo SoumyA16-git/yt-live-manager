@@ -688,11 +688,29 @@ export async function spawnFfmpeg({
         outTimeSec = us > 0 ? (us / 1000000) : 0;
       }
 
+      let outputKbps = _measuredBitrate || 0;
+      if (!outputKbps && effectiveBitrate) {
+        const numMatch = effectiveBitrate.match(/([\d.]+)/);
+        if (numMatch) {
+          const val = parseFloat(numMatch[1]) || 0;
+          outputKbps = effectiveBitrate.includes('mbits') ? Math.round(val * 1000) : Math.round(val);
+        }
+      }
+      if (!outputKbps && becameHealthy) {
+        outputKbps = Math.round((settings.stream?.videoBitrateMbps || 4.0) * 1000);
+      }
+      const outputMbps = Number((outputKbps / 1000).toFixed(2));
+      const outputKBps = Math.round(outputKbps / 8);
+
       const progressData = {
         frame,
         fps: effectiveFps,
         bitrate: effectiveBitrate || (becameHealthy ? '4000kbits/s' : '0kbits/s'),
         total_size: totalSize,
+        outputBytes: totalSize,
+        outputKbps,
+        outputMbps,
+        outputKBps,
         outTimeSec,
         outTimeStr: block.out_time || '',
         speed: effectiveSpeed,
