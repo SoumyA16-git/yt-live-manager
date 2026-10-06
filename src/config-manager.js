@@ -46,7 +46,7 @@ export const DEFAULTS = Object.freeze({
     audioSampleRate: 44100,
     keyframeSeconds: 2,
     keyframeMaxSeconds: 6,
-    x264Preset: 'veryfast',
+    x264Preset: 'ultrafast',
     loopStrategy: 'stream_loop',
     copyMinMbps: 0.1,
     copyMaxMbps: 4.0,

@@ -313,18 +313,25 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
     const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
     const bufSizeKbps = videoKbps * 2;
-    const preset = streamCfg.x264Preset || 'ultrafast';
+    // Strict 30-40% CPU requirement: dynamic bandwidth transcode MUST use ultrafast
+    const preset = isCapActive ? 'ultrafast' : (streamCfg.x264Preset || 'ultrafast');
 
-    const vf = [
-      `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-      `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
-      'setsar=1',
-      `fps=${fps}`,
-      'format=yuv420p',
-    ].join(',');
+    const sourceWidth = Number(videoMeta?.probe?.width || 0);
+    const sourceHeight = Number(videoMeta?.probe?.height || 0);
+    const needsScaling = (sourceWidth > 0 && sourceHeight > 0) && (sourceWidth !== width || sourceHeight !== height);
+
+    if (needsScaling) {
+      const vf = [
+        `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
+        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+        'setsar=1',
+        `fps=${fps}`,
+        'format=yuv420p',
+      ].join(',');
+      args.push('-vf', vf);
+    }
 
     args.push(
-      '-vf', vf,
       '-c:v', 'libx264',
       '-preset', preset,
       '-tune', 'zerolatency',
