@@ -9,14 +9,22 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import fsSync from 'node:fs';
 import crypto from 'node:crypto';
 import PATHS from './lib/paths.js';
 import { logger } from './logger.js';
 import { importConvertedVideo } from './video-manager.js';
 import { probeMedia } from './ffprobe-manager.js';
+import { getSettings, saveSettings } from './config-manager.js';
 
 // Cookies file path — user exports browser cookies here for YouTube auth
 const YT_COOKIES_PATH = path.join(PATHS.config, 'yt-cookies.txt');
+
+// Known VM Google Chrome user-data paths on Ubuntu
+const VM_CHROME_USER_DATA_DIRS = [
+  '/home/ubuntu/.config/google-chrome',
+  '/root/.config/google-chrome',
+];
 
 // ─── Module State ─────────────────────────────────────────────────────────────
 
@@ -69,17 +77,37 @@ export async function isYtDlpAvailable() {
 }
 
 /**
- * Check if the YouTube cookies file exists.
+ * Check if the YouTube cookies file or VM Chrome cookies exist.
  *
- * @returns {Promise<{exists: boolean, path: string, sizeBytes: number}>}
+ * @returns {Promise<{exists: boolean, path: string, sizeBytes: number, chromeAvailable: boolean, source: string}>}
  */
 export async function getCookiesStatus() {
+  let chromeAvailable = false;
+  for (const dir of VM_CHROME_USER_DATA_DIRS) {
+    if (fsSync.existsSync(path.join(dir, 'Default', 'Cookies'))) {
+      chromeAvailable = true;
+      break;
+    }
+  }
+
   try {
     await fs.access(YT_COOKIES_PATH);
     const stat = await fs.stat(YT_COOKIES_PATH);
-    return { exists: true, path: YT_COOKIES_PATH, sizeBytes: stat.size };
+    return {
+      exists: true,
+      path: YT_COOKIES_PATH,
+      sizeBytes: stat.size,
+      chromeAvailable,
+      source: chromeAvailable ? 'chrome_vm' : 'file',
+    };
   } catch {
-    return { exists: false, path: YT_COOKIES_PATH, sizeBytes: 0 };
+    return {
+      exists: chromeAvailable,
+      path: YT_COOKIES_PATH,
+      sizeBytes: 0,
+      chromeAvailable,
+      source: chromeAvailable ? 'chrome_vm' : 'none',
+    };
   }
 }
 
@@ -95,8 +123,60 @@ export async function saveCookiesFile(content) {
 }
 
 /**
- * Build base yt-dlp args — includes cookies file if present.
- * Also spoofs browser User-Agent to avoid bot detection on server IPs.
+ * Auto-sync cookies directly from VM's Google Chrome profile into config/yt-cookies.txt.
+ *
+ * @returns {Promise<{success: boolean, sizeBytes?: number, error?: string}>}
+ */
+export async function syncChromeCookies() {
+  let chromeProfile = null;
+  for (const dir of VM_CHROME_USER_DATA_DIRS) {
+    if (fsSync.existsSync(path.join(dir, 'Default', 'Cookies'))) {
+      chromeProfile = dir;
+      break;
+    }
+  }
+
+  if (!chromeProfile) {
+    logger.info('ytdlp.no_chrome_profile', 'No local Chrome profile found to sync cookies from');
+    return { success: false, error: 'No local Chrome profile found' };
+  }
+
+  logger.info('ytdlp.syncing_chrome_cookies', `Syncing YouTube cookies from Chrome profile at ${chromeProfile}`);
+  await fs.mkdir(PATHS.config, { recursive: true });
+
+  return new Promise((resolve) => {
+    const args = [
+      '--cookies-from-browser', `chrome:${chromeProfile}`,
+      '--cookies', YT_COOKIES_PATH,
+      '--js-runtimes', 'node',
+      '--dump-user-agent',
+    ];
+
+    const proc = spawn('yt-dlp', args, { stdio: 'ignore' });
+    proc.on('close', async (code) => {
+      if (code === 0 && fsSync.existsSync(YT_COOKIES_PATH)) {
+        try {
+          const stat = await fs.stat(YT_COOKIES_PATH);
+          logger.info('ytdlp.chrome_cookies_synced', `Successfully extracted ${stat.size} bytes of cookies from VM Chrome`);
+          resolve({ success: true, sizeBytes: stat.size, path: YT_COOKIES_PATH });
+        } catch (e) {
+          resolve({ success: true, path: YT_COOKIES_PATH });
+        }
+      } else {
+        logger.warn('ytdlp.chrome_sync_failed', `yt-dlp cookie export exited with code ${code}`);
+        resolve({ success: false, error: `yt-dlp exit code ${code}` });
+      }
+    });
+    proc.on('error', (err) => {
+      logger.error('ytdlp.chrome_sync_error', err.message);
+      resolve({ success: false, error: err.message });
+    });
+  });
+}
+
+/**
+ * Build base yt-dlp args — auto-detects cookies from file or VM Chrome.
+ * Includes --js-runtimes node to solve YouTube JS challenges.
  *
  * @returns {Promise<string[]>}
  */
@@ -104,19 +184,38 @@ async function _buildYtDlpBaseArgs() {
   const args = [
     '--no-playlist',
     '--no-warnings',
-    // ios client has the most reliable format availability across all video types
-    // including live streams, age-restricted, and region-locked content
+    '--js-runtimes', 'node', // Enable Node.js runtime for YouTube challenge solving
     '--extractor-args', 'youtube:player_client=ios,web',
-    '--compat-options', 'no-live-chat', // Skip live chat download for live streams
+    '--compat-options', 'no-live-chat',
   ];
 
-  // Use cookies file if it exists (required for most VPS/datacenter IPs)
-  const cookiesStatus = await getCookiesStatus();
+  let cookiesStatus = await getCookiesStatus();
+  // If cookies file is missing or empty but Chrome is available on VM, sync it automatically
+  if ((!cookiesStatus.exists || cookiesStatus.sizeBytes < 50) && cookiesStatus.chromeAvailable) {
+    try {
+      await syncChromeCookies();
+      cookiesStatus = await getCookiesStatus();
+    } catch { /* proceed to direct check */ }
+  }
+
   if (cookiesStatus.exists && cookiesStatus.sizeBytes > 10) {
     args.push('--cookies', YT_COOKIES_PATH);
     logger.info('ytdlp.using_cookies', `Using YouTube cookies from ${YT_COOKIES_PATH}`);
   } else {
-    logger.warn('ytdlp.no_cookies', 'No yt-cookies.txt found. YouTube may block download from server IP. See DEPLOYMENT.md.');
+    // Check if Chrome profile can be accessed directly as fallback
+    let chromeProfile = null;
+    for (const dir of VM_CHROME_USER_DATA_DIRS) {
+      if (fsSync.existsSync(path.join(dir, 'Default', 'Cookies'))) {
+        chromeProfile = dir;
+        break;
+      }
+    }
+    if (chromeProfile) {
+      args.push('--cookies-from-browser', `chrome:${chromeProfile}`);
+      logger.info('ytdlp.using_chrome_direct', `Reading cookies directly from ${chromeProfile}`);
+    } else {
+      logger.warn('ytdlp.no_cookies', 'No yt-cookies.txt found and no Chrome profile found.');
+    }
   }
 
   return args;
@@ -137,12 +236,14 @@ export function getDownloadStatus() {
       eta: '',
       videoTitle: '',
       videoId: null,
+      detectedMode: null,
+      resolution: null,
       error: null,
     };
   }
 
   return {
-    active: ['fetching_info', 'downloading', 'converting'].includes(_currentJob.stage),
+    active: ['fetching_info', 'downloading', 'registering'].includes(_currentJob.stage),
     jobId: _currentJob.id,
     url: _currentJob.url,
     stage: _currentJob.stage,
@@ -151,6 +252,8 @@ export function getDownloadStatus() {
     eta: _currentJob.eta,
     videoTitle: _currentJob.videoTitle,
     videoId: _currentJob.videoId,
+    detectedMode: _currentJob.detectedMode || null,
+    resolution: _currentJob.resolution || null,
     autoSetActive: _currentJob.autoSetActive,
     error: _currentJob.error,
     startedAt: _currentJob.startedAt,
@@ -252,15 +355,16 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
 }
 
 /**
- * Internal async executor for the download and conversion stages.
+ * Internal async executor for the download pipeline.
+ * Downloads in highest quality natively, detects 16:9 vs 9:16,
+ * registers directly as Stream-Ready without re-encoding, and appends to the playlist.
  */
 async function _executePipeline(jobId, url, autoSetActive) {
   const incomingDir = PATHS.videosIncoming;
-  const rawPath = path.join(incomingDir, `ytdl_${jobId}_raw.mp4`);
-  const convertedPath = path.join(incomingDir, `ytdl_${jobId}_1080x1920.mp4`);
+  const rawPath = path.join(incomingDir, `ytdl_${jobId}.mp4`);
 
   if (!_currentJob || _currentJob.id !== jobId) return;
-  _currentJob.tempFiles.push(rawPath, convertedPath);
+  _currentJob.tempFiles.push(rawPath);
 
   // ─── 1. Fetch Video Title ──────────────────────────────────────────────────
   logger.info('ytdlp.fetch_info', `Fetching video metadata for ${url}`);
@@ -278,10 +382,10 @@ async function _executePipeline(jobId, url, autoSetActive) {
 
   if (_currentJob.stage === 'cancelled') return;
 
-  // ─── 2. Download raw video using yt-dlp ────────────────────────────────────
+  // ─── 2. Download highest quality video using yt-dlp ───────────────────────
   _currentJob.stage = 'downloading';
   _currentJob.percent = 0;
-  logger.info('ytdlp.start_download', `Downloading video from ${url} to ${rawPath}`);
+  logger.info('ytdlp.start_download', `Downloading highest quality video from ${url} to ${rawPath}`);
 
   await _downloadVideo(url, rawPath, jobId);
 
@@ -293,49 +397,54 @@ async function _executePipeline(jobId, url, autoSetActive) {
     throw new Error('Downloaded file is empty (0 bytes).');
   }
 
-  // ─── 3. Convert to 1080x1920 30fps vertical with user-specified format ────
-  _currentJob.stage = 'converting';
-  _currentJob.percent = 0;
-  _currentJob.speed = '';
-  _currentJob.eta = '';
-  logger.info('ytdlp.start_convert', `Converting ${rawPath} to vertical 1080x1920 at ${convertedPath}`);
-
-  // Probe raw video to determine total duration and video bitrate for accurate progress and bitrate matching
-  let rawDuration = 60; // fallback duration in seconds
-  let rawBitrate = 0;
+  // ─── 3. Probe downloaded video for native orientation & specs ────────────
+  _currentJob.stage = 'registering';
+  logger.info('ytdlp.probing_video', `Probing downloaded video ${rawPath}`);
+  let width = 1920;
+  let height = 1080;
   try {
     const rawProbe = await probeMedia(rawPath);
-    if (rawProbe?.durationSec && !isNaN(rawProbe.durationSec)) {
-      rawDuration = Math.max(1, rawProbe.durationSec);
-    }
-    if (rawProbe?.videoBitrate && rawProbe.videoBitrate > 0) {
-      rawBitrate = rawProbe.videoBitrate;
-    }
-  } catch { /* use fallback */ }
+    if (rawProbe?.width) width = rawProbe.width;
+    if (rawProbe?.height) height = rawProbe.height;
+  } catch (probeErr) {
+    logger.warn('ytdlp.probe_warning', `Could not probe downloaded video: ${probeErr.message}`);
+  }
 
-  await _convertVideo(rawPath, convertedPath, rawDuration, jobId, rawBitrate);
+  const isHorizontal = width >= height;
+  const mode = isHorizontal ? 'horizontal' : 'vertical';
 
-  if (_currentJob.stage === 'cancelled') return;
-
-  // ─── 4. Register Converted Video into Library ──────────────────────────────
-  logger.info('ytdlp.register_video', `Registering converted video ${convertedPath} into library`);
+  // ─── 4. Register Video Directly into Library (Stream-Ready) ──────────────
+  logger.info('ytdlp.register_video', `Registering native ${mode} video (${width}x${height}) into library`);
   const safeTitle = (_currentJob.videoTitle || 'YouTube_Video')
     .replace(/[/\\?%*:|"<>]/g, '_')
     .slice(0, 100);
 
-  const videoMeta = await importConvertedVideo(convertedPath, `${safeTitle}.mp4`, {
+  const videoMeta = await importConvertedVideo(rawPath, `${safeTitle}.mp4`, {
     autoSetActive,
   });
 
-  // Clean up raw temp file
-  try { await fs.unlink(rawPath); } catch { /* ignore */ }
+  // ─── 5. Auto-append to corresponding Horizontal/Vertical playlist ────────
+  try {
+    const currentSettings = getSettings();
+    const playlists = { ...(currentSettings.playlists || { horizontal: [], vertical: [] }) };
+    if (!Array.isArray(playlists[mode])) playlists[mode] = [];
+    if (!playlists[mode].includes(videoMeta.id)) {
+      playlists[mode] = [...playlists[mode], videoMeta.id];
+      await saveSettings({ playlists });
+      logger.info('ytdlp.playlist_appended', `Automatically appended ${videoMeta.id} to ${mode} (16:9/9:16) playlist`);
+    }
+  } catch (plErr) {
+    logger.warn('ytdlp.playlist_append_warning', `Failed to auto-append to playlist: ${plErr.message}`);
+  }
 
   _currentJob.stage = 'completed';
   _currentJob.percent = 100;
   _currentJob.videoId = videoMeta.id;
+  _currentJob.detectedMode = mode;
+  _currentJob.resolution = `${width}x${height}`;
   _currentJob.completedAt = new Date().toISOString();
 
-  logger.info('ytdlp.job_completed', `Successfully imported YouTube video ${videoMeta.id} (${safeTitle})`);
+  logger.info('ytdlp.job_completed', `Successfully imported YouTube video ${videoMeta.id} (${safeTitle}) as native ${mode}`);
 }
 
 /**
@@ -374,14 +483,12 @@ async function _downloadVideo(url, outputPath, jobId) {
   return new Promise((resolve, reject) => {
     const args = [
       ...baseArgs,
-      // Best quality up to 1080p — wide fallback chain handles live streams,
-      // pre-muxed streams, and formats where separate video+audio aren’t available
+      // Highest quality available video and audio merged into MP4 container
       '-f', [
-        'bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]',
-        'bestvideo[height<=1080]+bestaudio[ext=m4a]',
-        'bestvideo[height<=1080]+bestaudio',
-        'best[height<=1080][ext=mp4]',
-        'best[height<=1080]',
+        'bestvideo[ext=mp4]+bestaudio[ext=m4a]',
+        'bestvideo+bestaudio[ext=m4a]',
+        'bestvideo+bestaudio',
+        'best[ext=mp4]',
         'best',
       ].join('/'),
       '--merge-output-format', 'mp4',

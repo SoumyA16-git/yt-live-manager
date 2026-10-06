@@ -968,7 +968,8 @@ export async function stopStream({ keepDesiredRunning = false, reason = 'manual_
         clearAutoRecycleTimer();
       }
 
-      const settings = getSettings();
+      let settings = null;
+      try { settings = getSettings(); } catch { /* ignore if settings not initialized in tests */ }
       logger.info('stream.stop', `Stop requested (${reason}); stopping feeders and publisher cleanly`);
       _currentSessionStartOffset = 0;
       _lastProgressTimestamp = null;

@@ -163,10 +163,12 @@ export function parseProbeOutput(probeJson, keyframeCsv = '') {
  * @param {object} settings Stream configuration
  * @returns {object} Evaluation verdict: { status, reasons, warnings, explanations, modeAllowed }
  */
-export function evaluateCompatibility(meta, settings = {}, targetOrientation = 'vertical') {
+export function evaluateCompatibility(meta, settings = {}, targetOrientation = 'vertical', options = {}) {
   const reasons      = [];
   const warnings     = [];
   const explanations = [];
+
+  const allowDirectStreamCopy = Boolean(options.allowDirectCopy || meta?.isDirectCopy || meta?.isYoutubeDirect);
 
   const streamCfg = settings.stream || {};
 
@@ -212,12 +214,22 @@ export function evaluateCompatibility(meta, settings = {}, targetOrientation = '
 
   // 4. Frame Rate: within ±0.1 of target FPS, not VFR
   if (Math.abs(meta.fps - targetFps) > 0.1) {
-    reasons.push('FPS_MISMATCH');
-    explanations.push(`Frame rate is ${meta.fps} fps. Configured target is ${targetFps} fps.`);
+    if (allowDirectStreamCopy) {
+      warnings.push('FPS_MISMATCH');
+      explanations.push(`Frame rate is ${meta.fps} fps. Target is ${targetFps} fps.`);
+    } else {
+      reasons.push('FPS_MISMATCH');
+      explanations.push(`Frame rate is ${meta.fps} fps. Configured target is ${targetFps} fps.`);
+    }
   }
   if (meta.isVFR) {
-    reasons.push('VFR_DETECTED');
-    explanations.push('Video has a Variable Frame Rate (VFR). Constant Frame Rate (CFR) is required for stream copy.');
+    if (allowDirectStreamCopy) {
+      warnings.push('VFR_DETECTED');
+      explanations.push('Video has a Variable Frame Rate (VFR). Constant Frame Rate (CFR) is recommended.');
+    } else {
+      reasons.push('VFR_DETECTED');
+      explanations.push('Video has a Variable Frame Rate (VFR). Constant Frame Rate (CFR) is required for stream copy.');
+    }
   }
 
   // 5. Scan: Progressive
@@ -227,26 +239,41 @@ export function evaluateCompatibility(meta, settings = {}, targetOrientation = '
     explanations.push(`Interlaced video detected (${meta.fieldOrder}). Progressive scan is required.`);
   }
 
-  // 6. Keyframe Interval: maxKeyframeIntervalSec <= keyframeMax (default 4.0)
+  // 6. Keyframe Interval: maxKeyframeIntervalSec <= keyframeMax
   if (meta.maxKeyframeIntervalSec !== null) {
     if (meta.maxKeyframeIntervalSec > keyframeMax) {
-      reasons.push('KEYFRAME_INTERVAL_HIGH');
-      explanations.push(`Keyframes are ${meta.maxKeyframeIntervalSec} s apart. Required: ≤ ${keyframeMax} s (2 s recommended).`);
+      if (allowDirectStreamCopy) {
+        warnings.push('KEYFRAME_INTERVAL_HIGH');
+        explanations.push(`Keyframes are ${meta.maxKeyframeIntervalSec} s apart. Standard recommended: ≤ ${keyframeMax} s.`);
+      } else {
+        reasons.push('KEYFRAME_INTERVAL_HIGH');
+        explanations.push(`Keyframes are ${meta.maxKeyframeIntervalSec} s apart. Required: ≤ ${keyframeMax} s (2 s recommended).`);
+      }
     } else if (meta.maxKeyframeIntervalSec > 2.2) {
       warnings.push('KEYFRAME_INTERVAL_SUBOPTIMAL');
       explanations.push(`Keyframe interval is ${meta.maxKeyframeIntervalSec} s. 2.0 s is ideal for YouTube stability.`);
     }
   }
 
-  // 7. Video Bitrate: between copyMinMbps and copyMaxMbps (capped at 4Mbps max gate with 5% tolerance)
+  // 7. Video Bitrate: between copyMinMbps and copyMaxMbps
   const videoMbps = meta.videoBitrate / 1_000_000;
   if (videoMbps > 0) {
     if (videoMbps < copyMinMbps) {
-      reasons.push('BITRATE_TOO_LOW');
-      explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Minimum for copy mode is ${copyMinMbps} Mbps.`);
+      if (allowDirectStreamCopy) {
+        warnings.push('BITRATE_TOO_LOW');
+        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Minimum recommended is ${copyMinMbps} Mbps.`);
+      } else {
+        reasons.push('BITRATE_TOO_LOW');
+        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Minimum for copy mode is ${copyMinMbps} Mbps.`);
+      }
     } else if (videoMbps > copyMaxMbps * 1.05) {
-      reasons.push('BITRATE_TOO_HIGH');
-      explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum allowed gate for copy mode is ${copyMaxMbps} Mbps (capped at 4 Mbps).`);
+      if (allowDirectStreamCopy) {
+        warnings.push('BITRATE_TOO_HIGH');
+        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Standard ceiling is ${copyMaxMbps} Mbps.`);
+      } else {
+        reasons.push('BITRATE_TOO_HIGH');
+        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum allowed gate for copy mode is ${copyMaxMbps} Mbps (capped at 4 Mbps).`);
+      }
     }
   }
 

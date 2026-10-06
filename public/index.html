@@ -840,48 +840,30 @@
 
           <!-- YouTube URL Import Panel -->
           <div id="yt-import-panel" style="display: none; flex-direction: column; gap: 0.625rem;">
-            <!-- Cookies Warning Banner -->
-            <div id="yt-cookies-banner"
-              style="display:none; background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.625rem 0.75rem;">
-              <div style="display:flex; align-items:flex-start; gap:0.5rem;">
-                <svg class="icon icon-sm" viewBox="0 0 24 24" style="margin-top:2px;">
-                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                  <line x1="12" y1="9" x2="12" y2="13" />
-                  <line x1="12" y1="17" x2="12.01" y2="17" />
-                </svg>
-                <div style="flex:1; min-width:0;">
-                  <div style="font-size:0.75rem; font-weight:600; color:var(--text-main); margin-bottom:0.2rem;">YouTube
-                    cookies required</div>
-                  <div style="font-size:0.6875rem; color:var(--text-muted); line-height:1.45; margin-bottom:0.4rem;">
-                    VPS IPs are blocked by YouTube. Export cookies using the <strong>Get cookies.txt LOCALLY</strong>
-                    extension on YouTube.com, then upload below.
-                  </div>
-                  <div style="display:flex; align-items:center; gap:0.4rem;">
-                    <label for="cookies-file-input" id="btn-upload-cookies" class="btn btn-outline btn-sm"
-                      style="cursor:pointer;">
-                      <svg class="icon icon-sm" viewBox="0 0 24 24">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                      </svg>
-                      Upload yt-cookies.txt
-                    </label>
-                    <input type="file" id="cookies-file-input" accept=".txt,.cookie,.cookies" style="display:none;">
-                    <span id="cookies-upload-status" class="meta-tag"></span>
-                  </div>
-                </div>
+            <!-- VM Chrome Session Status Strip -->
+            <div id="yt-chrome-banner" class="yt-session-strip"
+              style="display: flex; align-items: center; justify-content: space-between; padding: 0.45rem 0.75rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: var(--radius-sm); font-size: 0.75rem;">
+              <div style="display: flex; align-items: center; gap: 0.45rem;">
+                <span class="live-dot" style="background: #34d399; box-shadow: 0 0 6px #10b981;"></span>
+                <span id="yt-chrome-session-text" style="font-weight: 600; color: #34d399;">VM Chrome Session Active</span>
+                <span style="color: var(--text-muted); font-size: 0.6875rem;">(Direct authenticated downloads enabled)</span>
               </div>
+              <button id="btn-resync-cookies" type="button" class="btn btn-outline btn-sm"
+                style="font-size: 0.6875rem; height: 24px; padding: 0 0.5rem; display: inline-flex; align-items: center; gap: 0.3rem;" title="Refresh cookies from VM Chrome">
+                <svg class="icon icon-xs" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Sync Cookies
+              </button>
             </div>
 
             <div
               style="background: var(--bg-surface-elevated); border: 1px solid var(--border-muted); border-radius: var(--radius-sm); padding: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
               <div
-                style="font-size: 0.6875rem; color: var(--text-muted); font-weight: 500; display: flex; align-items: center; gap: 0.35rem; text-transform: uppercase; letter-spacing: 0.04em;">
-                <svg class="icon icon-sm" viewBox="0 0 24 24">
-                  <circle cx="12" cy="12" r="10" />
-                  <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+                style="font-size: 0.6875rem; color: var(--text-muted); font-weight: 600; display: flex; align-items: center; gap: 0.4rem; text-transform: uppercase; letter-spacing: 0.04em;">
+                <svg class="icon icon-sm yt-brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
+                  <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill="currentColor" stroke="none" />
                 </svg>
-                Download from YouTube &mdash; auto-converts to 1080&times;1920 30fps
+                Download from YouTube &mdash; Highest Quality (Auto-detects 16:9 &bull; 9:16)
               </div>
               <div style="display: flex; gap: 0.375rem;">
                 <input type="url" id="yt-url-input" class="form-control"

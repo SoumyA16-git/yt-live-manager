@@ -26,6 +26,7 @@ import {
   cancelDownload,
   getCookiesStatus,
   saveCookiesFile,
+  syncChromeCookies,
 } from '../ytdlp-manager.js';
 import { logger } from '../logger.js';
 
@@ -150,6 +151,16 @@ export function createVideosRouter() {
     try {
       const status = await getCookiesStatus();
       res.json(status);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // POST /api/videos/sync-chrome-cookies — auto-extract cookies from VM Chrome
+  router.post('/sync-chrome-cookies', async (req, res) => {
+    try {
+      const result = await syncChromeCookies();
+      res.json(result);
     } catch (err) {
       res.status(500).json({ error: err.message });
     }

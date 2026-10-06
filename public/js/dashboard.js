@@ -1700,10 +1700,20 @@ function switchIngestTab(tab) {
     ytPanel.style.display = 'flex';
     tabUpload?.classList.remove('active');
     tabYt?.classList.add('active');
-    // Check cookies status and show warning if missing
+    // Check cookies status and update VM Chrome session banner
     apiGet('/api/videos/cookies-status').then((s) => {
-      const banner = document.getElementById('yt-cookies-banner');
-      if (banner) banner.style.display = s?.exists ? 'none' : 'block';
+      const banner = document.getElementById('yt-chrome-banner');
+      const sessionText = document.getElementById('yt-chrome-session-text');
+      if (banner) banner.style.display = 'flex';
+      if (sessionText) {
+        if (s?.exists || s?.chromeActive) {
+          sessionText.textContent = 'VM Chrome Session Active';
+          sessionText.style.color = '#34d399';
+        } else {
+          sessionText.textContent = 'Chrome Session Pending';
+          sessionText.style.color = '#fbbf24';
+        }
+      }
     }).catch(() => { });
   } else {
     uploadZone.style.display = '';
@@ -1887,7 +1897,8 @@ function _clearYtPoll() {
 const _ytStageIcons = {
   fetching_info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
   downloading: '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M5 20h14"/>',
-  converting: '<rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/>',
+  registering: '<polyline points="20 6 9 17 4 12"/>',
+  converting: '<polyline points="20 6 9 17 4 12"/>',
   completed: '<polyline points="20 6 9 17 4 12"/>',
   error: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
   cancelled: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
@@ -1896,7 +1907,8 @@ const _ytStageIcons = {
 const _ytStageColors = {
   fetching_info: 'var(--accent-cyan)',
   downloading: 'var(--accent-primary)',
-  converting: 'var(--accent-amber)',
+  registering: 'var(--accent-cyan)',
+  converting: 'var(--accent-cyan)',
   completed: 'var(--accent-emerald)',
   error: 'var(--accent-rose)',
   cancelled: 'var(--text-muted)',
@@ -1904,9 +1916,10 @@ const _ytStageColors = {
 
 const _ytStageLabels = {
   fetching_info: 'Fetching video info...',
-  downloading: 'Downloading from YouTube...',
-  converting: 'Converting to 1080x1920 30fps...',
-  completed: 'Download & conversion complete',
+  downloading: 'Downloading highest quality video...',
+  registering: 'Importing & updating playlist...',
+  converting: 'Processing video...',
+  completed: 'Download complete & playlist updated',
   error: 'Failed',
   cancelled: 'Cancelled',
 };
@@ -1934,8 +1947,8 @@ function _updateYtProgress(status) {
   if (status.speed && status.stage === 'downloading') {
     details = `Speed: ${status.speed}`;
     if (status.eta) details += ` · ETA: ${status.eta}`;
-  } else if (status.speed && status.stage === 'converting') {
-    details = `Encode speed: ${status.speed}`;
+  } else if (status.speed && (status.stage === 'converting' || status.stage === 'registering')) {
+    details = `Processing speed: ${status.speed}`;
   }
   if (ytDlDetails) ytDlDetails.textContent = details || 'Working...';
 }
@@ -1951,23 +1964,23 @@ async function _pollYtDownloadStatus() {
       if (status.stage === 'completed') {
         _updateYtProgress({ ...status, stage: 'completed', percent: 100 });
         if (btnYtDownload) btnYtDownload.disabled = false;
+        if (ytUrlInput) ytUrlInput.value = '';
 
+        const detectedMode = status.detectedMode || 'horizontal';
+        // Auto-switch to the orientation playlist matching the downloaded video
+        switchPlaylistTab(detectedMode);
         await fetchVideos();
 
-        if (status.videoId) {
-          setTimeout(() => {
-            const wantActive = confirm(
-              `"${status.videoTitle || 'YouTube Video'}" downloaded & converted.\n\nSet it as the active live stream video now?`
-            );
-            if (wantActive) {
-              apiPost(`/api/videos/${status.videoId}/select`, { restart: false })
-                .then(() => fetchVideos())
-                .catch((err) => showToast(err.message, 'error', 'Could Not Select Video'));
-            }
-            if (ytDlProgressBox) {
-              setTimeout(() => { ytDlProgressBox.style.display = 'none'; }, 1500);
-            }
-          }, 300);
+        const orientationLabel = detectedMode === 'horizontal' ? '16:9 Horizontal' : '9:16 Vertical';
+        const resolution = (status.width && status.height) ? ` (${status.width}×${status.height})` : '';
+        showToast(
+          `"${status.videoTitle || 'YouTube Video'}" added to ${orientationLabel} playlist${resolution}.`,
+          'success',
+          'Download Complete'
+        );
+
+        if (ytDlProgressBox) {
+          setTimeout(() => { ytDlProgressBox.style.display = 'none'; }, 2000);
         }
 
       } else if (status.stage === 'error') {
@@ -1994,7 +2007,35 @@ function setupYouTubeDownload() {
   if (tabUploadBtn) tabUploadBtn.addEventListener('click', () => switchIngestTab('upload'));
   if (tabYtBtn) tabYtBtn.addEventListener('click', () => switchIngestTab('youtube'));
 
-  // Wire cookies file upload button
+  // Wire VM Chrome Cookie Resync button
+  const btnResyncCookies = document.getElementById('btn-resync-cookies');
+  if (btnResyncCookies) {
+    btnResyncCookies.addEventListener('click', async () => {
+      btnResyncCookies.disabled = true;
+      const origHtml = btnResyncCookies.innerHTML;
+      btnResyncCookies.textContent = 'Syncing...';
+      try {
+        const res = await apiPost('/api/videos/sync-chrome-cookies');
+        if (res.success) {
+          showToast(`Chrome cookies synced (${res.cookieCount} cookies detected).`, 'success', 'Session Synced');
+          const sessionText = document.getElementById('yt-chrome-session-text');
+          if (sessionText) {
+            sessionText.textContent = 'VM Chrome Session Active';
+            sessionText.style.color = '#34d399';
+          }
+        } else {
+          showToast(res.message || 'Could not sync cookies from Chrome.', 'warning', 'Sync Notice');
+        }
+      } catch (err) {
+        showToast(err.message || 'Cookie sync failed', 'error', 'Sync Failed');
+      } finally {
+        btnResyncCookies.disabled = false;
+        btnResyncCookies.innerHTML = origHtml;
+      }
+    });
+  }
+
+  // Wire cookies file upload button (fallback)
   const cookiesFileInput = document.getElementById('cookies-file-input');
   const cookiesUploadStatus = document.getElementById('cookies-upload-status');
   if (cookiesFileInput) {
@@ -2013,8 +2054,12 @@ function setupYouTubeDownload() {
           cookiesFileInput.value = '';
           if (xhr.status === 200) {
             if (cookiesUploadStatus) cookiesUploadStatus.textContent = 'Cookies saved!';
-            const banner = document.getElementById('yt-cookies-banner');
-            if (banner) setTimeout(() => { banner.style.display = 'none'; }, 1500);
+            const banner = document.getElementById('yt-chrome-banner');
+            const sessionText = document.getElementById('yt-chrome-session-text');
+            if (sessionText) {
+              sessionText.textContent = 'VM Chrome Session Active';
+              sessionText.style.color = '#34d399';
+            }
           } else {
             let msg = 'Upload failed';
             try { msg = JSON.parse(xhr.responseText)?.error || msg; } catch { /**/ }

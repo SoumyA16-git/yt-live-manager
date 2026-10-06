@@ -1047,7 +1047,7 @@ export async function processUpload(fileStream, fileInfo) {
  * @param {boolean} [opts.autoSetActive=false]
  * @returns {Promise<object>} Video metadata object
  */
-export async function importConvertedVideo(tempPath, originalName, { autoSetActive = false } = {}) {
+export async function importConvertedVideo(tempPath, originalName, { autoSetActive = false, isDirectCopy = true } = {}) {
   const settings = getSettings();
   const id = generateVideoId();
   const targetPath = resolveVideoPath(id, '.mp4');
@@ -1068,8 +1068,15 @@ export async function importConvertedVideo(tempPath, originalName, { autoSetActi
 
   // Probe the converted file
   const probe = await probeMedia(targetPath);
-  const targetOrient = (probe && probe.width > probe.height) ? 'horizontal' : 'vertical';
-  const compatibility = evaluateCompatibility(probe, settings, targetOrient);
+  if (isDirectCopy && probe) {
+    probe.isDirectCopy = true;
+  }
+  const targetOrient = (probe && probe.width >= probe.height) ? 'horizontal' : 'vertical';
+  const compatibility = evaluateCompatibility(probe, settings, targetOrient, { allowDirectCopy: isDirectCopy });
+  if (isDirectCopy) {
+    compatibility.status = 'COMPATIBLE';
+    compatibility.modeAllowed = { copy: true, hybrid: true, transcode: true };
+  }
 
   const cleanLabel = originalName.replace(/\.[^/.]+$/, '').trim() || `YouTube_${id}`;
   const videoMeta = {

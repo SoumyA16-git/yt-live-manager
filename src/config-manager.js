@@ -363,3 +363,5 @@ export function _setPathsForTest(settingsPath, backupDir) {
   _backupDir = backupDir;
   _settings = null;
 }
+
+export { saveSettings as updateSettings };
