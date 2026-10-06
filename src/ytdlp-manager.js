@@ -227,6 +227,10 @@ async function _buildYtDlpBaseArgs() {
     '--extractor-args', 'youtube:player_client=web_safari,web_embedded,-tv_downgraded',
   ];
 
+  if (process.platform !== 'win32' && fsSync.existsSync('/usr/bin/ffmpeg')) {
+    args.push('--ffmpeg-location', '/usr/bin/ffmpeg');
+  }
+
   let cookiesStatus = await getCookiesStatus();
   // If cookies file is missing or empty but Chrome is available on VM, sync it automatically
   if ((!cookiesStatus.exists || cookiesStatus.sizeBytes < 50) && cookiesStatus.chromeAvailable) {
@@ -530,7 +534,7 @@ export async function getVideoTitle(url) {
  * Download raw video stream using yt-dlp with real-time title & progress parsing.
  * Single-pass: prints title before download and streams format simultaneously.
  */
-async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null } = {}) {
+async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null } = {}) {
   const baseArgs = await _buildYtDlpBaseArgs();
 
   if (extraExtractorArgs) {
@@ -548,12 +552,14 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       '--print', 'before_dl:title:%(title)s',
       // Highest quality available video and audio merged into MP4 container
       // Prioritizes stream-ready H.264/AAC with resilient fallback to any best available stream
-      '-f', [
+      '-f', extraFormat || [
         'bv*[vcodec^=avc]+ba[acodec^=mp4a]',
         'bv*[vcodec^=avc]+ba',
+        'b*[vcodec^=avc]',
         'bv*[ext=mp4]+ba[ext=m4a]',
         'bv*+ba',
-        'b',
+        'b*',
+        'best',
       ].join('/'),
       '--merge-output-format', 'mp4',
       '--newline',
@@ -619,16 +625,23 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
         .filter(Boolean)
         .join(' · ');
 
-      // Automatic fallback retry if YouTube challenged the connection
-      if (retryCount === 0 && (cleanErr.includes('The page needs to be reloaded') || cleanErr.includes('Sign in to confirm'))) {
-        logger.warn('ytdlp.retry_challenge', `yt-dlp encountered YouTube challenge: "${cleanErr}". Retrying with fallback player client...`);
+      // Automatic fallback retry if YouTube challenged the connection or format is restricted
+      const isFormatOrChallengeError =
+        cleanErr.includes('Requested format is not available') ||
+        cleanErr.includes('format is not available') ||
+        cleanErr.includes('The page needs to be reloaded') ||
+        cleanErr.includes('Sign in to confirm');
+
+      if (retryCount === 0 && isFormatOrChallengeError) {
+        logger.warn('ytdlp.retry_challenge', `yt-dlp encountered YouTube restriction: "${cleanErr}". Retrying with flexible format selector and fallback player client...`);
         try {
           if (fsSync.existsSync(outputPath)) {
             await fs.unlink(outputPath).catch(() => {});
           }
           await syncChromeCookies().catch(() => {});
           await _downloadVideo(url, outputPath, jobId, retryCount + 1, {
-            extraExtractorArgs: 'youtube:player_client=web_embedded,web,-tv_downgraded',
+            extraExtractorArgs: 'youtube:player_client=android,web,web_embedded,-tv_downgraded',
+            extraFormat: 'bestvideo*+bestaudio/bv*+ba/b*/best',
           });
           return resolve();
         } catch (retryErr) {
