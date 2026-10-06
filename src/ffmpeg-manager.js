@@ -331,21 +331,22 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       args.push('-vf', vf);
     }
 
+    const maxrateKbps = Math.round(videoKbps * 1.15);
+
     args.push(
       '-c:v', 'libx264',
       '-preset', preset,
-      '-tune', 'zerolatency',
       '-threads', '2',
       '-profile:v', 'high',
       '-level:v', '4.2',
       '-b:v', `${videoKbps}k`,
-      '-minrate', `${videoKbps}k`,
-      '-maxrate', `${videoKbps}k`,
+      '-maxrate', `${maxrateKbps}k`,
       '-bufsize', `${bufSizeKbps}k`,
+      '-bf', '2',
       '-g', `${gop}`,
       '-keyint_min', `${gop}`,
       '-sc_threshold', '0',
-      '-x264-params', 'nal-hrd=cbr:force-cfr=1',
+      '-x264-params', 'bframes=2:cabac=1:deblock=1,1:rc-lookahead=10',
       '-pix_fmt', 'yuv420p',
       '-colorspace', 'bt709',
       '-color_primaries', 'bt709',
