@@ -175,36 +175,43 @@ export async function syncChromeCookies() {
   }
 
   logger.info('ytdlp.syncing_chrome_cookies', `Syncing YouTube cookies from Chrome profile at ${chromeProfile}`);
-  await fs.mkdir(PATHS.config, { recursive: true });
+  const nodeBinary = process.execPath || (process.platform !== 'win32' ? '/usr/bin/node' : 'node');
+  const tempCookiesPath = path.join(PATHS.config, `yt-cookies-${Date.now()}.tmp`);
 
   return new Promise((resolve) => {
     const args = [
       '--cookies-from-browser', `chrome:${chromeProfile}`,
-      '--cookies', YT_COOKIES_PATH,
-      '--js-runtimes', 'node',
+      '--cookies', tempCookiesPath,
+      '--js-runtimes', `node:${nodeBinary}`,
       '--skip-download',
       '--print', 'id',
       'https://www.youtube.com/watch?v=jNQXAC9IVRw',
     ];
 
-    const proc = spawn('yt-dlp', args, { stdio: 'ignore' });
+    const proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+
     proc.on('close', async (code) => {
-      if (code === 0 && fsSync.existsSync(YT_COOKIES_PATH)) {
+      if (code === 0 && fsSync.existsSync(tempCookiesPath)) {
         try {
-          const stat = await fs.stat(YT_COOKIES_PATH);
-          const raw = await fs.readFile(YT_COOKIES_PATH, 'utf8');
-          const count = raw.split('\n').filter(l => l.trim() && !l.startsWith('#')).length;
-          logger.info('ytdlp.chrome_cookies_synced', `Successfully extracted ${count} cookies (${stat.size} bytes) from VM Chrome`);
-          resolve({ success: true, sizeBytes: stat.size, cookieCount: count, path: YT_COOKIES_PATH });
-        } catch (e) {
-          resolve({ success: true, path: YT_COOKIES_PATH });
-        }
-      } else {
-        logger.warn('ytdlp.chrome_sync_failed', `yt-dlp cookie export exited with code ${code}`);
-        resolve({ success: false, error: `yt-dlp exit code ${code}` });
+          const stat = await fs.stat(tempCookiesPath);
+          if (stat.size > 100) {
+            await fs.rename(tempCookiesPath, YT_COOKIES_PATH);
+            const raw = await fs.readFile(YT_COOKIES_PATH, 'utf8');
+            const count = raw.split('\n').filter(l => l.trim() && !l.startsWith('#')).length;
+            logger.info('ytdlp.chrome_cookies_synced', `Successfully extracted ${count} cookies (${stat.size} bytes) from VM Chrome`);
+            return resolve({ success: true, sizeBytes: stat.size, cookieCount: count, path: YT_COOKIES_PATH });
+          }
+        } catch { /* ignore */ }
       }
+      try { await fs.unlink(tempCookiesPath); } catch { /* ignore */ }
+      const cleanErr = stderr.split('\n').filter(l => !l.includes('Deprecated Feature:')).join(' ').trim();
+      logger.warn('ytdlp.chrome_sync_failed', `yt-dlp cookie export exited with code ${code}${cleanErr ? `: ${cleanErr}` : ''}`);
+      resolve({ success: false, error: `yt-dlp exit code ${code}` });
     });
     proc.on('error', (err) => {
+      try { fsSync.unlinkSync(tempCookiesPath); } catch { /* ignore */ }
       logger.error('ytdlp.chrome_sync_error', err.message);
       resolve({ success: false, error: err.message });
     });
@@ -221,7 +228,6 @@ async function _buildYtDlpBaseArgs() {
   const nodeBinary = process.execPath || (process.platform !== 'win32' ? '/usr/bin/node' : 'node');
   const args = [
     '--no-playlist',
-    '--no-warnings',
     '--force-ipv4',
     '--js-runtimes', `node:${nodeBinary}`, // Pass explicit path to active Node binary for challenge solving
     '--compat-options', 'no-live-chat',
