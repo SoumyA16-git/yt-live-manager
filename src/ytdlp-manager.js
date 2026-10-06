@@ -295,6 +295,8 @@ export function getDownloadStatus() {
       percent: 0,
       speed: '',
       eta: '',
+      downloaded: '',
+      totalSize: '',
       videoTitle: '',
       videoId: null,
       detectedMode: null,
@@ -304,13 +306,15 @@ export function getDownloadStatus() {
   }
 
   return {
-    active: ['fetching_info', 'downloading', 'registering'].includes(_currentJob.stage),
+    active: ['fetching_info', 'downloading', 'merging', 'registering'].includes(_currentJob.stage),
     jobId: _currentJob.id,
     url: _currentJob.url,
     stage: _currentJob.stage,
     percent: _currentJob.percent,
-    speed: _currentJob.speed,
-    eta: _currentJob.eta,
+    speed: _currentJob.speed || '',
+    eta: _currentJob.eta || '',
+    downloaded: _currentJob.downloaded || '',
+    totalSize: _currentJob.totalSize || '',
     videoTitle: _currentJob.videoTitle,
     videoId: _currentJob.videoId,
     detectedMode: _currentJob.detectedMode || null,
@@ -328,7 +332,7 @@ export function getDownloadStatus() {
  * @returns {boolean} True if a job was cancelled
  */
 export async function cancelDownload() {
-  if (!_currentJob || !['fetching_info', 'downloading', 'registering', 'converting'].includes(_currentJob.stage)) {
+  if (!_currentJob || !['fetching_info', 'downloading', 'merging', 'registering', 'converting'].includes(_currentJob.stage)) {
     return false;
   }
 
@@ -370,7 +374,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
 
   const url = normalizeYouTubeUrl(raw);
 
-  if (_currentJob && ['fetching_info', 'downloading', 'converting'].includes(_currentJob.stage)) {
+  if (_currentJob && ['fetching_info', 'downloading', 'merging', 'converting'].includes(_currentJob.stage)) {
     throw Object.assign(new Error('A video download/conversion job is already in progress. Please wait for it to finish or cancel it.'), {
       code: 'E_JOB_RUNNING',
     });
@@ -400,6 +404,8 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
     percent: 0,
     speed: '',
     eta: '',
+    downloaded: '',
+    totalSize: '',
     videoTitle: 'Fetching video details...',
     videoId: initialVideoId,
     autoSetActive,
@@ -570,13 +576,17 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
     const args = [
       ...baseArgs,
       '--print', 'before_dl:title:%(title)s',
+      '--progress',
+      '--newline',
+      '--progress-delta', '1',
+      '--progress-template', 'download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_estimate_str)s',
+      '--progress-template', 'postprocess:postprocess:%(progress.status)s',
       // Highest quality available video and audio merged into MP4 container
       // -f bv*+ba/b universally matches any video+audio split or composite pre-merged stream
       // -S prioritizes stream-ready H.264/AAC at max resolution with seamless fallback to any available codec
       '-f', extraFormat || 'bv*+ba/b',
       '-S', extraSort || 'res,vcodec:h264,acodec:aac',
       '--merge-output-format', 'mp4',
-      '--newline',
       '--no-part',                   // No .part temp files — cleaner on failure/cancel
       '--concurrent-fragments', '4', // Parallel chunk downloads — 2-4x faster on VPS
       '-o', outputPath,
@@ -593,34 +603,68 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
     }
 
     let stderr = '';
-    proc.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+
+    const parseLine = (line) => {
+      const trimmed = line.trim();
+      if (!trimmed || !_currentJob || _currentJob.id !== jobId) return;
+
+      if (trimmed.startsWith('title:')) {
+        const extractedTitle = trimmed.substring('title:'.length).trim();
+        if (extractedTitle) {
+          _currentJob.videoTitle = extractedTitle;
+        }
+        _currentJob.stage = 'downloading';
+        return;
+      }
+
+      if (trimmed.startsWith('download:')) {
+        const content = trimmed.substring('download:'.length).trim();
+        const [pctStr, speedStr, etaStr, dlBytesStr, totalBytesStr] = content.split('|').map(s => (s || '').trim());
+        const pctNum = parseFloat((pctStr || '').replace('%', ''));
+        if (!isNaN(pctNum) && pctNum >= 0) {
+          _currentJob.percent = Math.min(99.9, Math.max(_currentJob.percent || 0, pctNum));
+        }
+        if (speedStr && speedStr !== 'Unknown') _currentJob.speed = speedStr;
+        if (etaStr && etaStr !== 'Unknown') _currentJob.eta = etaStr;
+        if (dlBytesStr && dlBytesStr !== 'Unknown') _currentJob.downloaded = dlBytesStr;
+        if (totalBytesStr && totalBytesStr !== 'Unknown') _currentJob.totalSize = totalBytesStr;
+        _currentJob.stage = 'downloading';
+        return;
+      }
+
+      if (trimmed.startsWith('postprocess:')) {
+        _currentJob.stage = 'merging';
+        _currentJob.speed = '';
+        _currentJob.eta = '';
+        return;
+      }
+
+      const match = trimmed.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([^\s]+)\s+at\s+([^\s]+)\s+ETA\s+([^\s]+)/);
+      if (match) {
+        _currentJob.stage = 'downloading';
+        _currentJob.percent = Math.min(99.9, parseFloat(match[1]));
+        _currentJob.totalSize = match[2];
+        _currentJob.speed = match[3];
+        _currentJob.eta = match[4];
+      }
+    };
 
     let buffer = '';
     proc.stdout.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
       const lines = buffer.split('\n');
-      buffer = lines.pop(); // keep last incomplete line
+      buffer = lines.pop();
+      for (const line of lines) parseLine(line);
+    });
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.startsWith('title:') && _currentJob && _currentJob.id === jobId) {
-          const extractedTitle = trimmed.substring('title:'.length).trim();
-          if (extractedTitle) {
-            _currentJob.videoTitle = extractedTitle;
-          }
-          _currentJob.stage = 'downloading';
-          continue;
-        }
-
-        // Example output: [download]  45.2% of ~ 150.00MiB at  5.20MiB/s ETA 00:15
-        const match = trimmed.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([^\s]+)\s+at\s+([^\s]+)\s+ETA\s+([^\s]+)/);
-        if (match && _currentJob && _currentJob.id === jobId) {
-          _currentJob.stage = 'downloading';
-          _currentJob.percent = Math.min(99.9, parseFloat(match[1]));
-          _currentJob.speed = match[3];
-          _currentJob.eta = match[4];
-        }
-      }
+    let stderrBuffer = '';
+    proc.stderr.on('data', (chunk) => {
+      const text = chunk.toString('utf8');
+      stderr += text;
+      stderrBuffer += text;
+      const lines = stderrBuffer.split('\n');
+      stderrBuffer = lines.pop();
+      for (const line of lines) parseLine(line);
     });
 
     proc.on('error', reject);

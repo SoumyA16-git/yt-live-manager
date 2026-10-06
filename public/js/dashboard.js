@@ -1897,6 +1897,7 @@ function _clearYtPoll() {
 const _ytStageIcons = {
   fetching_info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
   downloading: '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M5 20h14"/>',
+  merging: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   registering: '<polyline points="20 6 9 17 4 12"/>',
   converting: '<polyline points="20 6 9 17 4 12"/>',
   completed: '<polyline points="20 6 9 17 4 12"/>',
@@ -1907,6 +1908,7 @@ const _ytStageIcons = {
 const _ytStageColors = {
   fetching_info: 'var(--accent-cyan)',
   downloading: 'var(--accent-primary)',
+  merging: 'var(--accent-cyan)',
   registering: 'var(--accent-cyan)',
   converting: 'var(--accent-cyan)',
   completed: 'var(--accent-emerald)',
@@ -1917,6 +1919,7 @@ const _ytStageColors = {
 const _ytStageLabels = {
   fetching_info: 'Fetching video info...',
   downloading: 'Downloading highest quality video...',
+  merging: 'Finalizing MP4 container (remuxing)...',
   registering: 'Importing & updating playlist...',
   converting: 'Processing video...',
   completed: 'Download complete & playlist updated',
@@ -1944,13 +1947,28 @@ function _updateYtProgress(status) {
   if (ytDlFill) ytDlFill.style.width = `${pct}%`;
 
   let details = '';
-  if (status.speed && status.stage === 'downloading') {
-    details = `Speed: ${status.speed}`;
-    if (status.eta) details += ` · ETA: ${status.eta}`;
-  } else if (status.speed && (status.stage === 'converting' || status.stage === 'registering')) {
+  if (status.stage === 'downloading') {
+    const parts = [];
+    if (status.downloaded && status.totalSize) {
+      parts.push(`${status.downloaded} / ${status.totalSize}`);
+    } else if (status.downloaded) {
+      parts.push(status.downloaded);
+    }
+    if (status.speed) {
+      parts.push(status.speed);
+    }
+    if (status.eta && status.eta !== 'Unknown') {
+      parts.push(`ETA ${status.eta}`);
+    }
+    details = parts.join(' · ');
+  } else if (status.stage === 'merging') {
+    details = 'Network download finished. Remuxing to MP4 container...';
+  } else if (status.stage === 'registering') {
+    details = 'Probing resolution and appending to playlist...';
+  } else if (status.speed && (status.stage === 'converting')) {
     details = `Processing speed: ${status.speed}`;
   }
-  if (ytDlDetails) ytDlDetails.textContent = details || 'Working...';
+  if (ytDlDetails) ytDlDetails.textContent = details || (status.stage === 'downloading' ? 'Downloading...' : 'Working...');
 }
 
 async function _pollYtDownloadStatus() {
