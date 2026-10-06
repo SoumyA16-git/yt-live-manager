@@ -202,18 +202,8 @@ export function buildPublisherArgs(settings, secretTarget) {
 export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
-  const targetMbps = streamCfg.videoBitrateMbps ?? streamCfg.copyMaxMbps ?? 4.0;
-  const copyMaxMbps = streamCfg.videoBitrateMbps !== undefined
-    ? Math.min(streamCfg.copyMaxMbps ?? streamCfg.videoBitrateMbps, streamCfg.videoBitrateMbps)
-    : (streamCfg.copyMaxMbps ?? 4.0);
-  const videoBitrate = videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0;
-  const videoMbps = videoBitrate / 1_000_000;
-
-  // Enforce bandwidth cap: If video bitrate exceeds target cap, transcode at targetMbps
-  let effectiveMode = mode;
-  if ((effectiveMode === 'copy' || effectiveMode === 'hybrid') && videoMbps > copyMaxMbps * 1.05 && streamCfg.allowTranscode !== false) {
-    effectiveMode = 'transcode';
-  }
+  // Stream-ready direct copy mode (Zero CPU) - do not re-encode
+  const effectiveMode = mode;
 
   const args = [
     '-hide_banner',

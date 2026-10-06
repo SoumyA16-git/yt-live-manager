@@ -270,8 +270,13 @@ export function evaluateCompatibility(meta, settings = {}, targetOrientation = '
         explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Minimum for copy mode is ${copyMinMbps} Mbps.`);
       }
     } else if (videoMbps > copyMaxMbps * 1.05) {
-      reasons.push('BITRATE_TOO_HIGH');
-      explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum allowed gate for copy mode is ${copyMaxMbps.toFixed(2)} Mbps (target: ${targetMbps} Mbps). Requires transcoding to enforce bandwidth limit.`);
+      if (allowDirectStreamCopy) {
+        warnings.push('BITRATE_TOO_HIGH');
+        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Standard ceiling is ${copyMaxMbps.toFixed(2)} Mbps.`);
+      } else {
+        reasons.push('BITRATE_TOO_HIGH');
+        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum allowed gate for copy mode is ${copyMaxMbps.toFixed(2)} Mbps.`);
+      }
     }
   }
 
