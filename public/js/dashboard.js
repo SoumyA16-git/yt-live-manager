@@ -520,8 +520,16 @@ function renderBandwidthSpeedMeter(data) {
 
   // 2. GaugePointer Angle Calculation (-110° to +110°)
   const valueAngleDeg = -110 + ratio * 220;
+  const targetMbps = _currentSettings?.stream?.videoBitrateMbps || 4.0;
+  const isOverTarget = currentMbps > (targetMbps * 1.05);
+  const pointerColor = isOverTarget ? '#ef4444' : '#38bdf8';
   if (gaugePointerNeedle) {
     gaugePointerNeedle.style.transform = `rotate(${valueAngleDeg.toFixed(1)}deg)`;
+    gaugePointerNeedle.setAttribute('stroke', pointerColor);
+  }
+  const pointerCircles = gaugePointerGroup ? gaugePointerGroup.querySelectorAll('circle') : [];
+  if (pointerCircles.length > 0) {
+    pointerCircles[0].setAttribute('fill', pointerColor);
   }
 
   // 3. Readouts & Badges

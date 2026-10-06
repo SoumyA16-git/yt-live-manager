@@ -641,14 +641,17 @@ export async function spawnFfmpeg({
       const bitrate = (block.bitrate || '').trim();
       const frame = parseInt(block.frame, 10) || 0;
 
-      // In copy mode, FFmpeg does not report bitrate. Compute instantaneous bitrate from total_size delta:
+      // Compute fallback instantaneous bitrate from total_size delta (smoothed over 2s window)
       const now = Date.now();
       if (totalSize > 0) {
         if (_lastBitrateCalcTime > 0 && totalSize > _lastBitrateCalcBytes && _lastBitrateCalcBytes > 0) {
           const dt = (now - _lastBitrateCalcTime) / 1000;
-          if (dt >= 0.75) {
+          if (dt >= 2.0) {
             const deltaBytes = totalSize - _lastBitrateCalcBytes;
-            _measuredBitrate = Math.round((deltaBytes * 8) / (dt * 1000));
+            const instantKbps = Math.round((deltaBytes * 8) / (dt * 1000));
+            _measuredBitrate = _measuredBitrate > 0
+              ? Math.round(_measuredBitrate * 0.7 + instantKbps * 0.3)
+              : instantKbps;
             _lastBitrateCalcBytes = totalSize;
             _lastBitrateCalcTime = now;
           }
@@ -689,13 +692,17 @@ export async function spawnFfmpeg({
         outTimeSec = us > 0 ? (us / 1000000) : 0;
       }
 
-      let outputKbps = _measuredBitrate || 0;
-      if (!outputKbps && effectiveBitrate) {
+      // Prioritize FFmpeg's actual reported output bitstream rate over socket write spikes
+      let outputKbps = 0;
+      if (effectiveBitrate) {
         const numMatch = effectiveBitrate.match(/([\d.]+)/);
         if (numMatch) {
           const val = parseFloat(numMatch[1]) || 0;
           outputKbps = effectiveBitrate.includes('mbits') ? Math.round(val * 1000) : Math.round(val);
         }
+      }
+      if (!outputKbps && _measuredBitrate > 0) {
+        outputKbps = _measuredBitrate;
       }
       if (!outputKbps && becameHealthy) {
         outputKbps = Math.round((settings.stream?.videoBitrateMbps || 4.0) * 1000);
