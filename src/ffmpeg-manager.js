@@ -202,6 +202,18 @@ export function buildPublisherArgs(settings, secretTarget) {
 export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
+  const targetMbps = streamCfg.videoBitrateMbps ?? streamCfg.copyMaxMbps ?? 4.0;
+  const copyMaxMbps = streamCfg.videoBitrateMbps !== undefined
+    ? Math.min(streamCfg.copyMaxMbps ?? streamCfg.videoBitrateMbps, streamCfg.videoBitrateMbps)
+    : (streamCfg.copyMaxMbps ?? 4.0);
+  const videoBitrate = videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0;
+  const videoMbps = videoBitrate / 1_000_000;
+
+  // Enforce bandwidth cap: If video bitrate exceeds target cap, transcode at targetMbps
+  let effectiveMode = mode;
+  if ((effectiveMode === 'copy' || effectiveMode === 'hybrid') && videoMbps > copyMaxMbps * 1.05 && streamCfg.allowTranscode !== false) {
+    effectiveMode = 'transcode';
+  }
 
   const args = [
     '-hide_banner',
@@ -217,7 +229,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
 
   args.push('-i', videoPath);
 
-  if (mode === 'copy') {
+  if (effectiveMode === 'copy') {
     if (videoMeta && videoMeta.hasAudio === false) {
       args.push(
         '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
@@ -247,7 +259,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         'pipe:1'
       );
     }
-  } else if (mode === 'hybrid') {
+  } else if (effectiveMode === 'hybrid') {
     args.push('-map', '0:v:0');
     if (videoMeta?.hasAudio) {
       args.push(

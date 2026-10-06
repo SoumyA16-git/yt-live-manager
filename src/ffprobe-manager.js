@@ -176,7 +176,10 @@ export function evaluateCompatibility(meta, settings = {}, targetOrientation = '
   const targetRes   = isHorizontalTarget ? '1920x1080' : (streamCfg.resolution || '1080x1920');
   const targetFps   = streamCfg.fps ?? 30;
   const copyMinMbps = streamCfg.copyMinMbps ?? 0.1;
-  const copyMaxMbps = streamCfg.copyMaxMbps ?? 4.0;
+  const targetMbps  = streamCfg.videoBitrateMbps ?? streamCfg.copyMaxMbps ?? 4.0;
+  const copyMaxMbps = streamCfg.videoBitrateMbps !== undefined
+    ? Math.min(streamCfg.copyMaxMbps ?? streamCfg.videoBitrateMbps, streamCfg.videoBitrateMbps)
+    : (streamCfg.copyMaxMbps ?? 4.0);
   const keyframeMax = streamCfg.keyframeMaxSeconds ?? 6.0;
 
   // 1. Resolution Check
@@ -267,13 +270,8 @@ export function evaluateCompatibility(meta, settings = {}, targetOrientation = '
         explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Minimum for copy mode is ${copyMinMbps} Mbps.`);
       }
     } else if (videoMbps > copyMaxMbps * 1.05) {
-      if (allowDirectStreamCopy) {
-        warnings.push('BITRATE_TOO_HIGH');
-        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Standard ceiling is ${copyMaxMbps} Mbps.`);
-      } else {
-        reasons.push('BITRATE_TOO_HIGH');
-        explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum allowed gate for copy mode is ${copyMaxMbps} Mbps (capped at 4 Mbps).`);
-      }
+      reasons.push('BITRATE_TOO_HIGH');
+      explanations.push(`Video bitrate is ${videoMbps.toFixed(2)} Mbps. Maximum allowed gate for copy mode is ${copyMaxMbps.toFixed(2)} Mbps (target: ${targetMbps} Mbps). Requires transcoding to enforce bandwidth limit.`);
     }
   }
 
