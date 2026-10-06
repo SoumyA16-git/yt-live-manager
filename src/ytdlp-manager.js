@@ -159,8 +159,10 @@ export async function syncChromeCookies() {
       if (code === 0 && fsSync.existsSync(YT_COOKIES_PATH)) {
         try {
           const stat = await fs.stat(YT_COOKIES_PATH);
-          logger.info('ytdlp.chrome_cookies_synced', `Successfully extracted ${stat.size} bytes of cookies from VM Chrome`);
-          resolve({ success: true, sizeBytes: stat.size, path: YT_COOKIES_PATH });
+          const raw = await fs.readFile(YT_COOKIES_PATH, 'utf8');
+          const count = raw.split('\n').filter(l => l.trim() && !l.startsWith('#')).length;
+          logger.info('ytdlp.chrome_cookies_synced', `Successfully extracted ${count} cookies (${stat.size} bytes) from VM Chrome`);
+          resolve({ success: true, sizeBytes: stat.size, cookieCount: count, path: YT_COOKIES_PATH });
         } catch (e) {
           resolve({ success: true, path: YT_COOKIES_PATH });
         }
@@ -187,7 +189,6 @@ async function _buildYtDlpBaseArgs() {
     '--no-playlist',
     '--no-warnings',
     '--js-runtimes', 'node', // Enable Node.js runtime for YouTube challenge solving
-    '--extractor-args', 'youtube:player_client=ios,web',
     '--compat-options', 'no-live-chat',
   ];
 
@@ -486,12 +487,13 @@ async function _downloadVideo(url, outputPath, jobId) {
     const args = [
       ...baseArgs,
       // Highest quality available video and audio merged into MP4 container
+      // Prioritizes stream-ready H.264/AAC with resilient fallback to any best available stream
       '-f', [
-        'bestvideo[ext=mp4]+bestaudio[ext=m4a]',
-        'bestvideo+bestaudio[ext=m4a]',
-        'bestvideo+bestaudio',
-        'best[ext=mp4]',
-        'best',
+        'bv*[vcodec^=avc]+ba[acodec^=mp4a]',
+        'bv*[vcodec^=avc]+ba',
+        'bv*[ext=mp4]+ba[ext=m4a]',
+        'bv*+ba',
+        'b',
       ].join('/'),
       '--merge-output-format', 'mp4',
       '--newline',
@@ -538,7 +540,13 @@ async function _downloadVideo(url, outputPath, jobId) {
         if (_currentJob && _currentJob.id === jobId) _currentJob.percent = 100;
         resolve();
       } else {
-        reject(new Error(`yt-dlp download failed (exit code ${code}): ${stderr.slice(-300)}`));
+        const cleanErr = stderr
+          .split('\n')
+          .filter(l => !l.includes('Deprecated Feature:') && !l.startsWith('WARNING:'))
+          .map(l => l.replace(/^ERROR:\s*/i, '').trim())
+          .filter(Boolean)
+          .join(' · ');
+        reject(new Error(`yt-dlp download failed: ${cleanErr || stderr.slice(-300)}`));
       }
     });
   });
