@@ -863,12 +863,17 @@
                   <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
                   <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill="currentColor" stroke="none" />
                 </svg>
-                Download from YouTube &mdash; Highest Quality (Auto-detects 16:9 &bull; 9:16)
+                Download from YouTube &mdash; Storage-Optimized (Auto-detects 16:9 &bull; 9:16)
               </div>
-              <div style="display: flex; gap: 0.375rem;">
+              <div style="display: flex; gap: 0.375rem; align-items: center;">
                 <input type="url" id="yt-url-input" class="form-control"
                   placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false"
                   style="flex: 1;">
+                <select id="yt-quality-select" class="form-control" style="width: auto; min-width: 155px; font-size: 0.75rem; padding: 0 0.5rem; height: 32px;" title="Target Download Quality">
+                  <option value="720p" selected>720p (Saves ~70% Space)</option>
+                  <option value="1080p">1080p (Original Large Size)</option>
+                  <option value="480p">480p (Ultra Storage Saver)</option>
+                </select>
                 <button id="btn-yt-download" class="btn btn-primary btn-sm">
                   <svg class="icon icon-sm" viewBox="0 0 24 24">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />

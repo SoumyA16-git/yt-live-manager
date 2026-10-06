@@ -118,13 +118,16 @@ export function createVideosRouter() {
 
   // POST /api/videos/download-youtube
   router.post('/download-youtube', async (req, res) => {
-    const { url, autoSetActive } = req.body || {};
+    const { url, autoSetActive, quality } = req.body || {};
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'Missing or invalid YouTube URL', code: 'E_INVALID_URL' });
     }
 
     try {
-      const status = await startYouTubeDownload(url, { autoSetActive: Boolean(autoSetActive) });
+      const status = await startYouTubeDownload(url, {
+        autoSetActive: Boolean(autoSetActive),
+        quality: quality || '720p',
+      });
       res.json({ success: true, status });
     } catch (err) {
       const statusCode = err.code === 'E_INVALID_URL' ? 400

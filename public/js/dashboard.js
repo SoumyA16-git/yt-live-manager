@@ -188,6 +188,7 @@ const selPlaybackOrder = document.getElementById('sel-playback-order');
 // YouTube Import UI
 const ytImportPanel = document.getElementById('yt-import-panel');
 const ytUrlInput = document.getElementById('yt-url-input');
+const ytQualitySelect = document.getElementById('yt-quality-select');
 const btnYtDownload = document.getElementById('btn-yt-download');
 const ytDlProgressBox = document.getElementById('yt-dl-progress-box');
 const ytDlStageText = document.getElementById('yt-dl-stage-text');
@@ -2129,7 +2130,8 @@ function setupYouTubeDownload() {
     btnYtDownload.disabled = true;
 
     try {
-      await apiPost('/api/videos/download-youtube', { url, autoSetActive: false });
+      const quality = ytQualitySelect?.value || '720p';
+      await apiPost('/api/videos/download-youtube', { url, quality, autoSetActive: false });
       _clearYtPoll();
       _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
     } catch (err) {

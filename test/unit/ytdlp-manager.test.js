@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeYouTubeUrl, isValidYouTubeUrl, parseYtDlpProgressLine } from '../../src/ytdlp-manager.js';
+import {
+  normalizeYouTubeUrl,
+  isValidYouTubeUrl,
+  parseYtDlpProgressLine,
+  getYtDlpFormatAndSort,
+} from '../../src/ytdlp-manager.js';
 
 describe('ytdlp-manager — URL normalization and validation', () => {
   it('normalizes live URLs with query params to canonical watch URL', () => {
@@ -94,6 +99,27 @@ describe('ytdlp-manager — progress parsing', () => {
     assert.equal(job.totalSize, '8.00GiB');
     assert.equal(job.speed, '12.00MiB/s');
     assert.equal(job.eta, '03:20');
+  });
+});
+
+describe('ytdlp-manager — quality format selection', () => {
+  it('defaults to 720p format and sort to save storage', () => {
+    const res = getYtDlpFormatAndSort();
+    assert.ok(res.format.includes('1280'));
+    assert.ok(res.sort.includes('res:720'));
+    assert.ok(res.sort.includes('vcodec:h264'));
+  });
+
+  it('selects 1080p format and sort when requested', () => {
+    const res = getYtDlpFormatAndSort('1080p');
+    assert.ok(res.format.includes('1920'));
+    assert.ok(res.sort.includes('res:1080'));
+  });
+
+  it('selects 480p ultra saver format and sort when requested', () => {
+    const res = getYtDlpFormatAndSort('480p');
+    assert.ok(res.format.includes('854'));
+    assert.ok(res.sort.includes('res:480'));
   });
 });
 

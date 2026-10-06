@@ -357,13 +357,48 @@ export async function cancelDownload() {
 
 /**
  * Start a YouTube download and vertical conversion pipeline in the background.
+/**
+ * Determine yt-dlp format and sort arguments for requested quality level.
+ *
+ * @param {'720p'|'1080p'|'480p'|string} [quality='720p']
+ * @returns {{ format: string, sort: string }}
+ */
+export function getYtDlpFormatAndSort(quality = '720p') {
+  const q = String(quality || '').toLowerCase().trim();
+  switch (q) {
+    case '1080p':
+    case '1080':
+      return {
+        format: 'bv*[height<=1920][width<=1920]+ba/b[height<=1920][width<=1920]/bv*+ba/b',
+        sort: 'res:1080,vcodec:h264,acodec:aac',
+      };
+    case '480p':
+    case '480':
+      return {
+        format: 'bv*[height<=854][width<=854]+ba/b[height<=854][width<=854]/bv*+ba/b',
+        sort: 'res:480,vcodec:h264,acodec:aac',
+      };
+    case '720p':
+    case '720':
+    default:
+      // Default to 720p to save 70-75% storage space while preserving great visual quality
+      return {
+        format: 'bv*[height<=1280][width<=1280]+ba/b[height<=1280][width<=1280]/bv*+ba/b',
+        sort: 'res:720,vcodec:h264,acodec:aac',
+      };
+  }
+}
+
+/**
+ * Start background YouTube video download job.
  *
  * @param {string} rawUrl
  * @param {object} [opts]
  * @param {boolean} [opts.autoSetActive=false]
+ * @param {'720p'|'1080p'|'480p'} [opts.quality='720p']
  * @returns {Promise<object>} Status object
  */
-export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {}) {
+export async function startYouTubeDownload(rawUrl, { autoSetActive = false, quality = '720p' } = {}) {
   const raw = (rawUrl || '').trim();
 
   if (!isValidYouTubeUrl(raw)) {
@@ -400,6 +435,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
   _currentJob = {
     id: jobId,
     url,
+    quality: quality || '720p',
     stage: 'fetching_info',
     percent: 0,
     speed: '',
@@ -417,7 +453,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
   };
 
   // Run async pipeline in background
-  _executePipeline(jobId, url, autoSetActive).catch((err) => {
+  _executePipeline(jobId, url, autoSetActive, quality || '720p').catch((err) => {
     logger.error('ytdlp.pipeline_error', `Pipeline failed for job ${jobId}: ${err.message}`, { error: err.message });
     if (_currentJob && _currentJob.id === jobId && _currentJob.stage !== 'cancelled') {
       _currentJob.stage = 'error';
@@ -431,10 +467,10 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
 
 /**
  * Internal async executor for the download pipeline.
- * Single-pass: downloads in native highest quality, detects 16:9 vs 9:16,
+ * Single-pass: downloads in storage-optimized quality (default 720p), detects 16:9 vs 9:16,
  * registers directly as Stream-Ready without re-encoding, and appends to the playlist.
  */
-async function _executePipeline(jobId, url, autoSetActive) {
+async function _executePipeline(jobId, url, autoSetActive, quality = '720p') {
   const incomingDir = PATHS.videosIncoming;
   const rawPath = path.join(incomingDir, `ytdl_${jobId}.mp4`);
 
@@ -448,11 +484,11 @@ async function _executePipeline(jobId, url, autoSetActive) {
   }
 
   // ─── 1. Single-pass Download & Title Extraction via yt-dlp ────────────────
-  logger.info('ytdlp.start_download', `Starting single-pass YouTube download from ${url} to ${rawPath}`);
+  logger.info('ytdlp.start_download', `Starting single-pass YouTube download (${quality}) from ${url} to ${rawPath}`);
   _currentJob.stage = 'downloading';
   _currentJob.percent = 0;
 
-  await _downloadVideo(url, rawPath, jobId);
+  await _downloadVideo(url, rawPath, jobId, 0, { quality });
 
   if (_currentJob.stage === 'cancelled') return;
 
@@ -652,8 +688,9 @@ export function parseYtDlpProgressLine(line, job) {
  * Download raw video stream using yt-dlp with real-time title & progress parsing.
  * Single-pass: prints title before download and streams format simultaneously.
  */
-async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null, extraSort = null } = {}) {
+async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null, extraSort = null, quality = '720p' } = {}) {
   const baseArgs = await _buildYtDlpBaseArgs();
+  const qualityCfg = getYtDlpFormatAndSort(quality);
 
   if (extraExtractorArgs) {
     const extIdx = baseArgs.indexOf('--extractor-args');
@@ -673,11 +710,9 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       '--progress-delta', '1',
       '--progress-template', 'download:yt_progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s',
       '--progress-template', 'postprocess:postprocess:%(progress.status)s',
-      // Highest quality available video and audio merged into MP4 container
-      // -f bv*+ba/b universally matches any video+audio split or composite pre-merged stream
-      // -S prioritizes stream-ready H.264/AAC at max resolution with seamless fallback to any available codec
-      '-f', extraFormat || 'bv*+ba/b',
-      '-S', extraSort || 'res,vcodec:h264,acodec:aac',
+      // Storage-optimized video and audio merged into MP4 container (default 720p, saves ~70% disk space)
+      '-f', extraFormat || qualityCfg.format,
+      '-S', extraSort || qualityCfg.sort,
       '--merge-output-format', 'mp4',
       '--no-part',                   // No .part temp files — cleaner on failure/cancel
       '--concurrent-fragments', '4', // Parallel chunk downloads — 2-4x faster on VPS
@@ -753,8 +788,9 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
           await syncChromeCookies().catch(() => {});
           await _downloadVideo(url, outputPath, jobId, retryCount + 1, {
             extraExtractorArgs: 'youtube:player_client=mweb,web_safari,web_embedded,-tv_downgraded',
-            extraFormat: 'bv*+ba/b',
-            extraSort: 'res',
+            extraFormat: qualityCfg.format,
+            extraSort: qualityCfg.sort,
+            quality,
           });
           return resolve();
         } catch (retryErr) {
