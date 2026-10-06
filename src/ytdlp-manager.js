@@ -31,6 +31,18 @@ const VM_CHROME_USER_DATA_DIRS = [
 let _currentJob = null;
 
 /**
+ * Generate environment for yt-dlp child processes.
+ * Overrides restrictive NODE_OPTIONS (e.g. server's --max-old-space-size=128)
+ * with ample heap limit (1024MB) so that YouTube JS challenge solver subprocesses
+ * never crash with "JavaScript heap out of memory".
+ */
+function _getYtDlpEnv() {
+  const env = { ...process.env };
+  env.NODE_OPTIONS = '--max-old-space-size=1024';
+  return env;
+}
+
+/**
  * Normalize a YouTube URL into canonical https://www.youtube.com/watch?v=ID format.
  * Strips tracking parameters like ?si=..., converts /live/ and /shorts/ paths into canonical watch URLs.
  *
@@ -103,7 +115,7 @@ export function isValidYouTubeUrl(urlStr) {
  */
 export async function isYtDlpAvailable() {
   return new Promise((resolve) => {
-    const p = spawn('yt-dlp', ['--version'], { stdio: 'ignore' });
+    const p = spawn('yt-dlp', ['--version'], { stdio: 'ignore', env: _getYtDlpEnv() });
     p.on('error', () => resolve(false));
     p.on('close', (code) => resolve(code === 0));
   });
@@ -188,7 +200,7 @@ export async function syncChromeCookies() {
       'https://www.youtube.com/watch?v=jNQXAC9IVRw',
     ];
 
-    const proc = spawn('yt-dlp', args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    const proc = spawn('yt-dlp', args, { env: _getYtDlpEnv(), stdio: ['ignore', 'pipe', 'pipe'] });
     let stderr = '';
     proc.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
 
@@ -520,6 +532,7 @@ export async function getVideoTitle(url) {
   const baseArgs = await _buildYtDlpBaseArgs();
   return new Promise((resolve, reject) => {
     const proc = spawn('yt-dlp', [...baseArgs, '--print', '%(title)s', url], {
+      env: _getYtDlpEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -571,6 +584,7 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
     ];
 
     const proc = spawn('yt-dlp', args, {
+      env: _getYtDlpEnv(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
