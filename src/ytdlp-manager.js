@@ -218,11 +218,12 @@ export async function syncChromeCookies() {
  * @returns {Promise<string[]>}
  */
 async function _buildYtDlpBaseArgs() {
+  const nodeBinary = process.execPath || (process.platform !== 'win32' ? '/usr/bin/node' : 'node');
   const args = [
     '--no-playlist',
     '--no-warnings',
     '--force-ipv4',
-    '--js-runtimes', 'node', // Enable Node.js runtime for YouTube challenge solving
+    '--js-runtimes', `node:${nodeBinary}`, // Pass explicit path to active Node binary for challenge solving
     '--compat-options', 'no-live-chat',
     '--extractor-args', 'youtube:player_client=web_safari,web_embedded,-tv_downgraded',
   ];
@@ -534,7 +535,7 @@ export async function getVideoTitle(url) {
  * Download raw video stream using yt-dlp with real-time title & progress parsing.
  * Single-pass: prints title before download and streams format simultaneously.
  */
-async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null } = {}) {
+async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null, extraSort = null } = {}) {
   const baseArgs = await _buildYtDlpBaseArgs();
 
   if (extraExtractorArgs) {
@@ -551,16 +552,10 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       ...baseArgs,
       '--print', 'before_dl:title:%(title)s',
       // Highest quality available video and audio merged into MP4 container
-      // Prioritizes stream-ready H.264/AAC with resilient fallback to any best available stream
-      '-f', extraFormat || [
-        'bv*[vcodec^=avc]+ba[acodec^=mp4a]',
-        'bv*[vcodec^=avc]+ba',
-        'b*[vcodec^=avc]',
-        'bv*[ext=mp4]+ba[ext=m4a]',
-        'bv*+ba',
-        'b*',
-        'best',
-      ].join('/'),
+      // -f bv*+ba/b universally matches any video+audio split or composite pre-merged stream
+      // -S prioritizes stream-ready H.264/AAC at max resolution with seamless fallback to any available codec
+      '-f', extraFormat || 'bv*+ba/b',
+      '-S', extraSort || 'res,vcodec:h264,acodec:aac',
       '--merge-output-format', 'mp4',
       '--newline',
       '--no-part',                   // No .part temp files — cleaner on failure/cancel
@@ -640,8 +635,9 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
           }
           await syncChromeCookies().catch(() => {});
           await _downloadVideo(url, outputPath, jobId, retryCount + 1, {
-            extraExtractorArgs: 'youtube:player_client=android,web,web_embedded,-tv_downgraded',
-            extraFormat: 'bestvideo*+bestaudio/bv*+ba/b*/best',
+            extraExtractorArgs: 'youtube:player_client=mweb,web_safari,web_embedded,-tv_downgraded',
+            extraFormat: 'bv*+ba/b',
+            extraSort: 'res',
           });
           return resolve();
         } catch (retryErr) {
