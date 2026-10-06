@@ -636,7 +636,8 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
         }
       }
 
-      reject(new Error(`yt-dlp download failed: ${cleanErr || stderr.slice(-300)}`));
+      const fallbackMsg = cleanErr || (stderr.includes('Deprecated Feature:') ? `Process exited unexpectedly with code ${code}` : stderr.slice(-300).trim());
+      reject(new Error(`yt-dlp download failed: ${fallbackMsg || `Process exited with code ${code}`}`));
     });
   });
 }
