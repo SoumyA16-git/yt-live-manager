@@ -557,6 +557,98 @@ export async function getVideoTitle(url) {
 }
 
 /**
+ * Parse a single line from yt-dlp stdout/stderr and update job progress fields in real-time.
+ *
+ * @param {string} line
+ * @param {object} job
+ */
+export function parseYtDlpProgressLine(line, job) {
+  const trimmed = (line || '').trim();
+  if (!trimmed || !job) return;
+
+  if (trimmed.startsWith('title:')) {
+    const extractedTitle = trimmed.substring('title:'.length).trim();
+    if (extractedTitle) {
+      job.videoTitle = extractedTitle;
+    }
+    job.stage = 'downloading';
+    return;
+  }
+
+  // 1. Pipe-delimited progress formats
+  let dlContent = null;
+  if (trimmed.startsWith('yt_progress:')) {
+    dlContent = trimmed.substring('yt_progress:'.length).trim();
+  } else if (trimmed.startsWith('download:')) {
+    dlContent = trimmed.substring('download:'.length).trim();
+  } else if (trimmed.includes('|') && trimmed.includes('%')) {
+    dlContent = trimmed;
+  }
+
+  if (dlContent) {
+    const parts = dlContent.split('|').map(s => (s || '').trim());
+    const pctStr = parts[0] || '';
+    const speedStr = parts[1] || '';
+    const etaStr = parts[2] || '';
+    const dlBytesStr = parts[3] || '';
+    const totalBytesStr = parts[4] || '';
+    const totalEstStr = parts[5] || '';
+
+    const pctNum = parseFloat(pctStr.replace('%', ''));
+    if (!isNaN(pctNum) && pctNum >= 0) {
+      // Avoid resetting progress bar if secondary stream (e.g. audio) starts
+      if (pctNum < 5 && (job.percent || 0) > 85) {
+        // secondary stream started, keep high progress
+      } else {
+        job.percent = Math.min(99.9, Math.max(job.percent || 0, pctNum));
+      }
+    }
+    if (speedStr && speedStr !== 'Unknown' && speedStr !== 'NA' && speedStr !== 'N/A') {
+      job.speed = speedStr;
+    }
+    if (etaStr && etaStr !== 'Unknown' && etaStr !== 'NA' && etaStr !== 'N/A') {
+      job.eta = etaStr;
+    }
+    if (dlBytesStr && dlBytesStr !== 'Unknown' && dlBytesStr !== 'NA' && dlBytesStr !== 'N/A') {
+      job.downloaded = dlBytesStr;
+    }
+    const effectiveTotal = (totalBytesStr && totalBytesStr !== 'Unknown' && totalBytesStr !== 'NA' && totalBytesStr !== 'N/A')
+      ? totalBytesStr
+      : ((totalEstStr && totalEstStr !== 'Unknown' && totalEstStr !== 'NA' && totalEstStr !== 'N/A') ? totalEstStr : null);
+    if (effectiveTotal) {
+      job.totalSize = effectiveTotal;
+    }
+    job.stage = 'downloading';
+    return;
+  }
+
+  // 2. Postprocessing / Container remuxing
+  if (trimmed.startsWith('postprocess:') || trimmed.startsWith('[Merger]') || trimmed.startsWith('[Fixup') || trimmed.includes('Merging formats into')) {
+    job.stage = 'merging';
+    job.speed = '';
+    job.eta = '';
+    return;
+  }
+
+  // 3. Fallback standard yt-dlp [download] progress regex
+  const match = trimmed.match(/\[download\]\s+([\d.]+)%(?:\s+of\s+~?([^\s]+))?(?:\s+at\s+([^\s]+))?(?:\s+ETA\s+([^\s]+))?/);
+  if (match) {
+    job.stage = 'downloading';
+    const pct = parseFloat(match[1]);
+    if (!isNaN(pct)) {
+      if (pct < 5 && (job.percent || 0) > 85) {
+        // secondary stream started
+      } else {
+        job.percent = Math.min(99.9, Math.max(job.percent || 0, pct));
+      }
+    }
+    if (match[2] && match[2] !== 'Unknown' && match[2] !== 'N/A') job.totalSize = match[2];
+    if (match[3] && match[3] !== 'Unknown' && match[3] !== 'N/A') job.speed = match[3];
+    if (match[4] && match[4] !== 'Unknown' && match[4] !== 'N/A') job.eta = match[4];
+  }
+}
+
+/**
  * Download raw video stream using yt-dlp with real-time title & progress parsing.
  * Single-pass: prints title before download and streams format simultaneously.
  */
@@ -579,7 +671,7 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       '--progress',
       '--newline',
       '--progress-delta', '1',
-      '--progress-template', 'download:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_estimate_str)s',
+      '--progress-template', 'download:yt_progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s',
       '--progress-template', 'postprocess:postprocess:%(progress.status)s',
       // Highest quality available video and audio merged into MP4 container
       // -f bv*+ba/b universally matches any video+audio split or composite pre-merged stream
@@ -605,47 +697,8 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
     let stderr = '';
 
     const parseLine = (line) => {
-      const trimmed = line.trim();
-      if (!trimmed || !_currentJob || _currentJob.id !== jobId) return;
-
-      if (trimmed.startsWith('title:')) {
-        const extractedTitle = trimmed.substring('title:'.length).trim();
-        if (extractedTitle) {
-          _currentJob.videoTitle = extractedTitle;
-        }
-        _currentJob.stage = 'downloading';
-        return;
-      }
-
-      if (trimmed.startsWith('download:')) {
-        const content = trimmed.substring('download:'.length).trim();
-        const [pctStr, speedStr, etaStr, dlBytesStr, totalBytesStr] = content.split('|').map(s => (s || '').trim());
-        const pctNum = parseFloat((pctStr || '').replace('%', ''));
-        if (!isNaN(pctNum) && pctNum >= 0) {
-          _currentJob.percent = Math.min(99.9, Math.max(_currentJob.percent || 0, pctNum));
-        }
-        if (speedStr && speedStr !== 'Unknown') _currentJob.speed = speedStr;
-        if (etaStr && etaStr !== 'Unknown') _currentJob.eta = etaStr;
-        if (dlBytesStr && dlBytesStr !== 'Unknown') _currentJob.downloaded = dlBytesStr;
-        if (totalBytesStr && totalBytesStr !== 'Unknown') _currentJob.totalSize = totalBytesStr;
-        _currentJob.stage = 'downloading';
-        return;
-      }
-
-      if (trimmed.startsWith('postprocess:')) {
-        _currentJob.stage = 'merging';
-        _currentJob.speed = '';
-        _currentJob.eta = '';
-        return;
-      }
-
-      const match = trimmed.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([^\s]+)\s+at\s+([^\s]+)\s+ETA\s+([^\s]+)/);
-      if (match) {
-        _currentJob.stage = 'downloading';
-        _currentJob.percent = Math.min(99.9, parseFloat(match[1]));
-        _currentJob.totalSize = match[2];
-        _currentJob.speed = match[3];
-        _currentJob.eta = match[4];
+      if (_currentJob && _currentJob.id === jobId) {
+        parseYtDlpProgressLine(line, _currentJob);
       }
     };
 
