@@ -149,7 +149,9 @@ export async function syncChromeCookies() {
       '--cookies-from-browser', `chrome:${chromeProfile}`,
       '--cookies', YT_COOKIES_PATH,
       '--js-runtimes', 'node',
-      '--dump-user-agent',
+      '--skip-download',
+      '--print', 'id',
+      'https://www.youtube.com/watch?v=jNQXAC9IVRw',
     ];
 
     const proc = spawn('yt-dlp', args, { stdio: 'ignore' });
