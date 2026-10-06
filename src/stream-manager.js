@@ -289,7 +289,9 @@ export async function evaluateStartGates(options = {}) {
     const orient = (m.probe?.width && m.probe?.height)
       ? (m.probe.width > m.probe.height ? 'horizontal' : 'vertical')
       : (m.orientation || 'vertical');
-    const c = m.probe ? evaluateCompatibility(m.probe, settings, orient) : (m.compatibility || {});
+    const c = m.probe
+      ? evaluateCompatibility(m.probe, settings, orient, { allowDirectCopy: Boolean(m.isDirectCopy || m.isYoutubeDirect || true) })
+      : (m.compatibility || {});
     if (c.status !== 'COMPATIBLE') {
       allCompatible = false;
     }
