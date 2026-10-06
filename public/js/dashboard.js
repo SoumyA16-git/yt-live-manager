@@ -520,7 +520,10 @@ function renderBandwidthSpeedMeter(data) {
 
   // 2. GaugePointer Angle Calculation (-110° to +110°)
   const valueAngleDeg = -110 + ratio * 220;
-  const pointerColor = currentMbps > 9.5 ? '#ef4444' : '#38bdf8';
+  const targetMbps = Number(_currentSettings?.stream?.videoBitrateMbps);
+  const isCapActive = !isNaN(targetMbps) && targetMbps > 0;
+  const isOverTarget = isCapActive && currentMbps > (targetMbps * 1.10);
+  const pointerColor = (currentMbps > 9.5 || isOverTarget) ? '#ef4444' : '#38bdf8';
   if (gaugePointerNeedle) {
     gaugePointerNeedle.style.transform = `rotate(${valueAngleDeg.toFixed(1)}deg)`;
     gaugePointerNeedle.setAttribute('stroke', pointerColor);
@@ -551,8 +554,11 @@ function renderBandwidthSpeedMeter(data) {
   }
 
   if (speedValTarget) {
-    const target = _currentSettings?.stream?.videoBitrateMbps || 4.0;
-    speedValTarget.textContent = `${Number(target).toFixed(2)} Mbps`;
+    if (!isNaN(targetMbps) && targetMbps === 0) {
+      speedValTarget.textContent = '0.00 Mbps (No Cap / Zero CPU)';
+    } else {
+      speedValTarget.textContent = `${Number(!isNaN(targetMbps) ? targetMbps : 4.0).toFixed(2)} Mbps`;
+    }
   }
 
   if (speedValHealth) {

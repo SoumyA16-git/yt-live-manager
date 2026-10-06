@@ -130,8 +130,10 @@ describe('validateSettings — partial mode (API patch)', () => {
   });
 
   test('rejects videoBitrateMbps out of range', () => {
-    const { valid } = validateSettings({ stream: { videoBitrateMbps: 0 } });
+    const { valid } = validateSettings({ stream: { videoBitrateMbps: -1 } });
     assert.ok(!valid);
+    const { valid: v0 } = validateSettings({ stream: { videoBitrateMbps: 0 } });
+    assert.ok(v0);
     const { valid: v2 } = validateSettings({ stream: { videoBitrateMbps: 51 } });
     assert.ok(!v2);
   });

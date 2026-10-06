@@ -112,7 +112,7 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     // Adapt to source video bitrate up to max 4Mbps ceiling (avoids inflating lower bitrate files)
     const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
     const bufSizeKbps = videoKbps * 2;
-    const preset = streamCfg.x264Preset || 'veryfast';
+    const preset = streamCfg.x264Preset || 'ultrafast';
 
     const vf = [
       `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
@@ -126,6 +126,8 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
       '-vf', vf,
       '-c:v', 'libx264',
       '-preset', preset,
+      '-tune', 'zerolatency',
+      '-threads', '2',
       '-profile:v', 'high',
       '-level:v', '4.2',
       '-b:v', `${videoKbps}k`,
@@ -179,11 +181,11 @@ export function buildPublisherArgs(settings, secretTarget) {
     '-loglevel', 'warning',
     '-nostats',
     '-progress', 'pipe:1',
-    '-re',
-    '-fflags', '+genpts+igndts',
+    '-fflags', '+genpts+igndts+discardcorrupt',
     '-f', 'mpegts',
     '-i', 'pipe:0',
     '-c', 'copy',
+    '-max_muxing_queue_size', '1024',
     '-flvflags', 'no_duration_filesize',
     '-f', 'flv',
     secretTarget,
@@ -202,8 +204,26 @@ export function buildPublisherArgs(settings, secretTarget) {
 export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
-  // Stream-ready direct copy mode (Zero CPU) - do not re-encode
-  const effectiveMode = mode;
+
+  // Bandwidth Cap logic:
+  // - If videoBitrateMbps is 0 (or null/negative): Bandwidth cap is OFF -> No encoding! Pure direct copy (Zero CPU).
+  // - If videoBitrateMbps > 0:
+  //     If source video bitrate > capMbps * 1.05 and allowTranscode !== false:
+  //       Dynamically encode to capMbps with ultrafast preset (CPU strictly ~30-40%).
+  //     Else: video is already within cap -> Direct copy (Zero CPU).
+  const targetMbps = Number(streamCfg.videoBitrateMbps);
+  const isCapActive = !isNaN(targetMbps) && targetMbps > 0;
+  const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
+  const sourceMbps = sourceBitrate > 0 ? (sourceBitrate / 1_000_000) : 0;
+
+  let effectiveMode = mode;
+  if (effectiveMode !== 'transcode') {
+    if (isCapActive && sourceMbps > (targetMbps * 1.05) && streamCfg.allowTranscode !== false) {
+      effectiveMode = 'transcode';
+    } else {
+      effectiveMode = mode === 'hybrid' ? 'hybrid' : 'copy';
+    }
+  }
 
   const args = [
     '-hide_banner',
@@ -231,6 +251,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
         '-ac', '2',
         '-shortest',
+        '-avoid_negative_ts', 'make_zero',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
         'pipe:1'
@@ -244,6 +265,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
         '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
         '-ac', '2',
+        '-avoid_negative_ts', 'make_zero',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
         'pipe:1'
@@ -272,9 +294,9 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         '-shortest'
       );
     }
-    args.push('-bsf:v', 'h264_mp4toannexb', '-f', 'mpegts', 'pipe:1');
+    args.push('-avoid_negative_ts', 'make_zero', '-bsf:v', 'h264_mp4toannexb', '-f', 'mpegts', 'pipe:1');
   } else {
-    // Transcode mode
+    // Dynamic transcode mode (capped at targetMbps, tuned for ~30-40% CPU with ultrafast + threads 2)
     const isHoriz = (videoMeta?.probe?.width && videoMeta?.probe?.height && videoMeta.probe.width > videoMeta.probe.height) ||
       videoMeta?.orientation === 'horizontal' || videoMeta?.probe?.orientation === 'horizontal';
     const defaultRes = isHoriz ? '1920x1080' : '1080x1920';
@@ -287,11 +309,11 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const keyframeSec = streamCfg.keyframeSeconds ?? 2;
     const gop = Math.round(fps * keyframeSec);
 
-    const maxKbps = (streamCfg.videoBitrateMbps ?? 4) * 1000;
+    const maxKbps = isCapActive ? Math.round(targetMbps * 1000) : 4000;
     const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
     const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
     const bufSizeKbps = videoKbps * 2;
-    const preset = streamCfg.x264Preset || 'veryfast';
+    const preset = streamCfg.x264Preset || 'ultrafast';
 
     const vf = [
       `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
@@ -305,6 +327,8 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       '-vf', vf,
       '-c:v', 'libx264',
       '-preset', preset,
+      '-tune', 'zerolatency',
+      '-threads', '2',
       '-profile:v', 'high',
       '-level:v', '4.2',
       '-b:v', `${videoKbps}k`,
@@ -335,6 +359,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
       '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
       '-ac', '2',
+      '-avoid_negative_ts', 'make_zero',
       '-bsf:v', 'h264_mp4toannexb',
       '-f', 'mpegts',
       'pipe:1'

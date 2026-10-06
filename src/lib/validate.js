@@ -90,7 +90,7 @@ const STREAM_SCHEMA = {
   autoResume:            { type: 'boolean' },
   resolution:            { type: 'string', pattern: /^(\d{3,4}x\d{3,4}|auto)$/ },
   fps:                   { type: 'number', integer: true, enum: [24, 25, 30, 60] },
-  videoBitrateMbps:      { type: 'number', min: 1, max: 50 },
+  videoBitrateMbps:      { type: 'number', min: 0, max: 50 },
   audioBitrateKbps:      { type: 'number', integer: true, min: 32, max: 320 },
   audioSampleRate:       { type: 'number', integer: true, enum: [44100, 48000] },
   keyframeSeconds:       { type: 'number', min: 0.5, max: 10 },
