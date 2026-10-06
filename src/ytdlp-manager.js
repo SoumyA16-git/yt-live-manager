@@ -31,6 +31,38 @@ const VM_CHROME_USER_DATA_DIRS = [
 let _currentJob = null;
 
 /**
+ * Normalize a YouTube URL into canonical https://www.youtube.com/watch?v=ID format.
+ * Strips tracking parameters like ?si=..., converts /live/ and /shorts/ paths into canonical watch URLs.
+ *
+ * @param {string} urlStr
+ * @returns {string}
+ */
+export function normalizeYouTubeUrl(urlStr) {
+  if (!urlStr || typeof urlStr !== 'string') return '';
+  const trimmed = urlStr.trim();
+  try {
+    const u = new URL(trimmed);
+    let videoId = null;
+    const hostname = u.hostname.toLowerCase();
+    if (hostname === 'youtu.be') {
+      videoId = u.pathname.slice(1).split('/')[0];
+    } else if (u.pathname.startsWith('/live/')) {
+      videoId = u.pathname.replace(/^\/live\//, '').split('/')[0];
+    } else if (u.pathname.startsWith('/shorts/')) {
+      videoId = u.pathname.replace(/^\/shorts\//, '').split('/')[0];
+    } else if (u.searchParams.has('v')) {
+      videoId = u.searchParams.get('v');
+    }
+    if (videoId && /^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+      return `https://www.youtube.com/watch?v=${videoId}`;
+    }
+  } catch {
+    // Return trimmed if URL constructor fails
+  }
+  return trimmed;
+}
+
+/**
  * Validate a YouTube URL.
  * Supports standard watch URLs, youtu.be, shorts, and live URLs.
  *
@@ -40,7 +72,8 @@ let _currentJob = null;
 export function isValidYouTubeUrl(urlStr) {
   if (!urlStr || typeof urlStr !== 'string') return false;
   try {
-    const u = new URL(urlStr.trim());
+    const normalized = normalizeYouTubeUrl(urlStr);
+    const u = new URL(normalized);
     const validHosts = [
       'www.youtube.com',
       'youtube.com',
@@ -188,8 +221,10 @@ async function _buildYtDlpBaseArgs() {
   const args = [
     '--no-playlist',
     '--no-warnings',
+    '--force-ipv4',
     '--js-runtimes', 'node', // Enable Node.js runtime for YouTube challenge solving
     '--compat-options', 'no-live-chat',
+    '--extractor-args', 'youtube:player_client=web_safari,web_embedded,-tv_downgraded',
   ];
 
   let cookiesStatus = await getCookiesStatus();
@@ -302,13 +337,15 @@ export async function cancelDownload() {
  * @returns {Promise<object>} Status object
  */
 export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {}) {
-  const url = (rawUrl || '').trim();
+  const raw = (rawUrl || '').trim();
 
-  if (!isValidYouTubeUrl(url)) {
+  if (!isValidYouTubeUrl(raw)) {
     throw Object.assign(new Error('Invalid YouTube URL. Please provide a valid YouTube video or shorts link.'), {
       code: 'E_INVALID_URL',
     });
   }
+
+  const url = normalizeYouTubeUrl(raw);
 
   if (_currentJob && ['fetching_info', 'downloading', 'converting'].includes(_currentJob.stage)) {
     throw Object.assign(new Error('A video download/conversion job is already in progress. Please wait for it to finish or cancel it.'), {
@@ -327,6 +364,12 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
   const incomingDir = PATHS.videosIncoming;
   await fs.mkdir(incomingDir, { recursive: true, mode: 0o700 });
 
+  let initialVideoId = null;
+  try {
+    const u = new URL(url);
+    initialVideoId = u.searchParams.get('v') || null;
+  } catch { /* ignore */ }
+
   _currentJob = {
     id: jobId,
     url,
@@ -335,7 +378,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
     speed: '',
     eta: '',
     videoTitle: 'Fetching video details...',
-    videoId: null,
+    videoId: initialVideoId,
     autoSetActive,
     error: null,
     startedAt: new Date().toISOString(),
@@ -359,7 +402,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false } = {
 
 /**
  * Internal async executor for the download pipeline.
- * Downloads in highest quality natively, detects 16:9 vs 9:16,
+ * Single-pass: downloads in native highest quality, detects 16:9 vs 9:16,
  * registers directly as Stream-Ready without re-encoding, and appends to the playlist.
  */
 async function _executePipeline(jobId, url, autoSetActive) {
@@ -369,26 +412,16 @@ async function _executePipeline(jobId, url, autoSetActive) {
   if (!_currentJob || _currentJob.id !== jobId) return;
   _currentJob.tempFiles.push(rawPath);
 
-  // ─── 1. Fetch Video Title ──────────────────────────────────────────────────
-  logger.info('ytdlp.fetch_info', `Fetching video metadata for ${url}`);
-  try {
-    const title = await _getVideoTitle(url, jobId);
-    if (_currentJob && _currentJob.id === jobId) {
-      _currentJob.videoTitle = title || 'YouTube Video';
-    }
-  } catch (err) {
-    logger.warn('ytdlp.title_warning', `Could not fetch video title: ${err.message}`);
-    if (_currentJob && _currentJob.id === jobId) {
-      _currentJob.videoTitle = 'YouTube Video';
-    }
+  // Extract video ID from URL if available
+  const videoIdMatch = url.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+  if (videoIdMatch && _currentJob) {
+    _currentJob.videoId = videoIdMatch[1];
   }
 
-  if (_currentJob.stage === 'cancelled') return;
-
-  // ─── 2. Download highest quality video using yt-dlp ───────────────────────
+  // ─── 1. Single-pass Download & Title Extraction via yt-dlp ────────────────
+  logger.info('ytdlp.start_download', `Starting single-pass YouTube download from ${url} to ${rawPath}`);
   _currentJob.stage = 'downloading';
   _currentJob.percent = 0;
-  logger.info('ytdlp.start_download', `Downloading highest quality video from ${url} to ${rawPath}`);
 
   await _downloadVideo(url, rawPath, jobId);
 
@@ -400,7 +433,7 @@ async function _executePipeline(jobId, url, autoSetActive) {
     throw new Error('Downloaded file is empty (0 bytes).');
   }
 
-  // ─── 3. Probe downloaded video for native orientation & specs ────────────
+  // ─── 2. Probe downloaded video for native orientation & specs ────────────
   _currentJob.stage = 'registering';
   logger.info('ytdlp.probing_video', `Probing downloaded video ${rawPath}`);
   let width = 1920;
@@ -416,7 +449,7 @@ async function _executePipeline(jobId, url, autoSetActive) {
   const isHorizontal = width >= height;
   const mode = isHorizontal ? 'horizontal' : 'vertical';
 
-  // ─── 4. Register Video Directly into Library (Stream-Ready) ──────────────
+  // ─── 3. Register Video Directly into Library (Stream-Ready) ──────────────
   logger.info('ytdlp.register_video', `Registering native ${mode} video (${width}x${height}) into library`);
   const safeTitle = (_currentJob.videoTitle || 'YouTube_Video')
     .replace(/[/\\?%*:|"<>]/g, '_')
@@ -424,18 +457,37 @@ async function _executePipeline(jobId, url, autoSetActive) {
 
   const videoMeta = await importConvertedVideo(rawPath, `${safeTitle}.mp4`, {
     autoSetActive,
+    isDirectCopy: true,
   });
 
-  // ─── 5. Auto-append to corresponding Horizontal/Vertical playlist ────────
+  // ─── 4. Auto-append to corresponding Horizontal/Vertical playlist ────────
   try {
     const currentSettings = getSettings();
-    const playlists = { ...(currentSettings.playlists || { horizontal: [], vertical: [] }) };
-    if (!Array.isArray(playlists[mode])) playlists[mode] = [];
-    if (!playlists[mode].includes(videoMeta.id)) {
-      playlists[mode] = [...playlists[mode], videoMeta.id];
-      await saveSettings({ playlists });
-      logger.info('ytdlp.playlist_appended', `Automatically appended ${videoMeta.id} to ${mode} (16:9/9:16) playlist`);
+    const currentPlaylists = {
+      horizontal: Array.isArray(currentSettings.stream?.playlists?.horizontal) ? [...currentSettings.stream.playlists.horizontal] : [],
+      vertical: Array.isArray(currentSettings.stream?.playlists?.vertical) ? [...currentSettings.stream.playlists.vertical] : [],
+    };
+
+    if (!currentPlaylists[mode].includes(videoMeta.id)) {
+      currentPlaylists[mode].push(videoMeta.id);
     }
+
+    const patch = {
+      stream: {
+        playlists: currentPlaylists,
+      },
+    };
+
+    const activeStreamMode = currentSettings.stream?.mode || 'horizontal';
+    if (mode === activeStreamMode) {
+      patch.stream.playlist = [...currentPlaylists[activeStreamMode]];
+      if (!currentSettings.stream?.videoId) {
+        patch.stream.videoId = videoMeta.id;
+      }
+    }
+
+    await saveSettings(patch);
+    logger.info('ytdlp.playlist_appended', `Successfully appended ${videoMeta.id} to ${mode} (16:9/9:16) playlist`);
   } catch (plErr) {
     logger.warn('ytdlp.playlist_append_warning', `Failed to auto-append to playlist: ${plErr.message}`);
   }
@@ -451,18 +503,14 @@ async function _executePipeline(jobId, url, autoSetActive) {
 }
 
 /**
- * Fetch YouTube video title using yt-dlp --print.
+ * Fetch YouTube video title using yt-dlp --print (utility helper).
  */
-async function _getVideoTitle(url, jobId) {
+export async function getVideoTitle(url) {
   const baseArgs = await _buildYtDlpBaseArgs();
   return new Promise((resolve, reject) => {
     const proc = spawn('yt-dlp', [...baseArgs, '--print', '%(title)s', url], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-
-    if (_currentJob && _currentJob.id === jobId) {
-      _currentJob.proc = proc;
-    }
 
     let out = '';
     proc.stdout.on('data', (d) => { out += d.toString('utf8'); });
@@ -479,13 +527,25 @@ async function _getVideoTitle(url, jobId) {
 }
 
 /**
- * Download raw video stream using yt-dlp with real-time progress parsing.
+ * Download raw video stream using yt-dlp with real-time title & progress parsing.
+ * Single-pass: prints title before download and streams format simultaneously.
  */
-async function _downloadVideo(url, outputPath, jobId) {
+async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null } = {}) {
   const baseArgs = await _buildYtDlpBaseArgs();
+
+  if (extraExtractorArgs) {
+    const extIdx = baseArgs.indexOf('--extractor-args');
+    if (extIdx !== -1) {
+      baseArgs[extIdx + 1] = extraExtractorArgs;
+    } else {
+      baseArgs.push('--extractor-args', extraExtractorArgs);
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const args = [
       ...baseArgs,
+      '--print', 'before_dl:title:%(title)s',
       // Highest quality available video and audio merged into MP4 container
       // Prioritizes stream-ready H.264/AAC with resilient fallback to any best available stream
       '-f', [
@@ -521,9 +581,20 @@ async function _downloadVideo(url, outputPath, jobId) {
       buffer = lines.pop(); // keep last incomplete line
 
       for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('title:') && _currentJob && _currentJob.id === jobId) {
+          const extractedTitle = trimmed.substring('title:'.length).trim();
+          if (extractedTitle) {
+            _currentJob.videoTitle = extractedTitle;
+          }
+          _currentJob.stage = 'downloading';
+          continue;
+        }
+
         // Example output: [download]  45.2% of ~ 150.00MiB at  5.20MiB/s ETA 00:15
-        const match = line.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([^\s]+)\s+at\s+([^\s]+)\s+ETA\s+([^\s]+)/);
+        const match = trimmed.match(/\[download\]\s+([\d.]+)%\s+of\s+~?([^\s]+)\s+at\s+([^\s]+)\s+ETA\s+([^\s]+)/);
         if (match && _currentJob && _currentJob.id === jobId) {
+          _currentJob.stage = 'downloading';
           _currentJob.percent = Math.min(99.9, parseFloat(match[1]));
           _currentJob.speed = match[3];
           _currentJob.eta = match[4];
@@ -532,22 +603,40 @@ async function _downloadVideo(url, outputPath, jobId) {
     });
 
     proc.on('error', reject);
-    proc.on('close', (code) => {
+    proc.on('close', async (code) => {
       if (_currentJob && _currentJob.id === jobId && _currentJob.stage === 'cancelled') {
         return resolve();
       }
       if (code === 0) {
         if (_currentJob && _currentJob.id === jobId) _currentJob.percent = 100;
-        resolve();
-      } else {
-        const cleanErr = stderr
-          .split('\n')
-          .filter(l => !l.includes('Deprecated Feature:') && !l.startsWith('WARNING:'))
-          .map(l => l.replace(/^ERROR:\s*/i, '').trim())
-          .filter(Boolean)
-          .join(' · ');
-        reject(new Error(`yt-dlp download failed: ${cleanErr || stderr.slice(-300)}`));
+        return resolve();
       }
+
+      const cleanErr = stderr
+        .split('\n')
+        .filter(l => !l.includes('Deprecated Feature:') && !l.startsWith('WARNING:'))
+        .map(l => l.replace(/^ERROR:\s*/i, '').trim())
+        .filter(Boolean)
+        .join(' · ');
+
+      // Automatic fallback retry if YouTube challenged the connection
+      if (retryCount === 0 && (cleanErr.includes('The page needs to be reloaded') || cleanErr.includes('Sign in to confirm'))) {
+        logger.warn('ytdlp.retry_challenge', `yt-dlp encountered YouTube challenge: "${cleanErr}". Retrying with fallback player client...`);
+        try {
+          if (fsSync.existsSync(outputPath)) {
+            await fs.unlink(outputPath).catch(() => {});
+          }
+          await syncChromeCookies().catch(() => {});
+          await _downloadVideo(url, outputPath, jobId, retryCount + 1, {
+            extraExtractorArgs: 'youtube:player_client=web_embedded,web,-tv_downgraded',
+          });
+          return resolve();
+        } catch (retryErr) {
+          return reject(retryErr);
+        }
+      }
+
+      reject(new Error(`yt-dlp download failed: ${cleanErr || stderr.slice(-300)}`));
     });
   });
 }
