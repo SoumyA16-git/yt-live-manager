@@ -270,7 +270,7 @@ export function getDownloadStatus() {
  * @returns {boolean} True if a job was cancelled
  */
 export async function cancelDownload() {
-  if (!_currentJob || !['fetching_info', 'downloading', 'converting'].includes(_currentJob.stage)) {
+  if (!_currentJob || !['fetching_info', 'downloading', 'registering', 'converting'].includes(_currentJob.stage)) {
     return false;
   }
 
