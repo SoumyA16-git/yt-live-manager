@@ -1128,9 +1128,10 @@ function renderSystem(data) {
   if (data.reachability) {
     reachabilityBadge.style.color = data.reachability.reachable ? 'var(--status-live)' : 'var(--status-error)';
     const ms = Number(data.reachability.latencyMs) || 0;
-    reachabilityBadge.textContent = data.reachability.reachable
-      ? `● YouTube Reachable (${ms > 0 ? ms : '16'}ms)`
-      : '● YouTube Unreachable';
+    const iconSvg = `<svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /><line x1="2" y1="12" x2="22" y2="12" /></svg>`;
+    reachabilityBadge.innerHTML = data.reachability.reachable
+      ? `${iconSvg} YouTube Reachable (${ms > 0 ? ms : '16'}ms)`
+      : `${iconSvg} YouTube Unreachable`;
   }
 
   // Update Pie Chart & Multi-Bar Chart
@@ -1284,19 +1285,19 @@ function updateModeSelectorUI(mode, currentStatus) {
     deckStreamModeBadge.style.color = isH ? '#38bdf8' : '#a78bfa';
   }
 
-  if (chipLiveHorizontal) chipLiveHorizontal.style.display = mode === 'horizontal' ? 'inline-block' : 'none';
-  if (chipLiveVertical) chipLiveVertical.style.display = mode === 'vertical' ? 'inline-block' : 'none';
+  if (chipLiveHorizontal) chipLiveHorizontal.style.display = mode === 'horizontal' ? 'inline-flex' : 'none';
+  if (chipLiveVertical) chipLiveVertical.style.display = mode === 'vertical' ? 'inline-flex' : 'none';
 }
 
 function switchPlaylistTab(mode) {
   _currentTabMode = mode;
   if (tabPlaylistHorizontal && tabPlaylistVertical) {
     if (mode === 'horizontal') {
-      tabPlaylistHorizontal.className = 'btn btn-sm btn-primary playlist-tab active';
-      tabPlaylistVertical.className = 'btn btn-sm btn-outline playlist-tab';
+      tabPlaylistHorizontal.classList.add('active');
+      tabPlaylistVertical.classList.remove('active');
     } else {
-      tabPlaylistHorizontal.className = 'btn btn-sm btn-outline playlist-tab';
-      tabPlaylistVertical.className = 'btn btn-sm btn-primary playlist-tab active';
+      tabPlaylistHorizontal.classList.remove('active');
+      tabPlaylistVertical.classList.add('active');
     }
   }
 
@@ -1410,11 +1411,18 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
   }
 
   if (tabVideos.length === 0) {
+    const isHoriz = _currentTabMode === 'horizontal';
     videosList.innerHTML = `
-      <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; padding: 1.25rem 1rem;">
-        <div>No ${_currentTabMode === 'horizontal' ? 'Horizontal (16:9)' : 'Vertical (9:16)'} videos currently in library.</div>
-        <div style="font-size: 0.75rem; margin-top: 0.35rem; color: var(--text-dim);">Upload a ${_currentTabMode === 'horizontal' ? '16:9' : '9:16'} video above to add it to this playlist.</div>
-        <button id="btn-sync-videos" class="btn btn-secondary btn-sm" style="margin-top: 0.65rem;">
+      <div class="videos-empty-state">
+        <div class="empty-icon-bubble">
+          <svg class="icon icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+            <rect x="2" y="4" width="20" height="16" rx="2" ry="2" />
+            <polygon points="10 8 16 12 10 16 10 8" fill="rgba(255,255,255,0.08)" stroke="currentColor" />
+          </svg>
+        </div>
+        <div class="empty-state-title">No ${isHoriz ? 'Horizontal (16:9)' : 'Vertical (9:16)'} videos in library</div>
+        <div class="empty-state-subtitle">Upload a ${isHoriz ? '16:9' : '9:16'} MP4 video above to add it to this playlist</div>
+        <button id="btn-sync-videos" class="btn btn-secondary btn-sm empty-state-btn">
           <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
           Scan Videos Folder on Server
         </button>
@@ -2178,7 +2186,7 @@ async function init() {
     } catch (err) {
       if (err.code === 'E_NEEDS_TRANSCODE') {
         const wantsTranscode = confirm(
-          `Cannot stream in pure Copy mode:\n• ${err.message}\n\nThis video requires transcoding (e.g. 720p / non-copy format to 1080p).\n\nWould you like to switch Stream Mode to 'Auto' with Transcoding enabled and start streaming now?`
+          `Cannot stream in pure Copy mode:\n- ${err.message}\n\nThis video requires transcoding (e.g. 720p / non-copy format to 1080p).\n\nWould you like to switch Stream Mode to 'Auto' with Transcoding enabled and start streaming now?`
         );
         if (wantsTranscode) {
           try {

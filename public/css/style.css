@@ -630,28 +630,42 @@ input:checked + .slider:before {
 .active-video-banner {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.4rem 0.625rem;
-  background: var(--bg-surface-elevated);
+  gap: 0.55rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.025);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   font-size: 0.75rem;
   width: 100%;
+  margin-bottom: 0.75rem;
   overflow: hidden;
+  box-sizing: border-box;
+}
+
+.active-video-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: rgba(56, 189, 248, 0.12);
+  color: #38bdf8;
+  flex-shrink: 0;
 }
 
 .active-video-label {
   font-size: 0.6875rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   flex-shrink: 0;
 }
 
 .active-video-title {
   color: var(--text-main);
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1495,6 +1509,120 @@ input:checked + .slider:before {
   gap: 0.75rem;
 }
 
+/* ─── Mode Playlist Selector Tabs (Segmented Control) ─────────────────────── */
+.playlist-mode-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  background: rgba(24, 24, 27, 0.6);
+  padding: 4px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  margin-bottom: 0.85rem;
+  box-sizing: border-box;
+}
+
+.playlist-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 5px;
+  font-size: 0.78125rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+
+.playlist-tab:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.playlist-tab.active {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.playlist-tab .tab-icon {
+  width: 15px;
+  height: 15px;
+  opacity: 0.75;
+  flex-shrink: 0;
+  transition: opacity 0.2s ease, color 0.2s ease;
+}
+
+.playlist-tab.active .tab-icon {
+  opacity: 1;
+  color: #38bdf8;
+}
+
+.playlist-tab .tab-label {
+  white-space: nowrap;
+}
+
+.playlist-tab .tab-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+.playlist-tab.active .tab-count-badge {
+  background: rgba(56, 189, 248, 0.2);
+  color: #7dd3fc;
+}
+
+/* Live Mode Chip (Zero unicode bullets, pure glowing CSS pulse dot) */
+.live-mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  line-height: 1;
+}
+
+.live-mode-chip .live-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 6px #10b981;
+  animation: pulse-live 1.8s infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse-live {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+  70% { transform: scale(1.15); box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+}
+
 /* ─── Video Library & Media Ingest Tabs ───────────────────────────────────── */
 .ingest-tabs-nav {
   display: flex;
@@ -1532,27 +1660,73 @@ input:checked + .slider:before {
   color: var(--text-main);
 }
 
+.yt-brand-icon {
+  color: #ef4444;
+}
+
+/* ─── Upload Dropzone ─────────────────────────────────────────────────────── */
 .upload-dropzone {
   border: 1px dashed var(--border-muted);
   background: rgba(24, 24, 27, 0.4);
   border-radius: var(--radius-sm);
-  padding: 1rem 0.75rem;
+  padding: 1.15rem 1rem;
   text-align: center;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.2s ease;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
+  gap: 0.5rem;
   width: 100%;
-  min-height: 105px;
   box-sizing: border-box;
 }
 
 .upload-dropzone:hover {
-  border-color: var(--border-active);
-  background: var(--bg-surface-elevated);
+  border-color: rgba(56, 189, 248, 0.5);
+  background: rgba(30, 30, 36, 0.5);
+}
+
+.dropzone-icon-bubble {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.upload-dropzone:hover .dropzone-icon-bubble {
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.3);
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.dropzone-text-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.dropzone-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.dropzone-specs {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+}
+
+.dropzone-hint {
+  font-size: 0.65rem;
+  color: var(--text-dim);
 }
 
 /* ─── Playlist Toolbar (Balanced Flex Rhythm) ─────────────────────────────── */
@@ -1578,28 +1752,94 @@ input:checked + .slider:before {
   min-width: 0;
 }
 
+.playlist-counter-tag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-main);
+}
+
 .playlist-toolbar-right {
   display: flex;
   align-items: center;
-  gap: 0.375rem;
+  gap: 0.4rem;
   flex-shrink: 0;
 }
 
 .loop-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 0.6875rem;
   color: var(--text-muted);
   font-weight: 500;
 }
 
+.loop-icon {
+  opacity: 0.7;
+}
+
 .loop-select {
   height: 30px;
-  padding: 0 0.5rem;
+  min-width: 125px;
+  padding: 0 1.8rem 0 0.65rem;
   font-size: 0.75rem;
-  width: auto;
-  background: var(--bg-input);
+  font-weight: 500;
+  background-color: var(--bg-surface, #18181b);
   border: 1px solid var(--border-muted);
   border-radius: var(--radius-xs);
+  color: var(--text-main, #f4f4f5);
+  cursor: pointer;
+}
+
+.loop-select option {
+  background-color: #18181b;
+  color: #f4f4f5;
+}
+
+/* ─── Empty State (Modern SVG Reel Card) ─────────────────────────────────── */
+.videos-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.75rem 1rem;
+  background: rgba(24, 24, 27, 0.2);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-sm);
+  gap: 0.35rem;
+}
+
+.empty-icon-bubble {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+}
+
+.empty-state-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
   color: var(--text-main);
+}
+
+.empty-state-subtitle {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  max-width: 320px;
+}
+
+.empty-state-btn {
+  margin-top: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 /* ─── Video Cards (3-Column Grid, Clean Typography & Truncation) ───────────── */

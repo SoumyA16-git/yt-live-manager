@@ -147,8 +147,9 @@
             </button>
           </div>
         </div>
-        <span id="mode-lock-warning" style="display: none; font-size: 0.6875rem; color: var(--accent-amber); font-weight: 500;">
-          ⚠️ Stop stream to switch mode
+        <span id="mode-lock-warning" style="display: none; font-size: 0.6875rem; color: var(--accent-amber); font-weight: 500; align-items: center; gap: 0.35rem;">
+          <svg class="icon icon-xs" viewBox="0 0 24 24" style="color: var(--accent-amber);"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Stop stream to switch mode
         </span>
       </div>
 
@@ -764,30 +765,47 @@
         </div>
 
         <div class="panel-body" id="body-videos">
-          <!-- Active Stream Video Banner (Dedicated full-width row with clean text ellipsis) -->
+          <!-- Active Stream Video Banner -->
           <div class="active-video-banner">
+            <div class="active-video-icon-wrap">
+              <svg class="icon icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+            </div>
             <span class="active-video-label">Active:</span>
             <span id="active-video-name" class="active-video-title">None selected</span>
           </div>
 
           <!-- Mode Playlist Selector Tabs -->
-          <div class="playlist-mode-tabs" style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
-            <button id="tab-playlist-horizontal" type="button" class="btn btn-sm btn-primary playlist-tab active" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.5rem 0.75rem; border-radius: 6px; font-weight: 600;">
-              <span>Horizontal 16:9 Playlist</span>
-              <span id="badge-count-horizontal" class="meta-tag" style="background: rgba(0,0,0,0.3); font-weight: 700;">0</span>
-              <span class="live-mode-chip" id="chip-live-horizontal" style="display: inline-block; font-size: 0.65rem; background: var(--accent-emerald); color: #fff; padding: 1px 6px; border-radius: 4px; font-weight: 700;">● LIVE MODE</span>
+          <div class="playlist-mode-tabs">
+            <button id="tab-playlist-horizontal" type="button" class="playlist-tab active">
+              <svg class="icon icon-sm tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="5" width="20" height="14" rx="2" ry="2" />
+                <line x1="2" y1="10" x2="22" y2="10" opacity="0.25" />
+              </svg>
+              <span class="tab-label">Horizontal 16:9 Playlist</span>
+              <span id="badge-count-horizontal" class="tab-count-badge">0</span>
+              <span class="live-mode-chip" id="chip-live-horizontal" style="display: inline-flex;">
+                <span class="live-dot"></span>LIVE MODE
+              </span>
             </button>
-            <button id="tab-playlist-vertical" type="button" class="btn btn-sm btn-outline playlist-tab" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.5rem 0.75rem; border-radius: 6px; font-weight: 600;">
-              <span>Vertical 9:16 Playlist</span>
-              <span id="badge-count-vertical" class="meta-tag" style="background: rgba(0,0,0,0.3); font-weight: 700;">0</span>
-              <span class="live-mode-chip" id="chip-live-vertical" style="display: none; font-size: 0.65rem; background: var(--accent-emerald); color: #fff; padding: 1px 6px; border-radius: 4px; font-weight: 700;">● LIVE MODE</span>
+            <button id="tab-playlist-vertical" type="button" class="playlist-tab">
+              <svg class="icon icon-sm tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="6" y="2" width="12" height="20" rx="2" ry="2" />
+                <line x1="10" y1="18" x2="14" y2="18" opacity="0.4" />
+              </svg>
+              <span class="tab-label">Vertical 9:16 Playlist</span>
+              <span id="badge-count-vertical" class="tab-count-badge">0</span>
+              <span class="live-mode-chip" id="chip-live-vertical" style="display: none;">
+                <span class="live-dot"></span>LIVE MODE
+              </span>
             </button>
           </div>
 
           <!-- Video Ingestion Tab Switcher -->
           <div id="video-ingest-tabs" class="ingest-tabs-nav">
             <button id="tab-upload" class="ingest-tab-btn active">
-              <svg class="icon icon-sm" viewBox="0 0 24 24">
+              <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="17 8 12 3 7 8" />
                 <line x1="12" y1="3" x2="12" y2="15" />
@@ -795,9 +813,9 @@
               File Upload
             </button>
             <button id="tab-youtube" class="ingest-tab-btn">
-              <svg class="icon icon-sm" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" />
-                <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none" />
+              <svg class="icon icon-sm yt-brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22.54 6.42a2.78 2.78 0 0 0-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 0 0-1.94 2A29 29 0 0 0 1 11.75a29 29 0 0 0 .46 5.33A2.78 2.78 0 0 0 3.4 19c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 0 0 1.94-2 29 29 0 0 0 .46-5.25 29 29 0 0 0-.46-5.33z" />
+                <polygon points="9.75 15.02 15.5 11.75 9.75 8.48 9.75 15.02" fill="currentColor" stroke="none" />
               </svg>
               YouTube URL
             </button>
@@ -805,14 +823,18 @@
 
           <!-- File Upload Dropzone -->
           <div id="upload-zone" class="upload-dropzone">
-            <svg class="icon icon-lg" viewBox="0 0 24 24">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-              <polyline points="17 8 12 3 7 8" />
-              <line x1="12" y1="3" x2="12" y2="15" />
-            </svg>
-            <div id="upload-zone-title" style="font-size: 0.8125rem; font-weight: 500; color: var(--text-main);">Tap or Drag Horizontal (16:9) MP4 Video Here</div>
-            <div id="upload-zone-sub" style="font-size: 0.6875rem; color: var(--text-muted);">Recommended: 1920×1080, H.264 / AAC, 4.5 Mbps, Constant 30/60 fps</div>
-            <div style="font-size: 0.6875rem; color: var(--text-dim);">Single Stream Playlist: Auto-appends to active playlist. Video orientation must match active mode.</div>
+            <div class="dropzone-icon-bubble">
+              <svg class="icon icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+            </div>
+            <div class="dropzone-text-group">
+              <div id="upload-zone-title" class="dropzone-title">Tap or Drag Horizontal (16:9) MP4 Video Here</div>
+              <div id="upload-zone-sub" class="dropzone-specs">Recommended: 1920&times;1080 &bull; H.264 / AAC &bull; 4.5 Mbps &bull; Constant 30/60 fps</div>
+              <div class="dropzone-hint">Single Stream Playlist: Auto-appends to active playlist. Video orientation must match active mode.</div>
+            </div>
             <input type="file" id="file-input" accept=".mp4,.mov,.m4v,.mkv" style="display: none;">
           </div>
 
@@ -932,17 +954,32 @@
           <div id="playlist-toolbar" class="playlist-toolbar">
             <div class="playlist-toolbar-left">
               <button id="btn-select-all-videos" type="button" class="btn btn-outline btn-sm">
+                <svg class="icon icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="9 11 12 14 22 4" />
+                  <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+                </svg>
                 Select All
               </button>
               <button id="btn-deselect-all-videos" type="button" class="btn btn-outline btn-sm">
+                <svg class="icon icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                </svg>
                 Deselect All
               </button>
-              <span id="playlist-selected-count" class="meta-tag">
+              <span id="playlist-selected-count" class="meta-tag playlist-counter-tag">
                 0 Selected
               </span>
             </div>
             <div class="playlist-toolbar-right">
-              <span class="loop-label">Loop:</span>
+              <span class="loop-label">
+                <svg class="icon icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="17 1 21 5 17 9" />
+                  <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+                  <polyline points="7 23 3 19 7 15" />
+                  <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+                </svg>
+                Loop:
+              </span>
               <select id="sel-playback-order" class="form-control loop-select">
                 <option value="sequential">Sequential</option>
                 <option value="shuffle">Shuffle</option>
