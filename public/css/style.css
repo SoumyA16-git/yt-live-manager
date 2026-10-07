@@ -1759,6 +1759,18 @@ input:checked + .slider:before {
   color: var(--text-main);
 }
 
+#btn-random-select-videos svg {
+  transition: transform 0.25s ease;
+}
+
+#btn-random-select-videos:hover:not(:disabled) svg {
+  transform: rotate(30deg);
+}
+
+#btn-random-select-videos:active:not(:disabled) svg {
+  transform: rotate(180deg);
+}
+
 .playlist-toolbar-right {
   display: flex;
   align-items: center;

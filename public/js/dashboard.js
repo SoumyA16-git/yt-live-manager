@@ -181,6 +181,7 @@ const videosList = document.getElementById('videos-list');
 const videoCountBadge = document.getElementById('video-count-badge');
 const playlistToolbar = document.getElementById('playlist-toolbar');
 const btnSelectAllVideos = document.getElementById('btn-select-all-videos');
+const btnRandomSelectVideos = document.getElementById('btn-random-select-videos');
 const btnDeselectAllVideos = document.getElementById('btn-deselect-all-videos');
 const playlistSelectedCount = document.getElementById('playlist-selected-count');
 const selPlaybackOrder = document.getElementById('sel-playback-order');
@@ -1375,7 +1376,7 @@ async function fetchVideos() {
   }
 }
 
-async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder, mode = _currentTabMode) {
+async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder, mode = _currentTabMode, customToast = null) {
   const isLive = _currentStatus === 'RUNNING' || _currentStatus === 'STARTING';
 
   try {
@@ -1389,7 +1390,9 @@ async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder
     _currentPlaylist = _playlists[_currentTabMode] || [];
     _currentPlaybackOrder = res.playbackOrder || playbackOrder;
     await fetchVideos();
-    if (isLive && mode === _activeStreamMode) {
+    if (customToast) {
+      showToast(customToast.message, customToast.type || 'success', customToast.title || 'Playlist Updated');
+    } else if (isLive && mode === _activeStreamMode) {
       showToast('Playlist updated dynamically without stream restart.', 'success', 'Hot Sync Active');
     } else {
       showToast('Playlist updated.', 'success');
@@ -2671,20 +2674,101 @@ async function init() {
   setupYouTubeDownload();
 
   // 4b. Multi-Video Playlist Toolbar Handlers
+  const _unpickedRandomPool = { horizontal: [], vertical: [] };
+
   if (btnSelectAllVideos) {
     btnSelectAllVideos.addEventListener('click', async () => {
+      if (btnSelectAllVideos.disabled) return;
+      btnSelectAllVideos.disabled = true;
+      try {
+        const tabVideos = _cachedVideos.filter(v => {
+          const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
+          return _currentTabMode === 'horizontal' ? isHoriz : !isHoriz;
+        });
+        const allIds = tabVideos.map(v => v.id);
+        await updatePlaylist(allIds, _currentPlaybackOrder, _currentTabMode);
+      } finally {
+        btnSelectAllVideos.disabled = false;
+      }
+    });
+  }
+
+  if (btnRandomSelectVideos) {
+    btnRandomSelectVideos.addEventListener('click', async () => {
+      if (btnRandomSelectVideos.disabled) return;
+
       const tabVideos = _cachedVideos.filter(v => {
         const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
         return _currentTabMode === 'horizontal' ? isHoriz : !isHoriz;
       });
-      const allIds = tabVideos.map(v => v.id);
-      await updatePlaylist(allIds, _currentPlaybackOrder, _currentTabMode);
+
+      if (tabVideos.length === 0) {
+        showToast(`No ${_currentTabMode === 'horizontal' ? '16:9' : '9:16'} videos available in library.`, 'warning', 'No Videos');
+        return;
+      }
+
+      btnRandomSelectVideos.disabled = true;
+
+      try {
+        if (tabVideos.length === 1) {
+          const single = tabVideos[0];
+          await updatePlaylist([single.id], _currentPlaybackOrder, _currentTabMode, {
+            message: `Selected only available video: "${single.label || single.originalName}".`,
+            title: 'Random Select'
+          });
+          return;
+        }
+
+        // Identify currently active / first video ID in this playlist mode
+        const currentModePlaylist = _playlists[_currentTabMode] || [];
+        const currentFirstId = currentModePlaylist[0] || _currentActiveVideoId || null;
+
+        // Maintain unpicked pool for the active orientation tab
+        let pool = _unpickedRandomPool[_currentTabMode] || [];
+        // Keep only IDs that exist in current library and are not the current first video
+        pool = pool.filter(id => id !== currentFirstId && tabVideos.some(v => v.id === id));
+
+        // If pool is exhausted or empty, refill with all video IDs except currentFirstId
+        if (pool.length === 0) {
+          pool = tabVideos.map(v => v.id).filter(id => id !== currentFirstId);
+        }
+
+        // Pick a random ID from the pool
+        const randomIndex = Math.floor(Math.random() * pool.length);
+        const chosenId = pool.splice(randomIndex, 1)[0];
+        _unpickedRandomPool[_currentTabMode] = pool;
+
+        // Shuffle remaining videos with Fisher-Yates so order is randomized
+        const remainingIds = tabVideos.map(v => v.id).filter(id => id !== chosenId);
+        for (let i = remainingIds.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [remainingIds[i], remainingIds[j]] = [remainingIds[j], remainingIds[i]];
+        }
+
+        // Full playlist contains ALL videos with the unique random video at position #1
+        const allPlaylistIds = [chosenId, ...remainingIds];
+        const chosenVideo = tabVideos.find(v => v.id === chosenId);
+        const chosenLabel = chosenVideo ? (chosenVideo.label || chosenVideo.originalName) : chosenId;
+
+        await updatePlaylist(allPlaylistIds, _currentPlaybackOrder, _currentTabMode, {
+          message: `Randomly selected "${chosenLabel}" as #1. All ${allPlaylistIds.length} videos active in playlist.`,
+          title: 'Random Select'
+        });
+      } finally {
+        btnRandomSelectVideos.disabled = false;
+      }
     });
   }
 
   if (btnDeselectAllVideos) {
     btnDeselectAllVideos.addEventListener('click', async () => {
-      await updatePlaylist([], _currentPlaybackOrder, _currentTabMode);
+      if (btnDeselectAllVideos.disabled) return;
+      btnDeselectAllVideos.disabled = true;
+      try {
+        await updatePlaylist([], _currentPlaybackOrder, _currentTabMode);
+      } finally {
+        btnDeselectAllVideos.disabled = false;
+      }
     });
   }
 
