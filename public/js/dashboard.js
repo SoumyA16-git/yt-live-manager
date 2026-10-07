@@ -1508,19 +1508,19 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
     }
 
     item.innerHTML = `
-      <div class="video-item-leading">
-        ${chkAreaHtml}
-      </div>
-      <div class="video-item-content">
-        <div class="video-name clickable-preview" data-id="${v.id}" title="Click to preview video: ${v.label || v.originalName}">${v.label || v.originalName}</div>
-        <div class="video-meta">
-          <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
-          <span class="meta-tag">${v.probe?.width || 0}×${v.probe?.height || 0}</span>
-          <span class="meta-tag">${v.probe?.fps || 30}fps</span>
-          <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
-          ${v.probe?.durationSec ? `<span class="meta-tag">${formatDuration(v.probe.durationSec)}</span>` : ''}
-          <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \\n ') || compatLabel}">${compatLabel}</span>
+      <div class="video-item-top">
+        <div class="video-item-leading">
+          ${chkAreaHtml}
         </div>
+        <div class="video-name clickable-preview" data-id="${v.id}" title="Click to preview video: ${v.label || v.originalName}">${v.label || v.originalName}</div>
+      </div>
+      <div class="video-meta">
+        <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
+        <span class="meta-tag">${v.probe?.width || 0}×${v.probe?.height || 0}</span>
+        <span class="meta-tag">${v.probe?.fps || 30}fps</span>
+        <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
+        ${v.probe?.durationSec ? `<span class="meta-tag">${formatDuration(v.probe.durationSec)}</span>` : ''}
+        <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \\n ') || compatLabel}">${compatLabel}</span>
       </div>
       <div class="video-actions">
         <button class="btn btn-secondary btn-sm btn-preview-video" data-id="${v.id}" title="Watch video playback preview">
@@ -2422,6 +2422,33 @@ async function init() {
       }
     });
   });
+
+  // Mobile Top Sticky Deck Details Drawer Toggle
+  const btnToggleDeckDetails = document.getElementById('btn-toggle-deck-details');
+  const deckExpandable = document.getElementById('deck-expandable-details');
+  const stickyDeck = document.querySelector('.sticky-control-deck');
+  if (btnToggleDeckDetails && deckExpandable) {
+    btnToggleDeckDetails.addEventListener('click', () => {
+      const isOpen = deckExpandable.classList.toggle('open');
+      stickyDeck?.classList.toggle('details-expanded', isOpen);
+      btnToggleDeckDetails.setAttribute('aria-expanded', isOpen);
+    });
+  }
+
+  // Auto-collapse heavy panels (Server Hardware & Logs Viewer) on mobile screens on initial load
+  if (window.innerWidth <= 768) {
+    ['body-system', 'body-logs'].forEach(targetId => {
+      const body = document.getElementById(targetId);
+      if (body && !body.classList.contains('collapsed')) {
+        body.classList.add('collapsed');
+        const btn = document.querySelector(`.panel-toggle-btn[data-target="${targetId}"]`);
+        if (btn) {
+          btn.classList.add('collapsed');
+          btn.setAttribute('aria-expanded', 'false');
+        }
+      }
+    });
+  }
 
   // 3. Primary Stream Action Handlers
   btnStart.addEventListener('click', async () => {
