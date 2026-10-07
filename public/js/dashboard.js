@@ -1976,6 +1976,8 @@ const _ytStageIcons = {
   fetching_info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
   downloading: '<polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/><path d="M5 20h14"/>',
   merging: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+  probing: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  optimizing_keyframes: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
   registering: '<polyline points="20 6 9 17 4 12"/>',
   converting: '<polyline points="20 6 9 17 4 12"/>',
   completed: '<polyline points="20 6 9 17 4 12"/>',
@@ -1987,6 +1989,8 @@ const _ytStageColors = {
   fetching_info: 'var(--accent-cyan)',
   downloading: 'var(--accent-primary)',
   merging: 'var(--accent-cyan)',
+  probing: 'var(--accent-cyan)',
+  optimizing_keyframes: 'var(--accent-primary)',
   stripping_metadata: 'var(--accent-cyan)',
   registering: 'var(--accent-cyan)',
   converting: 'var(--accent-cyan)',
@@ -1999,6 +2003,8 @@ const _ytStageLabels = {
   fetching_info: 'Fetching video info...',
   downloading: 'Downloading highest quality video...',
   merging: 'Finalizing MP4 container (remuxing)...',
+  probing: 'Analyzing stream specs & GOP intervals...',
+  optimizing_keyframes: 'Optimizing GOP for stream-copy (2.0s keyframes)...',
   stripping_metadata: 'Sanitizing container (cleaning all metadata)...',
   registering: 'Importing & updating playlist...',
   converting: 'Processing video...',
@@ -2043,6 +2049,10 @@ function _updateYtProgress(status) {
     details = parts.join(' · ');
   } else if (status.stage === 'merging') {
     details = 'Network download finished. Remuxing to MP4 container...';
+  } else if (status.stage === 'probing') {
+    details = 'Analyzing video GOP structure and keyframe frequency...';
+  } else if (status.stage === 'optimizing_keyframes') {
+    details = 'Encoding 2.0s keyframes for zero-CPU stream copy...';
   } else if (status.stage === 'stripping_metadata') {
     details = 'Wiping video title, uploader, ID, dates, and encoder tags...';
   } else if (status.stage === 'registering') {

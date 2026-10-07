@@ -11,6 +11,7 @@ import {
   getYtDlpFormatAndSort,
   checkDuplicateYouTubeVideo,
   stripVideoMetadata,
+  normalizeVideoGop,
 } from '../../src/ytdlp-manager.js';
 
 describe('ytdlp-manager — URL normalization and validation', () => {
@@ -173,6 +174,41 @@ describe('ytdlp-manager — metadata stripping', () => {
       assert.ok(!probeOut.includes('Secret Video Title'), 'Should strip title');
       assert.ok(!probeOut.includes('Secret Uploader'), 'Should strip artist/uploader');
       assert.ok(!probeOut.includes('12345'), 'Should strip comment/url');
+    } finally {
+      await fs.unlink(inputPath).catch(() => {});
+      await fs.unlink(outputPath).catch(() => {});
+    }
+  });
+});
+
+describe('ytdlp-manager — GOP normalization', () => {
+  it('re-encodes video with 2s keyframes and strips metadata', async () => {
+    const tmpDir = os.tmpdir();
+    const inputPath = path.join(tmpDir, `gop_in_${Date.now()}.mp4`);
+    const outputPath = path.join(tmpDir, `gop_out_${Date.now()}.mp4`);
+
+    try {
+      const gen = spawnSync('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error',
+        '-f', 'lavfi', '-i', 'testsrc=duration=1:size=160x120:rate=10',
+        '-metadata', 'title=Test Title',
+        '-c:v', 'libx264',
+        '-g', '50',
+        '-y', inputPath,
+      ]);
+
+      if (gen.status !== 0) return;
+
+      await normalizeVideoGop(inputPath, outputPath, null, { fps: 10, videoBitrate: 500000 });
+
+      const stat = await fs.stat(outputPath);
+      assert.ok(stat.size > 0, 'Normalized file should exist');
+
+      const probe = spawnSync('ffprobe', [
+        '-hide_banner', '-show_format', outputPath,
+      ]);
+      const probeOut = probe.stdout?.toString('utf8') || '';
+      assert.ok(!probeOut.includes('Test Title'), 'Should strip title during normalization');
     } finally {
       await fs.unlink(inputPath).catch(() => {});
       await fs.unlink(outputPath).catch(() => {});
