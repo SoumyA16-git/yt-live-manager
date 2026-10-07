@@ -1509,7 +1509,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
         ${chkAreaHtml}
       </div>
       <div class="video-item-content">
-        <div class="video-name" title="${v.label || v.originalName}">${v.label || v.originalName}</div>
+        <div class="video-name clickable-preview" data-id="${v.id}" title="Click to preview video: ${v.label || v.originalName}">${v.label || v.originalName}</div>
         <div class="video-meta">
           <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
           <span class="meta-tag">${v.probe?.width || 0}×${v.probe?.height || 0}</span>
@@ -1520,6 +1520,10 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
         </div>
       </div>
       <div class="video-actions">
+        <button class="btn btn-secondary btn-sm btn-preview-video" data-id="${v.id}" title="Watch video playback preview">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Preview
+        </button>
         ${isPlaying
           ? '<span class="badge-tag badge-active">NOW PLAYING</span>'
           : isSelected
@@ -1560,6 +1564,16 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
     });
   });
 
+  // Attach Video Playback Preview Events
+  videosList.querySelectorAll('.btn-preview-video, .video-name.clickable-preview').forEach(b => {
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = b.getAttribute('data-id');
+      const video = tabVideos.find(x => x.id === id) || videos.find(x => x.id === id);
+      openVideoPreview(id, video);
+    });
+  });
+
   // Attach Delete Events
   videosList.querySelectorAll('.btn-delete').forEach(b => {
     b.addEventListener('click', async () => {
@@ -1575,6 +1589,54 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
       }
     });
   });
+}
+
+function openVideoPreview(id, video) {
+  const modal = document.getElementById('modal-video-preview');
+  const titleEl = document.getElementById('preview-video-title');
+  const metaEl = document.getElementById('preview-video-meta');
+  const player = document.getElementById('preview-video-player');
+
+  if (!modal || !player) return;
+
+  const label = video?.label || video?.originalName || id;
+  const isHoriz = (video?.probe?.width || 0) >= (video?.probe?.height || 0);
+  const res = video?.probe?.width && video?.probe?.height ? `${video.probe.width}×${video.probe.height}` : '';
+  const fps = video?.probe?.fps ? `${video.probe.fps}fps` : '';
+  const dur = video?.probe?.durationSec ? formatDuration(video.probe.durationSec) : '';
+
+  if (titleEl) {
+    titleEl.textContent = label;
+  }
+  if (metaEl) {
+    const metaParts = [
+      isHoriz ? '16:9 Landscape' : '9:16 Vertical Shorts',
+      res,
+      fps,
+      dur
+    ].filter(Boolean).join(' | ');
+    metaEl.textContent = metaParts || 'Direct stream playback preview';
+  }
+
+  player.src = `/api/videos/${encodeURIComponent(id)}/stream`;
+  modal.classList.add('open');
+
+  player.play().catch(err => {
+    console.debug('Autoplay preview video:', err?.message);
+  });
+}
+
+function closeVideoPreview() {
+  const modal = document.getElementById('modal-video-preview');
+  const player = document.getElementById('preview-video-player');
+  if (player) {
+    player.pause();
+    player.removeAttribute('src');
+    player.load();
+  }
+  if (modal) {
+    modal.classList.remove('open');
+  }
 }
 
 
@@ -2215,9 +2277,28 @@ async function init() {
   modalSettings.addEventListener('click', (e) => {
     if (e.target === modalSettings) modalSettings.classList.remove('open');
   });
+
+  // 1b. Video Preview Modal Controls
+  const modalVideoPreview = document.getElementById('modal-video-preview');
+  const btnCloseVideoPreview = document.getElementById('btn-close-video-preview');
+  const btnDoneVideoPreview = document.getElementById('btn-done-video-preview');
+
+  if (btnCloseVideoPreview) btnCloseVideoPreview.addEventListener('click', closeVideoPreview);
+  if (btnDoneVideoPreview) btnDoneVideoPreview.addEventListener('click', closeVideoPreview);
+  if (modalVideoPreview) {
+    modalVideoPreview.addEventListener('click', (e) => {
+      if (e.target === modalVideoPreview) closeVideoPreview();
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && modalSettings.classList.contains('open')) {
-      modalSettings.classList.remove('open');
+    if (e.key === 'Escape') {
+      if (modalSettings.classList.contains('open')) {
+        modalSettings.classList.remove('open');
+      }
+      if (modalVideoPreview?.classList.contains('open')) {
+        closeVideoPreview();
+      }
     }
   });
 

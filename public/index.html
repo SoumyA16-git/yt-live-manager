@@ -1414,10 +1414,52 @@
     </div>
   </div>
 
+  <!-- Video Playback Preview Modal -->
+  <div id="modal-video-preview" class="modal-backdrop">
+    <div class="modal-card modal-card-video">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 class="modal-title">
+            <svg class="icon icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+            <span id="preview-video-title">Video Playback Preview</span>
+          </h2>
+          <span id="preview-video-meta" class="modal-subtitle">Direct stream playback preview</span>
+        </div>
+        <button id="btn-close-video-preview" class="modal-close-btn" aria-label="Close dialog" title="Close preview">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body-video">
+        <div class="preview-player-container">
+          <video id="preview-video-player" controls playsinline preload="metadata"></video>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <span class="modal-footer-note" id="preview-player-info">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" />
+          </svg>
+          Direct HTTP Range Stream
+        </span>
+        <div class="modal-footer-actions">
+          <button type="button" id="btn-done-video-preview" class="btn btn-primary btn-sm">Close Preview</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261005_v18"></script>
+  <script type="module" src="/js/dashboard.js?v=20261007_v1"></script>
 </body>
 
 </html>

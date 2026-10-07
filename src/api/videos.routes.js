@@ -16,6 +16,7 @@ import {
   processUpload,
   syncDiskVideos,
   buildLogicalVideos,
+  resolveVideoPath,
 } from '../video-manager.js';
 import { getState } from '../state-manager.js';
 import { stopStream, startStream } from '../stream-manager.js';
@@ -375,6 +376,109 @@ export function createVideosRouter() {
     } catch (err) {
       const status = err.code === 'E_NOT_FOUND' ? 404 : 500;
       res.status(status).json({ error: err.message, code: err.code });
+    }
+  });
+
+  // GET /api/videos/:id/stream — HTTP Range streaming for browser video preview playback
+  router.get('/:id/stream', async (req, res) => {
+    try {
+      const videoId = req.params.id;
+      const video = await getVideo(videoId);
+      if (!video) {
+        return res.status(404).json({ error: 'Video not found', code: 'E_NOT_FOUND' });
+      }
+
+      const ext = path.extname(video.filename || video.originalName || '.mp4') || '.mp4';
+      let resolvedPath;
+      try {
+        resolvedPath = resolveVideoPath(video.id, ext);
+      } catch (err) {
+        return res.status(400).json({ error: err.message, code: err.code || 'E_INVALID_PATH' });
+      }
+
+      if (!fs.existsSync(resolvedPath)) {
+        if (video.filePath && fs.existsSync(video.filePath)) {
+          resolvedPath = video.filePath;
+        } else {
+          const candidates = ['.mp4', '.mkv', '.mov', '.webm', '.ts'];
+          let found = false;
+          for (const cand of candidates) {
+            try {
+              const testPath = resolveVideoPath(video.id, cand);
+              if (fs.existsSync(testPath)) {
+                resolvedPath = testPath;
+                found = true;
+                break;
+              }
+            } catch (_) {}
+          }
+          if (!found) {
+            return res.status(404).json({ error: 'Video file not found on disk', code: 'E_FILE_NOT_FOUND' });
+          }
+        }
+      }
+
+      const stat = fs.statSync(resolvedPath);
+      const fileSize = stat.size;
+      const range = req.headers.range;
+
+      const extLower = path.extname(resolvedPath).toLowerCase();
+      const mimeTypes = {
+        '.mp4': 'video/mp4',
+        '.webm': 'video/webm',
+        '.mov': 'video/quicktime',
+        '.mkv': 'video/mp4',
+        '.ts': 'video/mp2t',
+      };
+      const contentType = mimeTypes[extLower] || 'video/mp4';
+
+      if (req.method === 'HEAD') {
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Accept-Ranges': 'bytes',
+          'Content-Type': contentType,
+        });
+        return res.end();
+      }
+
+      if (range) {
+        const parts = range.replace(/bytes=/, '').split('-');
+        const start = parseInt(parts[0], 10);
+        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+        if (isNaN(start) || start >= fileSize || (parts[1] && isNaN(end)) || end >= fileSize || start > end) {
+          res.setHeader('Content-Range', `bytes */${fileSize}`);
+          return res.status(416).send('Requested range not satisfiable');
+        }
+
+        const chunkSize = (end - start) + 1;
+        const fileStream = fs.createReadStream(resolvedPath, { start, end });
+        res.writeHead(206, {
+          'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+          'Accept-Ranges': 'bytes',
+          'Content-Length': chunkSize,
+          'Content-Type': contentType,
+        });
+        req.on('close', () => {
+          fileStream.destroy();
+        });
+        fileStream.pipe(res);
+      } else {
+        res.writeHead(200, {
+          'Content-Length': fileSize,
+          'Accept-Ranges': 'bytes',
+          'Content-Type': contentType,
+        });
+        const fileStream = fs.createReadStream(resolvedPath);
+        req.on('close', () => {
+          fileStream.destroy();
+        });
+        fileStream.pipe(res);
+      }
+    } catch (err) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: err.message });
+      }
     }
   });
 

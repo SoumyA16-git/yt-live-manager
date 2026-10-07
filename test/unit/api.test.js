@@ -273,6 +273,13 @@ describe('REST API Endpoints', () => {
     assert.equal(body2.playbackOrder, 'shuffle');
   });
 
+  test('GET /api/videos/:id/stream returns 404 for missing video', async () => {
+    const res = await fetch(`${baseUrl}/api/videos/vid_00000000/stream`, {
+      headers: { Cookie: sessionCookie },
+    });
+    assert.equal(res.status, 404);
+  });
+
   test('POST /api/auth/logout invalidates session', async () => {
     const res = await fetch(`${baseUrl}/api/auth/logout`, {
       method: 'POST',
