@@ -217,12 +217,15 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
   const sourceMbps = sourceBitrate > 0 ? (sourceBitrate / 1_000_000) : 0;
 
-  // Codec compatibility checks
+  // Codec and GOP compatibility checks (YouTube requires keyframe interval <= 4.0s)
   const videoCodec = videoMeta?.probe?.videoCodec;
   const isH264 = !videoCodec || videoCodec === 'h264';
   const pixFmt = videoMeta?.probe?.pixFmt;
   const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
-  const isCompatibleCodec = isH264 && isStandardPixel;
+  const maxKeyframe = videoMeta?.probe?.maxKeyframeIntervalSec;
+  const keyframeMaxLimit = Math.min(4.0, Number(streamCfg.keyframeMaxSeconds ?? 4.0));
+  const isKeyframeCompliant = maxKeyframe === null || maxKeyframe === undefined || maxKeyframe <= keyframeMaxLimit;
+  const isCompatibleCodec = isH264 && isStandardPixel && isKeyframeCompliant;
 
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {

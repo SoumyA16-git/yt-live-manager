@@ -45,7 +45,7 @@ export const DEFAULTS = Object.freeze({
     audioBitrateKbps: 128,
     audioSampleRate: 44100,
     keyframeSeconds: 2,
-    keyframeMaxSeconds: 6,
+    keyframeMaxSeconds: 4,
     x264Preset: 'ultrafast',
     loopStrategy: 'stream_loop',
     copyMinMbps: 0.1,
@@ -193,8 +193,8 @@ export async function loadSettings() {
     if (_settings.stream.copyMaxMbps === undefined || _settings.stream.copyMaxMbps > 4.0) {
       _settings.stream.copyMaxMbps = 4.0;
     }
-    if (_settings.stream.keyframeMaxSeconds === undefined || _settings.stream.keyframeMaxSeconds < 8.0) {
-      _settings.stream.keyframeMaxSeconds = 8.0;
+    if (_settings.stream.keyframeMaxSeconds === undefined || _settings.stream.keyframeMaxSeconds > 4.0) {
+      _settings.stream.keyframeMaxSeconds = 4.0;
     }
   }
 

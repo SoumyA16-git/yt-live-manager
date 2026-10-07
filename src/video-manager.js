@@ -1077,10 +1077,14 @@ export async function importConvertedVideo(tempPath, originalName, {
     probe.isDirectCopy = true;
   }
   const targetOrient = (probe && probe.width >= probe.height) ? 'horizontal' : 'vertical';
-  const compatibility = evaluateCompatibility(probe, settings, targetOrient, { allowDirectCopy: isDirectCopy });
-  if (isDirectCopy) {
+  const keyframeMaxSec = Math.min(4.0, Number(settings.stream?.keyframeMaxSeconds ?? 4.0));
+  const isGopCompliant = !probe?.maxKeyframeIntervalSec || probe.maxKeyframeIntervalSec <= keyframeMaxSec;
+  if (isDirectCopy && isGopCompliant) {
     compatibility.status = 'COMPATIBLE';
     compatibility.modeAllowed = { copy: true, hybrid: true, transcode: true };
+  } else if (!isGopCompliant && compatibility.status === 'COMPATIBLE') {
+    compatibility.status = 'REQUIRES_TRANSCODING';
+    compatibility.modeAllowed = { copy: false, hybrid: false, transcode: true };
   }
 
   const cleanLabel = originalName.replace(/\.[^/.]+$/, '').trim() || `YouTube_${id}`;

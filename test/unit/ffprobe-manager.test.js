@@ -21,6 +21,12 @@ describe('ffprobe-manager — parseKeyframeScan', () => {
     assert.equal(parseKeyframeScan(''), null);
     assert.equal(parseKeyframeScan('1.2345\n'), null);
   });
+
+  test('parses comma-delimited pkt_pts_time,pts_time lines with blanks', () => {
+    const csv = `\n0.033000,0.033000\n\n4.033000,\n\n10.233000,10.233000\n`;
+    const max = parseKeyframeScan(csv);
+    assert.equal(max, 6.2);
+  });
 });
 
 describe('ffprobe-manager — parseProbeOutput', () => {
@@ -225,5 +231,13 @@ describe('ffprobe-manager — evaluateCompatibility matrix', () => {
     assert.equal(res.status, 'COMPATIBLE');
     assert.equal(res.modeAllowed.copy, true);
     assert.equal(res.reasons.length, 0);
+  });
+
+  test('strictly blocks stream copy when keyframe interval exceeds YouTube 4.0s ceiling even if allowDirectCopy is set', () => {
+    const ytVideoMeta = { ...idealMeta, maxKeyframeIntervalSec: 6.3 };
+    const res = evaluateCompatibility(ytVideoMeta, defaultSettings, 'vertical', { allowDirectCopy: true });
+    assert.equal(res.status, 'REQUIRES_TRANSCODING');
+    assert.equal(res.modeAllowed.copy, false);
+    assert.ok(res.reasons.includes('KEYFRAME_INTERVAL_HIGH'));
   });
 });

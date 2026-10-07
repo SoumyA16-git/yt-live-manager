@@ -290,7 +290,7 @@ export async function evaluateStartGates(options = {}) {
       ? (m.probe.width > m.probe.height ? 'horizontal' : 'vertical')
       : (m.orientation || 'vertical');
     const c = m.probe
-      ? evaluateCompatibility(m.probe, settings, orient, { allowDirectCopy: Boolean(m.isDirectCopy || m.isYoutubeDirect || true) })
+      ? evaluateCompatibility(m.probe, settings, orient, { allowDirectCopy: Boolean(m.isDirectCopy || m.isYoutubeDirect) })
       : (m.compatibility || {});
     if (c.status !== 'COMPATIBLE') {
       allCompatible = false;

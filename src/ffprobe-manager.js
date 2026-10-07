@@ -44,7 +44,8 @@ export function parseKeyframeScan(csvText) {
   for (const line of csvText.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    const val = parseFloat(trimmed);
+    const firstPart = trimmed.split(',')[0].trim();
+    const val = parseFloat(firstPart);
     if (!isNaN(val)) pts.push(val);
   }
 
@@ -239,16 +240,11 @@ export function evaluateCompatibility(meta, settings = {}, targetOrientation = '
     explanations.push(`Interlaced video detected (${meta.fieldOrder}). Progressive scan is required.`);
   }
 
-  // 6. Keyframe Interval: maxKeyframeIntervalSec <= keyframeMax
-  if (meta.maxKeyframeIntervalSec !== null) {
+  // 6. Keyframe Interval: maxKeyframeIntervalSec <= keyframeMax (hard YouTube maximum is 4.0s)
+  if (meta.maxKeyframeIntervalSec !== null && meta.maxKeyframeIntervalSec !== undefined) {
     if (meta.maxKeyframeIntervalSec > keyframeMax) {
-      if (allowDirectStreamCopy) {
-        warnings.push('KEYFRAME_INTERVAL_HIGH');
-        explanations.push(`Keyframes are ${meta.maxKeyframeIntervalSec} s apart. Standard recommended: ≤ ${keyframeMax} s.`);
-      } else {
-        reasons.push('KEYFRAME_INTERVAL_HIGH');
-        explanations.push(`Keyframes are ${meta.maxKeyframeIntervalSec} s apart. Required: ≤ ${keyframeMax} s (2 s recommended).`);
-      }
+      reasons.push('KEYFRAME_INTERVAL_HIGH');
+      explanations.push(`Keyframes are ${meta.maxKeyframeIntervalSec} s apart. YouTube requires ≤ ${keyframeMax} s (2.0 s recommended) to avoid buffering.`);
     } else if (meta.maxKeyframeIntervalSec > 2.2) {
       warnings.push('KEYFRAME_INTERVAL_SUBOPTIMAL');
       explanations.push(`Keyframe interval is ${meta.maxKeyframeIntervalSec} s. 2.0 s is ideal for YouTube stability.`);
@@ -389,13 +385,13 @@ export async function probeMedia(filePath, { timeoutMs = 60000 } = {}) {
     filePath,
   ];
 
-  // 2. Keyframe scan args (first 15s is sufficient to detect GOP intervals while saving 75% analysis time)
+  // 2. Keyframe scan args (probe keyframe packet PTS timestamps across first 25s)
   const kfArgs = [
     '-v', 'error',
     '-select_streams', 'v:0',
     '-skip_frame', 'nokey',
-    '-show_entries', 'frame=pts_time',
-    '-read_intervals', '%+15',
+    '-show_entries', 'frame=pkt_pts_time,pts_time',
+    '-read_intervals', '%+25',
     '-of', 'csv=p=0',
     filePath,
   ];
