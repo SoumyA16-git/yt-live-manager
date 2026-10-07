@@ -49,7 +49,7 @@ export const DEFAULTS = Object.freeze({
     x264Preset: 'ultrafast',
     loopStrategy: 'stream_loop',
     copyMinMbps: 0.1,
-    copyMaxMbps: 4.0,
+    copyMaxMbps: 5.0,
     stallSeconds: 30,
     slowSeconds: 60,
     minSpeed: 0.90,

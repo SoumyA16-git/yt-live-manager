@@ -226,9 +226,12 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
 
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {
-    if (isCapActive && sourceMbps > (targetMbps * 1.25) && streamCfg.allowTranscode !== false) {
+    const copyMaxLimit = Number(streamCfg.copyMaxMbps ?? 5.0);
+    // Allow direct stream copy for compatible H.264 files up to the copy ceiling (up to 5.0 Mbps ceiling)
+    const maxCopyCeilingMbps = Math.max(copyMaxLimit * 1.15, isCapActive ? targetMbps * 1.25 : 5.0, 5.0);
+    if (!isCompatibleCodec && streamCfg.allowTranscode !== false) {
       effectiveMode = 'transcode';
-    } else if (!isCompatibleCodec && streamCfg.allowTranscode !== false) {
+    } else if (isCapActive && sourceMbps > maxCopyCeilingMbps && streamCfg.allowTranscode !== false) {
       effectiveMode = 'transcode';
     } else {
       effectiveMode = mode === 'hybrid' ? 'hybrid' : 'copy';
@@ -359,17 +362,19 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const keyframeSec = streamCfg.keyframeSeconds ?? 2;
     const gop = Math.round(fps * keyframeSec);
 
-    const maxKbps = isCapActive ? Math.round(targetMbps * 1000) : 4000;
+    const is1080pOrHigher = (targetWidth >= 1080 || targetHeight >= 1080);
+    const minBitrateFloor = is1080pOrHigher ? 3500 : 2000;
+    const configuredTargetKbps = isCapActive ? Math.round(targetMbps * 1000) : 4000;
+    const effectiveCapKbps = Math.max(minBitrateFloor, configuredTargetKbps);
     const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
-    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
+    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, effectiveCapKbps) : effectiveCapKbps;
     const bufSizeKbps = videoKbps * 2;
-    const preset = 'ultrafast';
+    const preset = streamCfg.x264Preset || 'ultrafast';
     const maxrateKbps = Math.round(videoKbps * 1.15);
 
     args.push(
       '-c:v', 'libx264',
       '-preset', preset,
-      '-tune', 'zerolatency',
       '-threads', '2',
       '-profile:v', 'high',
       '-level:v', '4.2',
@@ -379,7 +384,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       '-g', `${gop}`,
       '-keyint_min', `${gop}`,
       '-sc_threshold', '0',
-      '-x264-params', 'no-scenecut=1:rc-lookahead=0',
+      '-bf', '2',
       '-pix_fmt', 'yuv420p',
       '-colorspace', 'bt709',
       '-color_primaries', 'bt709',
