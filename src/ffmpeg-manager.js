@@ -217,15 +217,12 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
   const sourceMbps = sourceBitrate > 0 ? (sourceBitrate / 1_000_000) : 0;
 
-  // Codec and GOP compatibility checks (YouTube requires keyframe interval <= 4.0s)
+  // Codec compatibility checks: Is it standard H.264 video with standard yuv420p pixel format?
   const videoCodec = videoMeta?.probe?.videoCodec;
   const isH264 = !videoCodec || videoCodec === 'h264';
   const pixFmt = videoMeta?.probe?.pixFmt;
   const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
-  const maxKeyframe = videoMeta?.probe?.maxKeyframeIntervalSec;
-  const keyframeMaxLimit = Math.min(4.0, Number(streamCfg.keyframeMaxSeconds ?? 4.0));
-  const isKeyframeCompliant = maxKeyframe === null || maxKeyframe === undefined || maxKeyframe <= keyframeMaxLimit;
-  const isCompatibleCodec = isH264 && isStandardPixel && isKeyframeCompliant;
+  const isCompatibleCodec = isH264 && isStandardPixel;
 
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {
@@ -365,12 +362,11 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const keyframeSec = streamCfg.keyframeSeconds ?? 2;
     const gop = Math.round(fps * keyframeSec);
 
-    const is1080pOrHigher = (targetWidth >= 1080 || targetHeight >= 1080);
-    const minBitrateFloor = is1080pOrHigher ? 3500 : 2000;
-    const configuredTargetKbps = isCapActive ? Math.round(targetMbps * 1000) : 4000;
-    const effectiveCapKbps = Math.max(minBitrateFloor, configuredTargetKbps);
-    const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
-    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, effectiveCapKbps) : effectiveCapKbps;
+    const configuredTargetKbps = isCapActive ? Math.round(targetMbps * 1000) : 3000;
+    const sourceKbps = sourceBitrate > 0
+      ? Math.round(sourceBitrate / 1000)
+      : (videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0);
+    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, configuredTargetKbps) : configuredTargetKbps;
     const bufSizeKbps = videoKbps * 2;
     const preset = streamCfg.x264Preset || 'ultrafast';
     const maxrateKbps = Math.round(videoKbps * 1.15);
@@ -378,6 +374,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     args.push(
       '-c:v', 'libx264',
       '-preset', preset,
+      '-tune', 'zerolatency',
       '-threads', '2',
       '-profile:v', 'high',
       '-level:v', '4.2',
@@ -387,7 +384,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       '-g', `${gop}`,
       '-keyint_min', `${gop}`,
       '-sc_threshold', '0',
-      '-bf', '2',
+      '-bf', '0',
       '-pix_fmt', 'yuv420p',
       '-colorspace', 'bt709',
       '-color_primaries', 'bt709',

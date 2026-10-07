@@ -490,19 +490,20 @@ export async function handleSegmentFinished(mode = 'copy') {
       activeVideoId: primaryVideo.id,
     });
 
+    const activeFeederMode = latestSettings.stream?.modePreference === 'transcode' ? 'transcode' : 'copy';
     await feedMediaSegment({
       primaryVideo,
       settings: latestSettings,
-      mode,
+      mode: activeFeederMode,
       onFinished: async () => {
-        await handleSegmentFinished(mode);
+        await handleSegmentFinished(activeFeederMode);
       },
       onError: async (err) => {
         logger.warn('playlist.next_video_failed', `Failed starting next segment for ${primaryVideo.id}: ${err.message}; selecting next`, {
           videoId: primaryVideo.id,
           error: err.message,
         });
-        await handleSegmentFinished(mode);
+        await handleSegmentFinished(activeFeederMode);
       },
     });
 
@@ -815,16 +816,17 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       });
 
       // Feed initial media segment into the publisher pipe
+      const activeFeederMode = settings.stream?.modePreference === 'transcode' ? 'transcode' : 'copy';
       feedMediaSegment({
         primaryVideo: initialPrimary,
         settings,
-        mode: gate.mode,
+        mode: activeFeederMode,
         onFinished: async () => {
-          await handleSegmentFinished(gate.mode);
+          await handleSegmentFinished(activeFeederMode);
         },
         onError: async (err) => {
           logger.warn('playlist.next_video_failed', `Feeder error for ${initialPrimary.id}: ${err.message}`);
-          await handleSegmentFinished(gate.mode);
+          await handleSegmentFinished(activeFeederMode);
         },
       }).catch(err => {
         logger.error('playlist.feed_initial_error', `Error feeding initial media segment: ${err.message}`);
