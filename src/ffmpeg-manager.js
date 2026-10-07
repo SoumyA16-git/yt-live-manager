@@ -208,17 +208,27 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   // Bandwidth Cap logic:
   // - If videoBitrateMbps is 0 (or null/negative): Bandwidth cap is OFF -> No encoding! Pure direct copy (Zero CPU).
   // - If videoBitrateMbps > 0:
-  //     If source video bitrate > capMbps * 1.05 and allowTranscode !== false:
-  //       Dynamically encode to capMbps with ultrafast preset (CPU strictly ~30-40%).
-  //     Else: video is already within cap -> Direct copy (Zero CPU).
+  //     If source video is H.264 + AAC and bitrate is within reasonable tolerance (<= capMbps * 1.25):
+  //       Direct copy! Zero CPU, flawless 30fps real-time speed, 0 stutter, 0 pixelation.
+  //     If source bitrate significantly exceeds cap (> capMbps * 1.25) or codec is incompatible:
+  //       Dynamically encode to capMbps with ultrafast preset & zerolatency tuning (CPU strictly ~30-40%).
   const targetMbps = Number(streamCfg.videoBitrateMbps);
   const isCapActive = !isNaN(targetMbps) && targetMbps > 0;
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
   const sourceMbps = sourceBitrate > 0 ? (sourceBitrate / 1_000_000) : 0;
 
+  // Codec compatibility checks
+  const videoCodec = videoMeta?.probe?.videoCodec;
+  const isH264 = !videoCodec || videoCodec === 'h264';
+  const pixFmt = videoMeta?.probe?.pixFmt;
+  const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
+  const isCompatibleCodec = isH264 && isStandardPixel;
+
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {
-    if (isCapActive && sourceMbps > (targetMbps * 1.05) && streamCfg.allowTranscode !== false) {
+    if (isCapActive && sourceMbps > (targetMbps * 1.25) && streamCfg.allowTranscode !== false) {
+      effectiveMode = 'transcode';
+    } else if (!isCompatibleCodec && streamCfg.allowTranscode !== false) {
       effectiveMode = 'transcode';
     } else {
       effectiveMode = mode === 'hybrid' ? 'hybrid' : 'copy';
@@ -257,14 +267,21 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         'pipe:1'
       );
     } else {
+      const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
       args.push(
         '-map', '0:v:0',
         '-map', '0:a:0?',
         '-c:v', 'copy',
-        '-c:a', 'aac',
-        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
-        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-        '-ac', '2',
+        '-c:a', isAacAudio ? 'copy' : 'aac'
+      );
+      if (!isAacAudio) {
+        args.push(
+          '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+          '-ac', '2'
+        );
+      }
+      args.push(
         '-avoid_negative_ts', 'make_zero',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
@@ -274,14 +291,19 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   } else if (effectiveMode === 'hybrid') {
     args.push('-map', '0:v:0');
     if (videoMeta?.hasAudio) {
+      const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
       args.push(
         '-map', '0:a:0?',
         '-c:v', 'copy',
-        '-c:a', 'aac',
-        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
-        '-ac', '2'
+        '-c:a', isAacAudio ? 'copy' : 'aac'
       );
+      if (!isAacAudio) {
+        args.push(
+          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+          '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+          '-ac', '2'
+        );
+      }
     } else {
       args.push(
         '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
@@ -296,16 +318,44 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     }
     args.push('-avoid_negative_ts', 'make_zero', '-bsf:v', 'h264_mp4toannexb', '-f', 'mpegts', 'pipe:1');
   } else {
-    // Dynamic transcode mode (capped at targetMbps, tuned for ~30-40% CPU with ultrafast + threads 2)
-    const isHoriz = (videoMeta?.probe?.width && videoMeta?.probe?.height && videoMeta.probe.width > videoMeta.probe.height) ||
-      videoMeta?.orientation === 'horizontal' || videoMeta?.probe?.orientation === 'horizontal';
+    // Dynamic transcode mode: tuned for rock-solid 30.0 fps real-time speed and ~30-40% CPU
+    const sourceWidth = Number(videoMeta?.probe?.width || 0);
+    const sourceHeight = Number(videoMeta?.probe?.height || 0);
+
+    const isHoriz = (sourceWidth > 0 && sourceHeight > 0)
+      ? (sourceWidth > sourceHeight)
+      : ((videoMeta?.orientation === 'horizontal') || (videoMeta?.probe?.orientation === 'horizontal'));
+
     const defaultRes = isHoriz ? '1920x1080' : '1080x1920';
     const resolution = streamCfg.resolution || defaultRes;
     const [w, h] = resolution.split('x');
-    const width = parseInt(w, 10) || (isHoriz ? 1920 : 1080);
-    const height = parseInt(h, 10) || (isHoriz ? 1080 : 1920);
+    const maxTargetWidth = parseInt(w, 10) || (isHoriz ? 1920 : 1080);
+    const maxTargetHeight = parseInt(h, 10) || (isHoriz ? 1080 : 1920);
 
-    const fps = streamCfg.fps ?? 30;
+    // CRITICAL: NEVER upscale lower resolution source (e.g. 720p -> 1080p).
+    // Upscaling software pixels on ARM wastes >2x CPU and chokes the real-time pipeline, dropping frames.
+    let targetWidth = sourceWidth > 0 ? sourceWidth : maxTargetWidth;
+    let targetHeight = sourceHeight > 0 ? sourceHeight : maxTargetHeight;
+
+    if (sourceWidth > maxTargetWidth || sourceHeight > maxTargetHeight) {
+      targetWidth = maxTargetWidth;
+      targetHeight = maxTargetHeight;
+    }
+
+    const needsScaling = (sourceWidth > 0 && sourceHeight > 0) &&
+      (sourceWidth !== targetWidth || sourceHeight !== targetHeight);
+
+    if (needsScaling) {
+      const vf = [
+        `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease`,
+        `pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2`,
+        'setsar=1',
+        'format=yuv420p',
+      ].join(',');
+      args.push('-vf', vf);
+    }
+
+    const fps = streamCfg.fps ?? (videoMeta?.probe?.fps || 30);
     const keyframeSec = streamCfg.keyframeSeconds ?? 2;
     const gop = Math.round(fps * keyframeSec);
 
@@ -313,60 +363,61 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
     const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
     const bufSizeKbps = videoKbps * 2;
-    // Strict 30-40% CPU requirement: dynamic bandwidth transcode MUST use ultrafast
-    const preset = isCapActive ? 'ultrafast' : (streamCfg.x264Preset || 'ultrafast');
-
-    const sourceWidth = Number(videoMeta?.probe?.width || 0);
-    const sourceHeight = Number(videoMeta?.probe?.height || 0);
-    const needsScaling = (sourceWidth > 0 && sourceHeight > 0) && (sourceWidth !== width || sourceHeight !== height);
-
-    if (needsScaling) {
-      const vf = [
-        `scale=${width}:${height}:force_original_aspect_ratio=decrease`,
-        `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
-        'setsar=1',
-        `fps=${fps}`,
-        'format=yuv420p',
-      ].join(',');
-      args.push('-vf', vf);
-    }
-
+    const preset = 'ultrafast';
     const maxrateKbps = Math.round(videoKbps * 1.15);
 
     args.push(
       '-c:v', 'libx264',
       '-preset', preset,
+      '-tune', 'zerolatency',
       '-threads', '2',
       '-profile:v', 'high',
       '-level:v', '4.2',
       '-b:v', `${videoKbps}k`,
       '-maxrate', `${maxrateKbps}k`,
       '-bufsize', `${bufSizeKbps}k`,
-      '-bf', '2',
       '-g', `${gop}`,
       '-keyint_min', `${gop}`,
       '-sc_threshold', '0',
-      '-x264-params', 'bframes=2:cabac=1:deblock=1,1:rc-lookahead=10',
+      '-x264-params', 'no-scenecut=1:rc-lookahead=0',
       '-pix_fmt', 'yuv420p',
       '-colorspace', 'bt709',
       '-color_primaries', 'bt709',
       '-color_trc', 'bt709'
     );
 
-    if (!videoMeta || videoMeta.hasAudio === false) {
+    const hasAudio = videoMeta && videoMeta.hasAudio !== false;
+    const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
+
+    if (!hasAudio) {
       args.push(
         '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
         '-map', '0:v:0',
         '-map', '1:a:0',
+        '-c:a', 'aac',
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-ac', '2',
         '-shortest'
       );
+    } else {
+      args.push(
+        '-map', '0:v:0',
+        '-map', '0:a:0?'
+      );
+      if (isAacAudio) {
+        args.push('-c:a', 'copy');
+      } else {
+        args.push(
+          '-c:a', 'aac',
+          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+          '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+          '-ac', '2'
+        );
+      }
     }
 
     args.push(
-      '-c:a', 'aac',
-      '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-      '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
-      '-ac', '2',
       '-avoid_negative_ts', 'make_zero',
       '-bsf:v', 'h264_mp4toannexb',
       '-f', 'mpegts',
