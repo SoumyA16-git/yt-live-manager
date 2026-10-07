@@ -1984,6 +1984,7 @@ const _ytStageColors = {
   fetching_info: 'var(--accent-cyan)',
   downloading: 'var(--accent-primary)',
   merging: 'var(--accent-cyan)',
+  stripping_metadata: 'var(--accent-cyan)',
   registering: 'var(--accent-cyan)',
   converting: 'var(--accent-cyan)',
   completed: 'var(--accent-emerald)',
@@ -1995,6 +1996,7 @@ const _ytStageLabels = {
   fetching_info: 'Fetching video info...',
   downloading: 'Downloading highest quality video...',
   merging: 'Finalizing MP4 container (remuxing)...',
+  stripping_metadata: 'Sanitizing container (cleaning all metadata)...',
   registering: 'Importing & updating playlist...',
   converting: 'Processing video...',
   completed: 'Download complete & playlist updated',
@@ -2038,6 +2040,8 @@ function _updateYtProgress(status) {
     details = parts.join(' · ');
   } else if (status.stage === 'merging') {
     details = 'Network download finished. Remuxing to MP4 container...';
+  } else if (status.stage === 'stripping_metadata') {
+    details = 'Wiping video title, uploader, ID, dates, and encoder tags...';
   } else if (status.stage === 'registering') {
     details = 'Probing resolution and appending to playlist...';
   } else if (status.speed && (status.stage === 'converting')) {

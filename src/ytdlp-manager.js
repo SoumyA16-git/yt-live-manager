@@ -465,6 +465,102 @@ export function getYtDlpFormatAndSort(quality = '720p') {
 }
 
 /**
+ * Completely strip all metadata, tags, chapters, timestamps, and encoder signatures
+ * from a video file using FFmpeg stream copy.
+ *
+ * Lossless (zero re-encoding), near-instantaneous (~1-2s), and strips:
+ * - Video title, description, synopsis, comment
+ * - Channel / uploader / artist / author / album_artist
+ * - YouTube video ID, URL / purl tags
+ * - Upload date, year, creation_time
+ * - Encoder and tool signatures (Lavf/Lavc/yt-dlp) via bitexact flags
+ * - Chapters, subtitles, and attachment streams
+ *
+ * @param {string} inputPath
+ * @param {string} outputPath
+ * @param {string|null} [jobId=null]
+ * @returns {Promise<void>}
+ */
+export async function stripVideoMetadata(inputPath, outputPath, jobId = null) {
+  const ffmpegBin = (process.platform !== 'win32' && fsSync.existsSync('/usr/bin/ffmpeg'))
+    ? '/usr/bin/ffmpeg'
+    : 'ffmpeg';
+
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-hide_banner',
+      '-loglevel', 'warning',
+      '-nostdin',
+      '-i', inputPath,
+      '-map', '0:v',
+      '-map', '0:a?',
+      '-c', 'copy',
+      '-map_metadata', '-1',
+      '-map_metadata:s:v', '-1',
+      '-map_metadata:s:a', '-1',
+      '-map_chapters', '-1',
+      '-fflags', '+bitexact',
+      '-flags:v', '+bitexact',
+      '-flags:a', '+bitexact',
+      '-metadata', 'title=',
+      '-metadata', 'artist=',
+      '-metadata', 'album_artist=',
+      '-metadata', 'author=',
+      '-metadata', 'comment=',
+      '-metadata', 'description=',
+      '-metadata', 'synopsis=',
+      '-metadata', 'purl=',
+      '-metadata', 'url=',
+      '-metadata', 'date=',
+      '-metadata', 'year=',
+      '-metadata', 'creation_time=',
+      '-metadata', 'encoder=',
+      '-metadata', 'encoded_by=',
+      '-metadata', 'copyright=',
+      '-metadata', 'show=',
+      '-metadata', 'episode_id=',
+      '-metadata', 'network=',
+      '-metadata:s:v', 'title=',
+      '-metadata:s:v', 'handler_name=',
+      '-metadata:s:a', 'title=',
+      '-metadata:s:a', 'handler_name=',
+      '-movflags', '+faststart',
+      '-y',
+      outputPath,
+    ];
+
+    const proc = spawn(ffmpegBin, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    if (jobId && _currentJob && _currentJob.id === jobId) {
+      _currentJob.proc = proc;
+    }
+
+    let stderr = '';
+    proc.stderr.on('data', (d) => { stderr += d.toString('utf8'); });
+
+    proc.on('error', (err) => {
+      reject(new Error(`Failed to spawn FFmpeg for metadata stripping: ${err.message}`));
+    });
+
+    proc.on('close', (code) => {
+      if (jobId && _currentJob && _currentJob.id === jobId && _currentJob.proc === proc) {
+        _currentJob.proc = null;
+      }
+      if (jobId && _currentJob && _currentJob.id === jobId && _currentJob.stage === 'cancelled') {
+        return resolve();
+      }
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`FFmpeg metadata stripping failed (code ${code}): ${stderr.slice(-300)}`));
+      }
+    });
+  });
+}
+
+/**
  * Start background YouTube video download job.
  *
  * @param {string} rawUrl
@@ -584,7 +680,25 @@ async function _executePipeline(jobId, url, autoSetActive, quality = '720p') {
     throw new Error('Downloaded file is empty (0 bytes).');
   }
 
-  // ─── 2. Probe downloaded video for native orientation & specs ────────────
+  // ─── 2. Strip all embedded YouTube metadata from the MP4 container ────────
+  _currentJob.stage = 'stripping_metadata';
+  logger.info('ytdlp.strip_metadata', `Stripping all container & stream metadata from ${rawPath}`);
+  const cleanPath = path.join(incomingDir, `ytdl_${jobId}_clean.mp4`);
+  _currentJob.tempFiles.push(cleanPath);
+
+  try {
+    await stripVideoMetadata(rawPath, cleanPath, jobId);
+    await fs.unlink(rawPath).catch(() => {});
+    await fs.rename(cleanPath, rawPath);
+    logger.info('ytdlp.metadata_stripped', `Successfully stripped all metadata from ${rawPath}`);
+  } catch (stripErr) {
+    logger.warn('ytdlp.strip_metadata_warning', `Metadata stripping warning: ${stripErr.message}; continuing with downloaded file`);
+    try { await fs.unlink(cleanPath); } catch { /* ignore */ }
+  }
+
+  if (_currentJob.stage === 'cancelled') return;
+
+  // ─── 3. Probe downloaded video for native orientation & specs ────────────
   _currentJob.stage = 'registering';
   logger.info('ytdlp.probing_video', `Probing downloaded video ${rawPath}`);
   let width = 1920;
@@ -804,6 +918,14 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       '--progress-delta', '1',
       '--progress-template', 'download:yt_progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s',
       '--progress-template', 'postprocess:postprocess:%(progress.status)s',
+      // Metadata prevention options: ensure yt-dlp never writes or embeds metadata
+      '--no-embed-metadata',
+      '--no-embed-info-json',
+      '--no-embed-chapters',
+      '--no-embed-thumbnail',
+      '--no-embed-subs',
+      '--no-write-comments',
+      '--no-add-metadata',
       // Storage-optimized video and audio merged into MP4 container (default 720p, saves ~70% disk space)
       '-f', extraFormat || qualityCfg.format,
       '-S', extraSort || qualityCfg.sort,

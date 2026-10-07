@@ -1,11 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import {
   normalizeYouTubeUrl,
   isValidYouTubeUrl,
   parseYtDlpProgressLine,
   getYtDlpFormatAndSort,
   checkDuplicateYouTubeVideo,
+  stripVideoMetadata,
 } from '../../src/ytdlp-manager.js';
 
 describe('ytdlp-manager — URL normalization and validation', () => {
@@ -133,6 +138,45 @@ describe('ytdlp-manager — duplicate video detection', () => {
   it('returns null when URL is not in library', async () => {
     const res = await checkDuplicateYouTubeVideo('https://www.youtube.com/watch?v=nonexistent1');
     assert.equal(res, null);
+  });
+});
+
+describe('ytdlp-manager — metadata stripping', () => {
+  it('strips metadata, title, artist, and comments from video', async () => {
+    const tmpDir = os.tmpdir();
+    const inputPath = path.join(tmpDir, `meta_in_${Date.now()}.mp4`);
+    const outputPath = path.join(tmpDir, `meta_out_${Date.now()}.mp4`);
+
+    try {
+      const gen = spawnSync('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error',
+        '-f', 'lavfi', '-i', 'testsrc=duration=0.5:size=160x120:rate=10',
+        '-metadata', 'title=Secret Video Title',
+        '-metadata', 'artist=Secret Uploader',
+        '-metadata', 'comment=https://youtube.com/watch?v=12345',
+        '-metadata', 'date=2026-10-01',
+        '-c:v', 'libx264',
+        '-y', inputPath,
+      ]);
+
+      if (gen.status !== 0) {
+        return;
+      }
+
+      await stripVideoMetadata(inputPath, outputPath);
+
+      const probe = spawnSync('ffprobe', [
+        '-hide_banner', '-show_format', outputPath,
+      ]);
+
+      const probeOut = probe.stdout?.toString('utf8') || '';
+      assert.ok(!probeOut.includes('Secret Video Title'), 'Should strip title');
+      assert.ok(!probeOut.includes('Secret Uploader'), 'Should strip artist/uploader');
+      assert.ok(!probeOut.includes('12345'), 'Should strip comment/url');
+    } finally {
+      await fs.unlink(inputPath).catch(() => {});
+      await fs.unlink(outputPath).catch(() => {});
+    }
   });
 });
 
