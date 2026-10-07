@@ -5,6 +5,7 @@ import {
   isValidYouTubeUrl,
   parseYtDlpProgressLine,
   getYtDlpFormatAndSort,
+  checkDuplicateYouTubeVideo,
 } from '../../src/ytdlp-manager.js';
 
 describe('ytdlp-manager — URL normalization and validation', () => {
@@ -120,6 +121,18 @@ describe('ytdlp-manager — quality format selection', () => {
     const res = getYtDlpFormatAndSort('480p');
     assert.ok(res.format.includes('854'));
     assert.ok(res.sort.includes('res:480'));
+  });
+});
+
+describe('ytdlp-manager — duplicate video detection', () => {
+  it('returns null for empty or non-string input', async () => {
+    assert.equal(await checkDuplicateYouTubeVideo(''), null);
+    assert.equal(await checkDuplicateYouTubeVideo(null), null);
+  });
+
+  it('returns null when URL is not in library', async () => {
+    const res = await checkDuplicateYouTubeVideo('https://www.youtube.com/watch?v=nonexistent1');
+    assert.equal(res, null);
   });
 });
 

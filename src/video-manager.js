@@ -1047,7 +1047,12 @@ export async function processUpload(fileStream, fileInfo) {
  * @param {boolean} [opts.autoSetActive=false]
  * @returns {Promise<object>} Video metadata object
  */
-export async function importConvertedVideo(tempPath, originalName, { autoSetActive = false, isDirectCopy = true } = {}) {
+export async function importConvertedVideo(tempPath, originalName, {
+  autoSetActive = false,
+  isDirectCopy = true,
+  youtubeUrl = null,
+  youtubeVideoId = null,
+} = {}) {
   const settings = getSettings();
   const id = generateVideoId();
   const targetPath = resolveVideoPath(id, '.mp4');
@@ -1089,6 +1094,8 @@ export async function importConvertedVideo(tempPath, originalName, { autoSetActi
     mtimeMs: stat.mtimeMs,
     probe,
     compatibility,
+    youtubeUrl: youtubeUrl || null,
+    youtubeVideoId: youtubeVideoId || null,
   };
 
   const existingVideos = await listVideos();

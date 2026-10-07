@@ -28,6 +28,7 @@ import {
   getCookiesStatus,
   saveCookiesFile,
   syncChromeCookies,
+  checkDuplicateYouTubeVideo,
 } from '../ytdlp-manager.js';
 import { logger } from '../logger.js';
 
@@ -117,9 +118,26 @@ export function createVideosRouter() {
     res.json(getDownloadStatus());
   });
 
+  // GET /api/videos/check-duplicate?url=...
+  router.get('/check-duplicate', async (req, res) => {
+    const url = req.query.url;
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid YouTube URL', code: 'E_INVALID_URL' });
+    }
+    try {
+      const duplicate = await checkDuplicateYouTubeVideo(url);
+      res.json({
+        duplicate: Boolean(duplicate),
+        existingVideo: duplicate,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // POST /api/videos/download-youtube
   router.post('/download-youtube', async (req, res) => {
-    const { url, autoSetActive, quality } = req.body || {};
+    const { url, autoSetActive, quality, force } = req.body || {};
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ error: 'Missing or invalid YouTube URL', code: 'E_INVALID_URL' });
     }
@@ -128,14 +146,20 @@ export function createVideosRouter() {
       const status = await startYouTubeDownload(url, {
         autoSetActive: Boolean(autoSetActive),
         quality: quality || '720p',
+        force: Boolean(force),
       });
       res.json({ success: true, status });
     } catch (err) {
       const statusCode = err.code === 'E_INVALID_URL' ? 400
+        : err.code === 'E_DUPLICATE_VIDEO' ? 409
         : err.code === 'E_JOB_RUNNING' ? 409
         : err.code === 'E_YTDLP_MISSING' ? 503
         : 500;
-      res.status(statusCode).json({ error: err.message, code: err.code });
+      res.status(statusCode).json({
+        error: err.message,
+        code: err.code,
+        existingVideo: err.existingVideo || null,
+      });
     }
   });
 

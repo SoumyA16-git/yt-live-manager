@@ -1456,10 +1456,61 @@
     </div>
   </div>
 
+  <!-- Duplicate YouTube Video Warning Modal -->
+  <div id="modal-duplicate-warning" class="modal-backdrop">
+    <div class="modal-card modal-card-duplicate">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2 class="modal-title modal-title-warning">
+            <svg class="icon icon-md" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            Duplicate Video Detected
+          </h2>
+          <span class="modal-subtitle">This YouTube link has already been downloaded and is available on the server</span>
+        </div>
+        <button id="btn-close-duplicate-warning" class="modal-close-btn" aria-label="Close dialog" title="Close warning">
+          <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-body-duplicate">
+        <div class="duplicate-info-box">
+          <div class="duplicate-info-title" id="dup-video-title">YouTube Video Title</div>
+          <div class="duplicate-info-meta">
+            <span class="badge-tag" id="dup-video-aspect">16:9</span>
+            <span class="meta-tag" id="dup-video-res">1080x1920</span>
+            <span class="meta-tag" id="dup-video-fps">30fps</span>
+            <span class="meta-tag" id="dup-video-duration">0m 0s</span>
+            <span class="badge-tag" id="dup-video-status">In Video Library</span>
+          </div>
+        </div>
+        <p class="duplicate-warning-text">
+          A copy of this video already exists in your library. Re-downloading will consume additional server disk space and bandwidth.
+        </p>
+      </div>
+
+      <div class="modal-footer">
+        <span class="modal-footer-note">
+          Delete the existing video from the library to re-download without warning.
+        </span>
+        <div class="modal-footer-actions">
+          <button type="button" id="btn-cancel-duplicate-download" class="btn btn-outline btn-sm">Cancel</button>
+          <button type="button" id="btn-force-duplicate-download" class="btn btn-warning btn-sm">Download Anyway</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification Container (shadcn style) -->
   <div id="toast-container" aria-live="polite"></div>
 
-  <script type="module" src="/js/dashboard.js?v=20261007_v1"></script>
+  <script type="module" src="/js/dashboard.js?v=20261007_v2"></script>
 </body>
 
 </html>

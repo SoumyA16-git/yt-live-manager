@@ -2177,28 +2177,73 @@ function setupYouTubeDownload() {
     });
   }
 
-  btnYtDownload.addEventListener('click', async () => {
-    const url = (ytUrlInput?.value || '').trim();
-    if (!url) {
-      showToast('Please enter a YouTube URL first.', 'warning', 'URL Required');
-      ytUrlInput?.focus();
-      return;
+  let _pendingDuplicateDownload = null;
+
+  function openDuplicateWarningModal(url, quality, existingVideo) {
+    _pendingDuplicateDownload = { url, quality };
+    const modal = document.getElementById('modal-duplicate-warning');
+    const titleEl = document.getElementById('dup-video-title');
+    const aspectEl = document.getElementById('dup-video-aspect');
+    const resEl = document.getElementById('dup-video-res');
+    const fpsEl = document.getElementById('dup-video-fps');
+    const durEl = document.getElementById('dup-video-duration');
+    const statusEl = document.getElementById('dup-video-status');
+
+    if (titleEl) {
+      titleEl.textContent = existingVideo?.label || existingVideo?.originalName || 'Existing YouTube Video';
+    }
+    const isHoriz = (existingVideo?.probe?.width || 0) >= (existingVideo?.probe?.height || 0);
+    if (aspectEl) aspectEl.textContent = isHoriz ? '16:9' : '9:16';
+    if (resEl) {
+      resEl.textContent = (existingVideo?.probe?.width && existingVideo?.probe?.height)
+        ? `${existingVideo.probe.width}×${existingVideo.probe.height}`
+        : (isHoriz ? '1920×1080' : '1080×1920');
+    }
+    if (fpsEl) fpsEl.textContent = `${existingVideo?.probe?.fps || 30}fps`;
+    if (durEl) {
+      durEl.textContent = existingVideo?.probe?.durationSec
+        ? formatDuration(existingVideo.probe.durationSec)
+        : 'Library File';
+    }
+    if (statusEl) {
+      if (existingVideo?.inPlaylist) {
+        statusEl.textContent = 'In Active Playlist';
+        statusEl.className = 'badge-tag badge-active';
+      } else {
+        statusEl.textContent = 'In Video Library';
+        statusEl.className = 'badge-tag';
+      }
     }
 
-    // Reset progress UI
+    if (modal) modal.classList.add('open');
+  }
+
+  function closeDuplicateWarningModal() {
+    _pendingDuplicateDownload = null;
+    const modal = document.getElementById('modal-duplicate-warning');
+    if (modal) modal.classList.remove('open');
+  }
+
+  async function triggerYtDownload(url, quality, force = false) {
     if (ytDlProgressBox) ytDlProgressBox.style.display = 'block';
     _updateYtProgress({ stage: 'fetching_info', percent: 0, videoTitle: '', speed: '', eta: '' });
     if (ytDlDetails) ytDlDetails.textContent = 'Connecting...';
     btnYtDownload.disabled = true;
 
     try {
-      const quality = ytQualitySelect?.value || '720p';
-      await apiPost('/api/videos/download-youtube', { url, quality, autoSetActive: false });
+      await apiPost('/api/videos/download-youtube', { url, quality, autoSetActive: false, force });
       _clearYtPoll();
       _ytPollTimer = setInterval(_pollYtDownloadStatus, 1500);
     } catch (err) {
-      if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
       btnYtDownload.disabled = false;
+
+      if (err.code === 'E_DUPLICATE_VIDEO') {
+        if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
+        openDuplicateWarningModal(url, quality, err.existingVideo);
+        return;
+      }
+
+      if (ytDlProgressBox) ytDlProgressBox.style.display = 'none';
       const msg = err.message || 'Failed to start download';
       if (err.code === 'E_YTDLP_MISSING') {
         showToast('yt-dlp is not installed on the server. Run: bash update.sh on your VPS to install it.', 'error', 'Missing Dependency');
@@ -2211,6 +2256,41 @@ function setupYouTubeDownload() {
         showToast(msg, 'error', 'Download Failed');
       }
     }
+  }
+
+  // Duplicate Warning Modal button controls
+  const btnCloseDup = document.getElementById('btn-close-duplicate-warning');
+  const btnCancelDup = document.getElementById('btn-cancel-duplicate-download');
+  const btnForceDup = document.getElementById('btn-force-duplicate-download');
+  const modalDup = document.getElementById('modal-duplicate-warning');
+
+  if (btnCloseDup) btnCloseDup.addEventListener('click', closeDuplicateWarningModal);
+  if (btnCancelDup) btnCancelDup.addEventListener('click', closeDuplicateWarningModal);
+  if (btnForceDup) {
+    btnForceDup.addEventListener('click', async () => {
+      if (_pendingDuplicateDownload) {
+        const { url, quality } = _pendingDuplicateDownload;
+        closeDuplicateWarningModal();
+        await triggerYtDownload(url, quality, true);
+      }
+    });
+  }
+  if (modalDup) {
+    modalDup.addEventListener('click', (e) => {
+      if (e.target === modalDup) closeDuplicateWarningModal();
+    });
+  }
+
+  btnYtDownload.addEventListener('click', async () => {
+    const url = (ytUrlInput?.value || '').trim();
+    if (!url) {
+      showToast('Please enter a YouTube URL first.', 'warning', 'URL Required');
+      ytUrlInput?.focus();
+      return;
+    }
+
+    const quality = ytQualitySelect?.value || '720p';
+    await triggerYtDownload(url, quality, false);
   });
 
   if (btnCancelYtDl) {
@@ -2298,6 +2378,10 @@ async function init() {
       }
       if (modalVideoPreview?.classList.contains('open')) {
         closeVideoPreview();
+      }
+      const modalDup = document.getElementById('modal-duplicate-warning');
+      if (modalDup?.classList.contains('open')) {
+        modalDup.classList.remove('open');
       }
     }
   });

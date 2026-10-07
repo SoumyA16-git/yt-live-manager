@@ -13,7 +13,7 @@ import fsSync from 'node:fs';
 import crypto from 'node:crypto';
 import PATHS from './lib/paths.js';
 import { logger } from './logger.js';
-import { importConvertedVideo } from './video-manager.js';
+import { importConvertedVideo, listVideos, resolveVideoPath } from './video-manager.js';
 import { probeMedia } from './ffprobe-manager.js';
 import { getSettings, saveSettings } from './config-manager.js';
 
@@ -106,6 +106,81 @@ export function isValidYouTubeUrl(urlStr) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Check if a YouTube video is already present in the local video library.
+ * Checks stored youtubeVideoId, youtubeUrl, and filename/label matches.
+ * Verifies that the physical file actually exists on disk.
+ *
+ * @param {string} rawUrl
+ * @returns {Promise<object|null>} Existing video info if duplicate, or null
+ */
+export async function checkDuplicateYouTubeVideo(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const normalized = normalizeYouTubeUrl(rawUrl);
+  let targetYtId = null;
+  try {
+    const u = new URL(normalized);
+    targetYtId = u.searchParams.get('v');
+  } catch { /* ignore */ }
+
+  const videos = await listVideos();
+  let allPlaylistIds = new Set();
+  try {
+    const settings = getSettings();
+    const playlists = settings?.stream?.playlists || { horizontal: [], vertical: [] };
+    allPlaylistIds = new Set([
+      ...(playlists.horizontal || []),
+      ...(playlists.vertical || []),
+      ...(settings?.stream?.playlist || [])
+    ]);
+  } catch {
+    // Settings might not be loaded yet in standalone unit test environment
+  }
+
+  for (const v of videos) {
+    let match = false;
+
+    // 1. Exact match on stored youtubeVideoId
+    if (targetYtId && v.youtubeVideoId && v.youtubeVideoId === targetYtId) {
+      match = true;
+    }
+    // 2. Exact match on stored youtubeUrl
+    else if (v.youtubeUrl && normalizeYouTubeUrl(v.youtubeUrl) === normalized) {
+      match = true;
+    }
+    // 3. YouTube video ID contained in label or originalName
+    else if (targetYtId && ((v.label && v.label.includes(targetYtId)) || (v.originalName && v.originalName.includes(targetYtId)))) {
+      match = true;
+    }
+
+    if (match) {
+      // Verify physical file exists on disk
+      const ext = path.extname(v.filename || v.originalName || '.mp4');
+      let exists = false;
+      try {
+        const filePath = v.filePath || resolveVideoPath(v.id, ext);
+        exists = fsSync.existsSync(filePath);
+      } catch {
+        exists = false;
+      }
+
+      if (exists) {
+        return {
+          id: v.id,
+          label: v.label || v.originalName,
+          originalName: v.originalName,
+          probe: v.probe,
+          inPlaylist: allPlaylistIds.has(v.id),
+          orientation: v.orientation || (v.probe?.width >= v.probe?.height ? 'horizontal' : 'vertical'),
+          youtubeVideoId: v.youtubeVideoId || targetYtId,
+        };
+      }
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -398,7 +473,7 @@ export function getYtDlpFormatAndSort(quality = '720p') {
  * @param {'720p'|'1080p'|'480p'} [opts.quality='720p']
  * @returns {Promise<object>} Status object
  */
-export async function startYouTubeDownload(rawUrl, { autoSetActive = false, quality = '720p' } = {}) {
+export async function startYouTubeDownload(rawUrl, { autoSetActive = false, quality = '720p', force = false } = {}) {
   const raw = (rawUrl || '').trim();
 
   if (!isValidYouTubeUrl(raw)) {
@@ -408,6 +483,17 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
   }
 
   const url = normalizeYouTubeUrl(raw);
+
+  // Duplicate check: if already present in library/server, warn user unless force=true
+  if (!force) {
+    const duplicate = await checkDuplicateYouTubeVideo(url);
+    if (duplicate) {
+      const err = new Error(`This YouTube video is already available on the server: "${duplicate.label}"`);
+      err.code = 'E_DUPLICATE_VIDEO';
+      err.existingVideo = duplicate;
+      throw err;
+    }
+  }
 
   if (_currentJob && ['fetching_info', 'downloading', 'merging', 'converting'].includes(_currentJob.stage)) {
     throw Object.assign(new Error('A video download/conversion job is already in progress. Please wait for it to finish or cancel it.'), {
@@ -520,9 +606,17 @@ async function _executePipeline(jobId, url, autoSetActive, quality = '720p') {
     .replace(/[/\\?%*:|"<>]/g, '_')
     .slice(0, 100);
 
+  let targetYtId = null;
+  try {
+    const u = new URL(url);
+    targetYtId = u.searchParams.get('v');
+  } catch { /* ignore */ }
+
   const videoMeta = await importConvertedVideo(rawPath, `${safeTitle}.mp4`, {
     autoSetActive,
     isDirectCopy: true,
+    youtubeUrl: url,
+    youtubeVideoId: targetYtId,
   });
 
   // ─── 4. Auto-append to corresponding Horizontal/Vertical playlist ────────
