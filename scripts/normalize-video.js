@@ -18,7 +18,7 @@ import fs from 'fs/promises';
 import { spawn } from 'child_process';
 import { probeMedia, evaluateCompatibility } from '../src/ffprobe-manager.js';
 import { loadSettings } from '../src/config-manager.js';
-import { PATHS } from '../src/lib/constants.js';
+import PATHS from '../src/lib/paths.js';
 
 function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
@@ -37,8 +37,8 @@ function runFfmpeg(args) {
 }
 
 async function normalizeVideoFile(v, settings) {
-  const videoPath = path.join(PATHS.videosDir, v.filename);
-  const tempPath = path.join(PATHS.videosDir, `.${v.filename}.norm.mp4`);
+  const videoPath = path.join(PATHS.videos, v.filename);
+  const tempPath = path.join(PATHS.videos, `.${v.filename}.norm.mp4`);
 
   console.log(`[NORMALIZE] Starting GOP normalization for ${v.id} (${v.filename})...`);
   const probe = await probeMedia(videoPath);
@@ -93,7 +93,7 @@ async function main() {
   }
 
   const settings = await loadSettings();
-  const videosJsonPath = PATHS.videosJson;
+  const videosJsonPath = PATHS.videosIndex;
   const data = JSON.parse(await fs.readFile(videosJsonPath, 'utf8'));
 
   const targets = targetArg === '--all'
