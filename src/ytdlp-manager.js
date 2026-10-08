@@ -800,12 +800,15 @@ async function _executePipeline(jobId, url, autoSetActive, quality = '720p') {
   const isHorizontal = width >= height;
   const mode = isHorizontal ? 'horizontal' : 'vertical';
 
-  // ─── 3. Auto-Normalize GOP (2s Keyframes) & Strip Metadata ────────────────
+  // ─── 3. Strip Metadata & Optional Auto-Normalize GOP ───────────────────────
   const cleanPath = path.join(incomingDir, `ytdl_${jobId}_clean.mp4`);
   _currentJob.tempFiles.push(cleanPath);
 
   const keyframeMaxSec = 4.0;
-  const needsGopNormalization = !rawProbe?.maxKeyframeIntervalSec || rawProbe.maxKeyframeIntervalSec > keyframeMaxSec;
+  // Temporarily bypassed auto-normalization on download as requested.
+  // Set AUTO_NORMALIZE_GOP=true in env or config to re-enable automatic re-encoding upon download.
+  const autoNormalizeEnabled = process.env.AUTO_NORMALIZE_GOP === 'true';
+  const needsGopNormalization = autoNormalizeEnabled && (!rawProbe?.maxKeyframeIntervalSec || rawProbe.maxKeyframeIntervalSec > keyframeMaxSec);
 
   if (needsGopNormalization) {
     _currentJob.stage = 'optimizing_keyframes';
