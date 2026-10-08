@@ -380,7 +380,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const keyframeSec = streamCfg.keyframeSeconds ?? 2;
     const gop = Math.round(fps * keyframeSec);
 
-    const configuredTargetKbps = isCapActive ? Math.round(targetMbps * 1000) : 3000;
+    const configuredTargetKbps = isCapActive ? Math.round(targetMbps * 1000) : 4000;
     const sourceKbps = sourceBitrate > 0
       ? Math.round(sourceBitrate / 1000)
       : (videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0);
@@ -392,12 +392,12 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     args.push(
       '-c:v', 'libx264',
       '-preset', preset,
-      '-threads', '2',
+      '-threads', '0',
       '-profile:v', 'high',
       '-level:v', '4.2',
       '-coder', '1',
       '-bf', '2',
-      '-x264opts', 'rc-lookahead=30:b-adapt=1',
+      '-x264opts', 'rc-lookahead=10:b-adapt=0',
       '-b:v', `${videoKbps}k`,
       '-maxrate', `${maxrateKbps}k`,
       '-bufsize', `${bufSizeKbps}k`,
