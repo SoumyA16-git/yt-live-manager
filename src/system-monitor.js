@@ -23,6 +23,7 @@ import PATHS from './lib/paths.js';
 // ─── CPU Sampling (/proc/stat deltas) ────────────────────────────────────────
 
 let _prevCpuSample = null;
+let _smoothedCpuPercent = null;
 
 function readProcStat() {
   try {
@@ -58,9 +59,19 @@ export function getCpuPercent() {
   const totalDelta = current.total - _prevCpuSample.total;
   _prevCpuSample   = current;
 
-  if (totalDelta <= 0) return 0;
-  const used = (1 - idleDelta / totalDelta) * 100;
-  return Number(Math.max(0, Math.min(100, used)).toFixed(1));
+  if (totalDelta <= 0) return _smoothedCpuPercent !== null ? Number(_smoothedCpuPercent.toFixed(1)) : 0;
+  const rawUsed = (1 - idleDelta / totalDelta) * 100;
+  const bounded = Math.max(0, Math.min(100, rawUsed));
+
+  // Exponential moving average (EMA) smoothing (60% previous, 40% current sample)
+  // to prevent rapid jitter from instantaneous 2-second I-frame encode bursts
+  if (_smoothedCpuPercent === null) {
+    _smoothedCpuPercent = bounded;
+  } else {
+    _smoothedCpuPercent = _smoothedCpuPercent * 0.6 + bounded * 0.4;
+  }
+
+  return Number(_smoothedCpuPercent.toFixed(1));
 }
 
 // ─── Memory (RAM) ─────────────────────────────────────────────────────────────
