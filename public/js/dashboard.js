@@ -1403,6 +1403,19 @@ async function updatePlaylist(newPlaylist, playbackOrder = _currentPlaybackOrder
   }
 }
 
+function formatVideoBitrate(v) {
+  const bps = Number(v?.probe?.videoBitrate || v?.videoBitrate || v?.probe?.bitrate || 0) ||
+    ((v?.sizeBytes && v?.probe?.durationSec && v.probe.durationSec > 0)
+      ? Math.round((v.sizeBytes * 8) / v.probe.durationSec)
+      : 0);
+
+  if (!bps || bps <= 0) return null;
+  if (bps >= 1_000_000) {
+    return `${(bps / 1_000_000).toFixed(2)} Mbps`;
+  }
+  return `${Math.round(bps / 1000)} kbps`;
+}
+
 function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_currentTabMode] || []), playbackOrder = _currentPlaybackOrder) {
   videosList.innerHTML = '';
   const currentVideoId = activeIdFromApi || _currentActiveVideoId || _currentSettings?.stream?.videoId;
@@ -1490,6 +1503,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
     const isHorizontal = (v.probe?.width || 0) >= (v.probe?.height || 0);
     const compat = v.compatibility?.status === 'COMPATIBLE' ? 'compatible' : 'transcode';
     const compatLabel = v.compatibility?.status === 'COMPATIBLE' ? 'Stream-Copy Ready' : 'Needs Transcode';
+    const bitrateStr = formatVideoBitrate(v);
 
     let chkAreaHtml = '';
     if (isSelected) {
@@ -1518,6 +1532,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
         <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
         <span class="meta-tag">${v.probe?.width || 0}×${v.probe?.height || 0}</span>
         <span class="meta-tag">${v.probe?.fps || 30}fps</span>
+        ${bitrateStr ? `<span class="meta-tag meta-bitrate" title="Video Bitrate: ${bitrateStr}">${bitrateStr}</span>` : ''}
         <span class="meta-tag">${formatBytes(v.sizeBytes)}</span>
         ${v.probe?.durationSec ? `<span class="meta-tag">${formatDuration(v.probe.durationSec)}</span>` : ''}
         <span class="badge-tag ${compat}" title="${(v.compatibility?.explanations || []).join(' \\n ') || compatLabel}">${compatLabel}</span>
@@ -1612,10 +1627,12 @@ function openVideoPreview(id, video) {
   if (titleEl) {
     titleEl.textContent = label;
   }
+  const bitrateStr = formatVideoBitrate(video);
   const defaultMeta = [
     isHoriz ? '16:9 Landscape' : '9:16 Vertical Shorts',
     res,
     fps,
+    bitrateStr,
     dur
   ].filter(Boolean).join(' | ') || 'Direct stream playback preview';
 
