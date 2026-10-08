@@ -248,9 +248,9 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     '-nostats',
   ];
 
-  if (effectiveMode === 'copy') {
-    args.push('-re');
-  }
+  // Always pace input at real-time rate (1.0x) so feeder does not thrash against pipe buffer,
+  // preventing wild CPU fluctuations between running and blocking states.
+  args.push('-re');
 
   if (videoMeta?.seekOffset && Number(videoMeta.seekOffset) > 0) {
     args.push('-ss', String(Math.floor(videoMeta.seekOffset)));
@@ -351,6 +351,18 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       targetHeight = maxTargetHeight;
     }
 
+    // Low-bitrate adaptation: If target bitrate is capped at <= 2.5 Mbps and resolution is 1080p,
+    // downscale to 720p (720x1280 / 1280x720) to eliminate macroblocking and maintain crisp image quality.
+    if (isCapActive && targetMbps <= 2.5 && (targetWidth > 720 || targetHeight > 1280)) {
+      if (isHoriz) {
+        targetWidth = 1280;
+        targetHeight = 720;
+      } else {
+        targetWidth = 720;
+        targetHeight = 1280;
+      }
+    }
+
     const needsScaling = (sourceWidth > 0 && sourceHeight > 0) &&
       (sourceWidth !== targetWidth || sourceHeight !== targetHeight);
 
@@ -375,22 +387,23 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, configuredTargetKbps) : configuredTargetKbps;
     const bufSizeKbps = videoKbps * 2;
     const preset = streamCfg.x264Preset || 'ultrafast';
-    const maxrateKbps = Math.round(videoKbps * 1.15);
+    const maxrateKbps = Math.round(videoKbps * 1.25);
 
     args.push(
       '-c:v', 'libx264',
       '-preset', preset,
-      '-tune', 'zerolatency',
       '-threads', '2',
       '-profile:v', 'high',
       '-level:v', '4.2',
+      '-coder', '1',
+      '-bf', '2',
+      '-x264opts', 'rc-lookahead=30:b-adapt=1',
       '-b:v', `${videoKbps}k`,
       '-maxrate', `${maxrateKbps}k`,
       '-bufsize', `${bufSizeKbps}k`,
       '-g', `${gop}`,
       '-keyint_min', `${gop}`,
       '-sc_threshold', '0',
-      '-bf', '0',
       '-pix_fmt', 'yuv420p',
       '-colorspace', 'bt709',
       '-color_primaries', 'bt709',
