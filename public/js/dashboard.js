@@ -1599,6 +1599,7 @@ function openVideoPreview(id, video) {
   const titleEl = document.getElementById('preview-video-title');
   const metaEl = document.getElementById('preview-video-meta');
   const player = document.getElementById('preview-video-player');
+  const infoEl = document.getElementById('preview-player-info');
 
   if (!modal || !player) return;
 
@@ -1611,22 +1612,68 @@ function openVideoPreview(id, video) {
   if (titleEl) {
     titleEl.textContent = label;
   }
+  const defaultMeta = [
+    isHoriz ? '16:9 Landscape' : '9:16 Vertical Shorts',
+    res,
+    fps,
+    dur
+  ].filter(Boolean).join(' | ') || 'Direct stream playback preview';
+
   if (metaEl) {
-    const metaParts = [
-      isHoriz ? '16:9 Landscape' : '9:16 Vertical Shorts',
-      res,
-      fps,
-      dur
-    ].filter(Boolean).join(' | ');
-    metaEl.textContent = metaParts || 'Direct stream playback preview';
+    metaEl.textContent = defaultMeta;
+  }
+  if (infoEl) {
+    infoEl.innerHTML = `
+      <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10" />
+        <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" />
+      </svg>
+      Direct HTTP Range Stream (Muted for autoplay)`;
   }
 
+  // Reset player state cleanly
+  player.pause();
+  player.currentTime = 0;
+  player.muted = true; // Essential: allows modern browsers to autoplay without permission block
+
+  // Attach error handler for feedback
+  player.onerror = () => {
+    const err = player.error;
+    const code = err ? err.code : 'unknown';
+    let msg = 'Failed to load video stream';
+    if (code === 1) msg = 'Playback aborted';
+    else if (code === 2) msg = 'Network error downloading stream';
+    else if (code === 3) msg = 'Media decode error';
+    else if (code === 4) msg = 'Format not supported or file missing on disk';
+    if (metaEl) {
+      metaEl.innerHTML = `<span style="color:var(--status-err, #f87171); font-weight:600;">Stream Error (${code}): ${msg}</span>`;
+    }
+  };
+
+  player.onplaying = () => {
+    if (metaEl && metaEl.textContent.startsWith('Stream Error')) return;
+    if (metaEl) metaEl.textContent = defaultMeta;
+  };
+
+  // Set new source and trigger reload
   player.src = `/api/videos/${encodeURIComponent(id)}/stream`;
+  player.load();
   modal.classList.add('open');
 
-  player.play().catch(err => {
-    console.debug('Autoplay preview video:', err?.message);
-  });
+  const playPromise = player.play();
+  if (playPromise !== undefined) {
+    playPromise.catch(err => {
+      console.debug('Autoplay preview video:', err?.message);
+      if (infoEl) {
+        infoEl.innerHTML = `
+          <svg class="icon icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" />
+            <polygon points="10 8 16 12 10 16 10 8" fill="currentColor" />
+          </svg>
+          Direct HTTP Range Stream (Click play to watch)`;
+      }
+    });
+  }
 }
 
 function closeVideoPreview() {
@@ -1636,6 +1683,8 @@ function closeVideoPreview() {
     player.pause();
     player.removeAttribute('src');
     player.load();
+    player.onerror = null;
+    player.onplaying = null;
   }
   if (modal) {
     modal.classList.remove('open');

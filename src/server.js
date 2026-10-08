@@ -47,6 +47,7 @@ export async function createApp(envConfig = {}) {
         scriptSrc:  ["'self'"],
         styleSrc:   ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
         imgSrc:     ["'self'", 'data:', 'blob:', 'https://i.ytimg.com', 'https://*.ytimg.com', 'https://*.googleusercontent.com', 'https://*.ggpht.com'],
+        mediaSrc:   ["'self'", 'blob:', 'data:'],
         connectSrc: ["'self'"],
         fontSrc:    ["'self'", "https://fonts.gstatic.com"],
         objectSrc:  ["'none'"],
@@ -59,9 +60,11 @@ export async function createApp(envConfig = {}) {
   // JSON Body Parser (10 MB cap for custom thumbnail uploads and metadata)
   app.use(express.json({ limit: '10mb' }));
 
-  // API Cache-Control: no-store
+  // API Cache-Control: no-store (exempt video streaming routes to enable browser media range caching)
   app.use('/api', (req, res, next) => {
-    res.setHeader('Cache-Control', 'no-store');
+    if (!req.path.includes('/stream')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
     next();
   });
 

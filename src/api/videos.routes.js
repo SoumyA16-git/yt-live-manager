@@ -461,6 +461,7 @@ export function createVideosRouter() {
           'Content-Length': fileSize,
           'Accept-Ranges': 'bytes',
           'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=3600',
         });
         return res.end();
       }
@@ -468,7 +469,8 @@ export function createVideosRouter() {
       if (range) {
         const parts = range.replace(/bytes=/, '').split('-');
         const start = parseInt(parts[0], 10);
-        const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+        const maxChunk = 5 * 1024 * 1024; // 5 MB chunk for rapid buffering
+        const end = parts[1] ? parseInt(parts[1], 10) : Math.min(start + maxChunk - 1, fileSize - 1);
 
         if (isNaN(start) || start >= fileSize || (parts[1] && isNaN(end)) || end >= fileSize || start > end) {
           res.setHeader('Content-Range', `bytes */${fileSize}`);
@@ -482,6 +484,7 @@ export function createVideosRouter() {
           'Accept-Ranges': 'bytes',
           'Content-Length': chunkSize,
           'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=3600',
         });
         req.on('close', () => {
           fileStream.destroy();
@@ -492,6 +495,7 @@ export function createVideosRouter() {
           'Content-Length': fileSize,
           'Accept-Ranges': 'bytes',
           'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=3600',
         });
         const fileStream = fs.createReadStream(resolvedPath);
         req.on('close', () => {
