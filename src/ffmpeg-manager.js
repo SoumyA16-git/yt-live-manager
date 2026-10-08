@@ -181,6 +181,7 @@ export function buildPublisherArgs(settings, secretTarget) {
     '-loglevel', 'warning',
     '-nostats',
     '-progress', 'pipe:1',
+    '-re',
     '-fflags', '+genpts+igndts+discardcorrupt',
     '-f', 'mpegts',
     '-i', 'pipe:0',
@@ -217,12 +218,14 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
   const sourceMbps = sourceBitrate > 0 ? (sourceBitrate / 1_000_000) : 0;
 
-  // Codec compatibility checks: Is it standard H.264 video with standard yuv420p pixel format?
+  // Codec and GOP compatibility checks (YouTube strictly requires keyframe interval <= 4.0s)
   const videoCodec = videoMeta?.probe?.videoCodec;
   const isH264 = !videoCodec || videoCodec === 'h264';
   const pixFmt = videoMeta?.probe?.pixFmt;
   const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
-  const isCompatibleCodec = isH264 && isStandardPixel;
+  const maxKeyframe = videoMeta?.probe?.maxKeyframeIntervalSec;
+  const isKeyframeCompliant = maxKeyframe === null || maxKeyframe === undefined || maxKeyframe <= 4.0;
+  const isCompatibleCodec = isH264 && isStandardPixel && isKeyframeCompliant;
 
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {
@@ -243,8 +246,11 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     '-nostdin',
     '-loglevel', 'warning',
     '-nostats',
-    '-re',
   ];
+
+  if (effectiveMode === 'copy') {
+    args.push('-re');
+  }
 
   if (videoMeta?.seekOffset && Number(videoMeta.seekOffset) > 0) {
     args.push('-ss', String(Math.floor(videoMeta.seekOffset)));
