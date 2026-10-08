@@ -434,32 +434,36 @@ export async function cancelDownload() {
  * Start a YouTube download and vertical conversion pipeline in the background.
 /**
  * Determine yt-dlp format and sort arguments for requested quality level.
+ * Prioritizes high bitrate (vbr) and H.264/AAC streams for crisp, stream-ready video.
  *
- * @param {'720p'|'1080p'|'480p'|string} [quality='720p']
+ * @param {'1080p'|'720p'|'480p'|string} [quality='1080p']
  * @returns {{ format: string, sort: string }}
  */
-export function getYtDlpFormatAndSort(quality = '720p') {
+export function getYtDlpFormatAndSort(quality = '1080p') {
   const q = String(quality || '').toLowerCase().trim();
   switch (q) {
-    case '1080p':
-    case '1080':
-      return {
-        format: 'bv*[height<=1920][width<=1920]+ba/b[height<=1920][width<=1920]/bv*+ba/b',
-        sort: 'res:1080,vcodec:h264,acodec:aac',
-      };
     case '480p':
     case '480':
       return {
         format: 'bv*[height<=854][width<=854]+ba/b[height<=854][width<=854]/bv*+ba/b',
-        sort: 'res:480,vcodec:h264,acodec:aac',
+        sort: 'res:480,vcodec:h264,vbr,fps,acodec:aac',
       };
     case '720p':
     case '720':
-    default:
-      // Default to 720p to save 70-75% storage space while preserving great visual quality
       return {
         format: 'bv*[height<=1280][width<=1280]+ba/b[height<=1280][width<=1280]/bv*+ba/b',
-        sort: 'res:720,vcodec:h264,acodec:aac',
+        sort: 'res:720,vcodec:h264,vbr,fps,acodec:aac',
+      };
+    case '1080p':
+    case '1080':
+    case 'best':
+    case 'max':
+    case 'highest':
+    default:
+      // Default to 1080p high bitrate (vbr) for maximum visual clarity and non-pixelated streaming
+      return {
+        format: 'bv*[height<=1920][width<=1920]+ba/b[height<=1920][width<=1920]/bv*+ba/b',
+        sort: 'res:1080,vcodec:h264,vbr,fps,acodec:aac',
       };
   }
 }
@@ -577,8 +581,8 @@ export async function normalizeVideoGop(inputPath, outputPath, jobId = null, pro
 
   const fps = probe?.fps || 30;
   const gop = Math.round(fps * 2);
-  const sourceBps = probe?.videoBitrate || 3_500_000;
-  const targetKbps = Math.min(Math.round(sourceBps / 1000), 4000);
+  const sourceBps = probe?.videoBitrate || 4_500_000;
+  const targetKbps = Math.min(Math.round(sourceBps / 1000), 6000);
   const maxrateKbps = Math.round(targetKbps * 1.15);
   const bufsizeKbps = targetKbps * 2;
 
@@ -669,10 +673,10 @@ export async function normalizeVideoGop(inputPath, outputPath, jobId = null, pro
  * @param {string} rawUrl
  * @param {object} [opts]
  * @param {boolean} [opts.autoSetActive=false]
- * @param {'720p'|'1080p'|'480p'} [opts.quality='720p']
+ * @param {'1080p'|'720p'|'480p'} [opts.quality='1080p']
  * @returns {Promise<object>} Status object
  */
-export async function startYouTubeDownload(rawUrl, { autoSetActive = false, quality = '720p', force = false } = {}) {
+export async function startYouTubeDownload(rawUrl, { autoSetActive = false, quality = '1080p', force = false } = {}) {
   const raw = (rawUrl || '').trim();
 
   if (!isValidYouTubeUrl(raw)) {
@@ -720,7 +724,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
   _currentJob = {
     id: jobId,
     url,
-    quality: quality || '720p',
+    quality: quality || '1080p',
     stage: 'fetching_info',
     percent: 0,
     speed: '',
@@ -738,7 +742,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
   };
 
   // Run async pipeline in background
-  _executePipeline(jobId, url, autoSetActive, quality || '720p').catch((err) => {
+  _executePipeline(jobId, url, autoSetActive, quality || '1080p').catch((err) => {
     logger.error('ytdlp.pipeline_error', `Pipeline failed for job ${jobId}: ${err.message}`, { error: err.message });
     if (_currentJob && _currentJob.id === jobId && _currentJob.stage !== 'cancelled') {
       _currentJob.stage = 'error';
@@ -752,10 +756,10 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
 
 /**
  * Internal async executor for the download pipeline.
- * Single-pass: downloads in storage-optimized quality (default 720p), detects 16:9 vs 9:16,
+ * Single-pass: downloads in high-bitrate quality (default 1080p), detects 16:9 vs 9:16,
  * registers directly as Stream-Ready without re-encoding, and appends to the playlist.
  */
-async function _executePipeline(jobId, url, autoSetActive, quality = '720p') {
+async function _executePipeline(jobId, url, autoSetActive, quality = '1080p') {
   const incomingDir = PATHS.videosIncoming;
   const rawPath = path.join(incomingDir, `ytdl_${jobId}.mp4`);
 
@@ -1021,7 +1025,7 @@ export function parseYtDlpProgressLine(line, job) {
  * Download raw video stream using yt-dlp with real-time title & progress parsing.
  * Single-pass: prints title before download and streams format simultaneously.
  */
-async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null, extraSort = null, quality = '720p' } = {}) {
+async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null, extraSort = null, quality = '1080p' } = {}) {
   const baseArgs = await _buildYtDlpBaseArgs();
   const qualityCfg = getYtDlpFormatAndSort(quality);
 
@@ -1151,11 +1155,11 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
  */
 function _convertVideo(inputPath, outputPath, totalDurationSec, jobId, rawBitrate = 0) {
   return new Promise((resolve, reject) => {
-    // Preserve source video bitrate up to 4Mbps max; never blow up file size
-    const maxBitrateBps = 4_000_000;
+    // Preserve source video bitrate up to 6Mbps max; never blow up file size
+    const maxBitrateBps = 6_000_000;
     const targetBitrateBps = rawBitrate > 0 ? Math.min(rawBitrate, maxBitrateBps) : maxBitrateBps;
     const targetKbps = Math.round(targetBitrateBps / 1000);
-    const bufSizeKbps = Math.min(targetKbps * 2, 8000);
+    const bufSizeKbps = Math.min(targetKbps * 2, 12000);
 
     const args = [
       '-i', inputPath,

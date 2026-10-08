@@ -145,7 +145,7 @@ export function createVideosRouter() {
     try {
       const status = await startYouTubeDownload(url, {
         autoSetActive: Boolean(autoSetActive),
-        quality: quality || '720p',
+        quality: quality || '1080p',
         force: Boolean(force),
       });
       res.json({ success: true, status });

@@ -110,17 +110,26 @@ describe('ytdlp-manager — progress parsing', () => {
 });
 
 describe('ytdlp-manager — quality format selection', () => {
-  it('defaults to 720p format and sort to save storage', () => {
+  it('defaults to 1080p high bitrate format and sort', () => {
     const res = getYtDlpFormatAndSort();
-    assert.ok(res.format.includes('1280'));
-    assert.ok(res.sort.includes('res:720'));
+    assert.ok(res.format.includes('1920'));
+    assert.ok(res.sort.includes('res:1080'));
     assert.ok(res.sort.includes('vcodec:h264'));
+    assert.ok(res.sort.includes('vbr'));
   });
 
   it('selects 1080p format and sort when requested', () => {
     const res = getYtDlpFormatAndSort('1080p');
     assert.ok(res.format.includes('1920'));
     assert.ok(res.sort.includes('res:1080'));
+    assert.ok(res.sort.includes('vbr'));
+  });
+
+  it('selects 720p format and sort when requested', () => {
+    const res = getYtDlpFormatAndSort('720p');
+    assert.ok(res.format.includes('1280'));
+    assert.ok(res.sort.includes('res:720'));
+    assert.ok(res.sort.includes('vbr'));
   });
 
   it('selects 480p ultra saver format and sort when requested', () => {

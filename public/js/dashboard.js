@@ -2355,7 +2355,7 @@ function setupYouTubeDownload() {
       return;
     }
 
-    const quality = ytQualitySelect?.value || '720p';
+    const quality = ytQualitySelect?.value || '1080p';
     await triggerYtDownload(url, quality, false);
   });
 
