@@ -218,20 +218,24 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
   const sourceMbps = sourceBitrate > 0 ? (sourceBitrate / 1_000_000) : 0;
 
-  // Codec and GOP compatibility checks (YouTube strictly requires keyframe interval <= 4.0s)
+  // Codec and GOP compatibility checks:
+  // YouTube Live strictly recommends keyframe interval <= 4.0s, but accepts up to 8.5s.
+  // When bandwidth cap is OFF or modePreference allows copy, permit direct stream copy up to 8.5s GOP
+  // so the video preserves 100% master sharpness without lossy real-time ultrafast re-encoding.
   const videoCodec = videoMeta?.probe?.videoCodec;
   const isH264 = !videoCodec || videoCodec === 'h264';
   const pixFmt = videoMeta?.probe?.pixFmt;
   const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
   const maxKeyframe = videoMeta?.probe?.maxKeyframeIntervalSec;
-  const isKeyframeCompliant = maxKeyframe === null || maxKeyframe === undefined || maxKeyframe <= 4.0;
+  const keyframeMaxAllowed = isCapActive ? 4.0 : Math.max(Number(streamCfg.keyframeMaxSeconds) || 8.5, 8.5);
+  const isKeyframeCompliant = maxKeyframe === null || maxKeyframe === undefined || maxKeyframe <= keyframeMaxAllowed;
   const isCompatibleCodec = isH264 && isStandardPixel && isKeyframeCompliant;
 
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {
-    const copyMaxLimit = Number(streamCfg.copyMaxMbps ?? 5.0);
-    // Allow direct stream copy for compatible H.264 files up to the copy ceiling (up to 5.0 Mbps ceiling)
-    const maxCopyCeilingMbps = Math.max(copyMaxLimit * 1.15, isCapActive ? targetMbps * 1.25 : 5.0, 5.0);
+    const copyMaxLimit = Number(streamCfg.copyMaxMbps ?? 8.5);
+    // Allow direct stream copy for compatible H.264 files up to the copy ceiling (up to 8.5 Mbps ceiling)
+    const maxCopyCeilingMbps = Math.max(copyMaxLimit * 1.15, isCapActive ? targetMbps * 1.25 : 8.5, 8.5);
     if (!isCompatibleCodec && streamCfg.allowTranscode !== false) {
       effectiveMode = 'transcode';
     } else if (isCapActive && sourceMbps > maxCopyCeilingMbps && streamCfg.allowTranscode !== false) {
@@ -397,7 +401,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       '-level:v', '4.2',
       '-coder', '1',
       '-bf', '2',
-      '-x264opts', 'rc-lookahead=10:b-adapt=0',
+      '-x264opts', 'aq-mode=1:aq-strength=1.2:rc-lookahead=10:b-adapt=0',
       '-b:v', `${videoKbps}k`,
       '-maxrate', `${maxrateKbps}k`,
       '-bufsize', `${bufSizeKbps}k`,

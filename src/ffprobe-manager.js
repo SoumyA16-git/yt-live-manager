@@ -177,8 +177,8 @@ export function evaluateCompatibility(meta, settings = {}, targetOrientation = '
   const targetRes   = isHorizontalTarget ? '1920x1080' : (streamCfg.resolution || '1080x1920');
   const targetFps   = streamCfg.fps ?? 30;
   const copyMinMbps = streamCfg.copyMinMbps ?? 0.1;
-  const copyMaxMbps = streamCfg.copyMaxMbps ?? 4.0;
-  const keyframeMax = streamCfg.keyframeMaxSeconds ?? 6.0;
+  const copyMaxMbps = streamCfg.copyMaxMbps ?? 8.5;
+  const keyframeMax = streamCfg.keyframeMaxSeconds ?? 8.5;
 
   // 1. Resolution Check
   const currentRes = `${meta.width}x${meta.height}`;
