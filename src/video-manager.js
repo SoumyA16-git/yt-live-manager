@@ -1077,6 +1077,7 @@ export async function importConvertedVideo(tempPath, originalName, {
     probe.isDirectCopy = true;
   }
   const targetOrient = (probe && probe.width >= probe.height) ? 'horizontal' : 'vertical';
+  const compatibility = evaluateCompatibility(probe, settings, targetOrient);
   const keyframeMaxSec = Math.min(4.0, Number(settings.stream?.keyframeMaxSeconds ?? 4.0));
   const isGopCompliant = !probe?.maxKeyframeIntervalSec || probe.maxKeyframeIntervalSec <= keyframeMaxSec;
   if (isDirectCopy && isGopCompliant) {
