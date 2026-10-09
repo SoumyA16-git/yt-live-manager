@@ -41,7 +41,7 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
     return true;
   }
 
-  const studioUrl = autoCfg.url || settings.youtube?.studioUrl || 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
+  const studioUrl = autoCfg.url || settings.youtube?.studioUrl || 'https://studio.youtube.com/video/I9B8mog4d7c/livestreaming';
   const baseTitle = (autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== '')
     ? autoCfg.baseTitle
     : (settings.youtube?.title || '');

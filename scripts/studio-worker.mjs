@@ -133,7 +133,7 @@ async function dismissAnyModals(page) {
 }
 
 async function run() {
-  const targetUrl = process.env.STUDIO_URL || 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
+  const targetUrl = process.env.STUDIO_URL || 'https://studio.youtube.com/video/I9B8mog4d7c/livestreaming';
   const configuredBaseTitle = process.env.STUDIO_BASE_TITLE || '';
   const timeZone = process.env.STUDIO_TIMEZONE || 'Asia/Kolkata';
   const chromePath = process.env.CHROME_BIN || '/usr/bin/google-chrome';
@@ -281,40 +281,60 @@ async function run() {
     log('edit_title_start', 'Looking for Edit button in Title section');
     let titleBox = null;
 
+    const findTitleBox = async () => {
+      return await page.$(
+        'ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ' +
+        'ytcp-social-suggestions-textbox >>> div#textbox, ' +
+        'div#textbox[aria-label*="title" i], ' +
+        '[contenteditable="true"]#textbox'
+      );
+    };
+
     for (let attempt = 1; attempt <= 6; attempt++) {
       // Check if title box is already accessible
-      titleBox = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
+      titleBox = await findTitleBox();
       if (titleBox) {
         log('edit_modal_detected', `Edit modal already opened on attempt ${attempt}`);
         break;
       }
 
-      // Try clicking Edit button via Puppeteer deep selector or evaluate
-      const editBtn = await page.$('ytcp-button#edit-button >>> button, button#edit-button, ytcp-button#edit-button, button[aria-label="Edit"]');
+      // Try clicking Edit button via Puppeteer selector
+      const editBtn = await page.$(
+        'ytls-broadcast-metadata ytcp-button#edit-button, ' +
+        'ytls-broadcast-metadata ytcp-button#edit-button >>> button, ' +
+        'ytcp-button#edit-button, ' +
+        'ytls-broadcast-metadata button, ' +
+        'button[aria-label="Edit"]'
+      );
+
       if (editBtn) {
         await editBtn.click();
         log('edit_button_clicked', `Clicked Edit button via handle on attempt ${attempt}`);
-      } else {
-        await page.evaluate(() => {
-          const candidates = Array.from(document.querySelectorAll('button, ytcp-button'));
-          for (const b of candidates) {
-            const text = (b.innerText || '').trim().toLowerCase();
-            if (text === 'edit') {
-              const inner = b.querySelector('button') || b;
-              inner.click();
-              b.click();
-              return true;
-            }
-          }
-          return false;
-        });
-        log('edit_button_clicked', `Dispatched Edit button click via evaluate on attempt ${attempt}`);
       }
+
+      // Also dispatch DOM click on host and inner button
+      await page.evaluate(() => {
+        const cardBtn = document.querySelector('ytls-broadcast-metadata ytcp-button#edit-button, ytcp-button#edit-button');
+        if (cardBtn) {
+          cardBtn.click();
+          const inner = cardBtn.querySelector('button') || cardBtn.shadowRoot?.querySelector('button');
+          if (inner) inner.click();
+          return true;
+        }
+        const all = Array.from(document.querySelectorAll('button, ytcp-button')).filter(b => (b.innerText || '').trim().toLowerCase() === 'edit');
+        for (const b of all) {
+          b.click();
+          const inner = b.querySelector('button');
+          if (inner) inner.click();
+          return true;
+        }
+        return false;
+      });
 
       // Wait up to 3 seconds for modal to appear
       for (let w = 0; w < 6; w++) {
         await new Promise(r => setTimeout(r, 500));
-        titleBox = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
+        titleBox = await findTitleBox();
         if (titleBox) break;
       }
       if (titleBox) break;
