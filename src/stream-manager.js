@@ -38,6 +38,7 @@ import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage, resetProcessBaseline } from './usage-manager.js';
 import { logger } from './logger.js';
 import { isInsideWindow } from './scheduler.js';
+import { prepareYouTubeStudioStream } from './youtube-studio-automator.js';
 import PATHS from './lib/paths.js';
 
 export const streamEvents = new EventEmitter();
@@ -736,9 +737,9 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       streamMode,
     });
 
-    resetProcessBaseline();
-    _lastProgressTimestamp = Date.now();
-    try {
+    const launchProcesses = async () => {
+      resetProcessBaseline();
+      _lastProgressTimestamp = Date.now();
       const { pid } = await spawnFfmpeg({
         args: publisherArgs,
         mode: streamMode,
@@ -863,6 +864,59 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         streamMode,
         isDualStream: false,
       };
+    };
+
+    let launchResult = null;
+    let launchError = null;
+
+    const doLaunch = async () => {
+      if (launchResult) return launchResult;
+      try {
+        launchResult = await launchProcesses();
+      } catch (err) {
+        launchError = err;
+        throw err;
+      }
+      return launchResult;
+    };
+
+    try {
+      // YouTube Studio Automation workflow (if enabled and on Linux):
+      // 1. Opens Chrome with Live Control Panel
+      // 2. Dismisses previous stream finished modal if present
+      // 3. Edits title to baseTitle + current date + current time
+      // 4. Saves title and triggers FFmpeg spawn via doLaunch
+      // 5. Waits for preview to connect, waits 10s, closes Chrome!
+      if (settings.studioAutomation?.enabled !== false && process.platform === 'linux') {
+        logger.info('stream.studio_auto_invoked', `Preparing YouTube Studio prior to stream start (reason: ${reason})`);
+        const autoPromise = prepareYouTubeStudioStream({
+          settings,
+          onReadyToStream: async () => {
+            await doLaunch();
+          },
+        });
+
+        // Poll until launchResult or error, with safe fallback timeout of 50s
+        const maxWaitMs = 50000;
+        const t0 = Date.now();
+        while (!launchResult && !launchError && (Date.now() - t0 < maxWaitMs)) {
+          await new Promise(r => setTimeout(r, 250));
+        }
+
+        if (!launchResult && !launchError) {
+          logger.warn('stream.studio_auto_timeout', 'Studio automation ready signal timed out; starting stream directly');
+          await doLaunch();
+        }
+
+        autoPromise.catch(err => {
+          logger.warn('stream.studio_auto_bg_error', `Studio automation background task error: ${err.message}`);
+        });
+      } else {
+        await doLaunch();
+      }
+
+      if (launchError) throw launchError;
+      return launchResult;
     } catch (err) {
       logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);
       await transitionState('ERROR', err.message);

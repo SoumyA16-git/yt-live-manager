@@ -101,6 +101,17 @@ export const DEFAULTS = Object.freeze({
   disk: { warnPercent: 80, criticalPercent: 90, emergencyPercent: 95 },
   logs: { level: 'info', maxFileMB: 10, maxFiles: 5 },
   backups: { keep: 20, minIntervalSeconds: 3600 },
+  studioAutomation: {
+    enabled: true,
+    url: 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming',
+    baseTitle: '',
+    timezone: 'Asia/Kolkata',
+    previewWaitSec: 10,
+    timeoutMs: 120000,
+    display: ':10',
+    chromePath: '/usr/bin/google-chrome',
+    userDataDir: '/home/ubuntu/.config/google-chrome',
+  },
   ui: { pollSeconds: 3 },
 });
 

@@ -1330,6 +1330,24 @@
             </div>
             <div id="key-hint-text" class="form-hint">Canonical YouTube stream key used for live broadcast transmission in both Horizontal and Vertical modes.</div>
           </div>
+
+          <!-- YouTube Live Studio Automation & Base Title -->
+          <div class="form-group">
+            <label class="form-label" for="cfg-studio-base-title">
+              <span>YouTube Live Base Title</span>
+              <span class="badge-tag compatible">Auto Studio</span>
+            </label>
+            <input type="text" id="cfg-studio-base-title" class="form-control"
+              placeholder="e.g. Chinese Street food Live Streaming Mochi" autocomplete="off">
+            <div class="form-hint">Base title set automatically in YouTube Studio before going live. The current date &amp; time will be appended (e.g. "Base Title 09-10-2026 06:30 AM").</div>
+          </div>
+
+          <div class="form-group checkbox-group" style="margin-top: 0.5rem; margin-bottom: 0.75rem;">
+            <label class="checkbox-label" for="cfg-studio-auto-enabled">
+              <input type="checkbox" id="cfg-studio-auto-enabled" checked>
+              <span>Auto-manage YouTube Studio (Dismiss popup, update Title, verify Preview before closing Chrome)</span>
+            </label>
+          </div>
         </div>
 
         <!-- Section 2: Encoding Engine & Quality -->

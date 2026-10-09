@@ -225,6 +225,8 @@ const btnCancelSettings = document.getElementById('btn-cancel-settings');
 const settingsForm = document.getElementById('settings-form');
 const cfgRtmpsUrl = document.getElementById('cfg-rtmps-url');
 const cfgStreamKey = document.getElementById('cfg-stream-key');
+const cfgStudioBaseTitle = document.getElementById('cfg-studio-base-title');
+const cfgStudioAutoEnabled = document.getElementById('cfg-studio-auto-enabled');
 const btnRevealKey = document.getElementById('btn-reveal-key');
 const keyHintText = document.getElementById('key-hint-text');
 const cfgModePref = document.getElementById('cfg-mode-pref');
@@ -1800,6 +1802,13 @@ async function openSettings() {
     if (iconEyeHide) iconEyeHide.style.display = 'none';
     if (btnRevealText) btnRevealText.textContent = 'Show';
 
+    if (cfgStudioBaseTitle) {
+      cfgStudioBaseTitle.value = settings.studioAutomation?.baseTitle || settings.youtube?.title || '';
+    }
+    if (cfgStudioAutoEnabled) {
+      cfgStudioAutoEnabled.checked = settings.studioAutomation?.enabled !== false;
+    }
+
     updateKeyFeedback();
 
     cfgModePref.value = settings.stream?.modePreference || 'auto';
@@ -2743,7 +2752,15 @@ async function init() {
         ...(Number.isFinite(safetyLimit) ? { safetyLimitTB: safetyLimit } : {}),
         ...(Number.isFinite(overhead) ? { overheadPercent: overhead } : {}),
       },
+      studioAutomation: {
+        enabled: cfgStudioAutoEnabled ? cfgStudioAutoEnabled.checked : true,
+        baseTitle: cfgStudioBaseTitle ? cfgStudioBaseTitle.value.trim() : '',
+      },
     };
+
+    if (cfgStudioBaseTitle) {
+      patch.youtube.title = cfgStudioBaseTitle.value.trim();
+    }
 
     if (cfgStreamKey.value.trim()) {
       patch.youtube.streamKey = cfgStreamKey.value.trim();
