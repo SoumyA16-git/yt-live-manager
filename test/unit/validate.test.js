@@ -222,27 +222,20 @@ describe('validateSettings — bandwidth section', () => {
   });
 });
 
-describe('validateSettings — YouTube Studio target', () => {
-  test('accepts the configured YouTube Studio broadcast URL', () => {
+describe('validateSettings — YouTube Studio automation', () => {
+  test('accepts Studio automation settings without a fixed control-room URL', () => {
     const { valid, errors } = validateSettings({
       studioAutomation: {
-        url: 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming',
+        enabled: true,
+        baseTitle: 'Test title',
       },
     });
     assert.ok(valid, errors.join(', '));
   });
 
-  test('rejects a Studio URL that is not a broadcast control room', () => {
+  test('rejects legacy fixed Studio URL settings', () => {
     const { valid, errors } = validateSettings({
       studioAutomation: { url: 'https://studio.youtube.com/livestreaming' },
-    });
-    assert.ok(!valid);
-    assert.ok(errors.some(error => error.includes('studioAutomation.url')));
-  });
-
-  test('rejects URLs outside YouTube Studio', () => {
-    const { valid, errors } = validateSettings({
-      studioAutomation: { url: 'https://example.com/video/uJyJyeNDoMM/livestreaming' },
     });
     assert.ok(!valid);
     assert.ok(errors.some(error => error.includes('studioAutomation.url')));

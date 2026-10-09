@@ -66,7 +66,7 @@ describe('config-manager — loadSettings', () => {
     assert.equal(redact('Streaming to my-secret-key-1234 now'), 'Streaming to **** now');
   });
 
-  test('migrates the obsolete default Studio broadcast URL to the configured broadcast', async () => {
+  test('migrates old Studio URL settings away for dynamic home-page navigation', async () => {
     const sPath = path.join(tmpDir, 'studio-target-migration.json');
     const bDir  = path.join(tmpDir, 'backups-studio-migration');
     _setPathsForTest(sPath, bDir);
@@ -77,11 +77,13 @@ describe('config-manager — loadSettings', () => {
         enabled: true,
         url: 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming',
       },
+      youtube: { studioUrl: 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming' },
     }), 'utf8');
 
     const cfg = await loadSettings();
-    assert.equal(cfg.schemaVersion, 2);
-    assert.equal(cfg.studioAutomation.url, 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming');
+    assert.equal(cfg.schemaVersion, 3);
+    assert.equal(Object.hasOwn(cfg.studioAutomation, 'url'), false);
+    assert.equal(Object.hasOwn(cfg.youtube, 'studioUrl'), false);
   });
 });
 

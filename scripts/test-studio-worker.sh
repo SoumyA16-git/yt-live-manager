@@ -15,11 +15,9 @@ export NODE_PATH="$APP_ROOT/node_modules"
 # Load settings from config
 SETTINGS="$APP_ROOT/config/settings.json"
 if [ -f "$SETTINGS" ]; then
-  STUDIO_URL=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('url', d.get('youtube',{}).get('studioUrl','https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming')))" 2>/dev/null || echo "https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming")
   STUDIO_BASE_TITLE=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('baseTitle', d.get('youtube',{}).get('title','')))" 2>/dev/null || echo "")
   STUDIO_TIMEZONE=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('timezone', d.get('scheduler',{}).get('timezone','Asia/Kolkata')))" 2>/dev/null || echo "Asia/Kolkata")
 else
-  STUDIO_URL="https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming"
   STUDIO_BASE_TITLE=""
   STUDIO_TIMEZONE="Asia/Kolkata"
 fi
@@ -27,7 +25,7 @@ fi
 echo "============================================================"
 echo "  STUDIO WORKER TEST — Title update only, no stream start"
 echo "============================================================"
-echo "  URL:        $STUDIO_URL"
+echo "  Navigation: Studio home → Live action → current control room"
 echo "  Base Title: ${STUDIO_BASE_TITLE:-'(read from Studio)'}"
 echo "  Timezone:   $STUDIO_TIMEZONE"
 echo "  Worker:     $WORKER"
@@ -46,7 +44,6 @@ if pgrep -x ffmpeg >/dev/null 2>&1; then
 fi
 
 export DISPLAY=:10
-export STUDIO_URL
 export STUDIO_BASE_TITLE
 export STUDIO_TIMEZONE
 export STUDIO_PREVIEW_WAIT_SEC=3

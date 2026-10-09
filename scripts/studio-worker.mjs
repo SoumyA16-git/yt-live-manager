@@ -8,7 +8,7 @@
  *  1. Sync Chrome profile
  *  2. Launch Chrome, wait for debug port
  *  3. Connect Puppeteer
- *  4. Navigate to Studio URL, verify correct page loaded + logged in
+ *  4. Open Studio home, click its Live action, verify the current control room
  *  5. Dismiss blocking modals and verify they close
  *  6. Wait for page to settle
  *  7. Click Edit button → VERIFY modal opened (throw if not)
@@ -112,6 +112,170 @@ async function waitFor(fn, ms = 8000, pollMs = 300) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+/** Locate Studio's visible Live/Go live action, including open Polymer roots. */
+async function findStudioLiveAction(page, createOnly = false) {
+  return page.evaluate((createOnly) => {
+    const visible = el => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+        style.visibility !== 'hidden' && style.opacity !== '0';
+    };
+    const normalize = value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const candidates = [];
+    const visited = new Set();
+    const selector = 'a, button, [role="button"], [aria-label], [title], ytcp-button, ' +
+      'tp-yt-paper-button, ytcp-icon-button, tp-yt-paper-icon-button, ytcp-navigation-drawer-item';
+    const visit = root => {
+      if (!root || visited.has(root)) return;
+      visited.add(root);
+      for (const el of root.querySelectorAll(selector)) candidates.push(el);
+      for (const host of root.querySelectorAll('*')) {
+        if (host.shadowRoot) visit(host.shadowRoot);
+      }
+    };
+    visit(document);
+
+    const matches = candidates.flatMap(el => {
+      if (!visible(el)) return [];
+      const labels = [el.innerText, el.textContent, el.getAttribute('aria-label'), el.getAttribute('title')]
+        .map(normalize).filter(Boolean);
+      const href = el.getAttribute('href') || '';
+      const isCreate = labels.includes('create');
+      let score = 0;
+      if (createOnly) {
+        if (!isCreate) return [];
+        score = 1;
+      } else {
+        if (labels.some(label => /^go live(?: now)?$/.test(label) || /^start live(?: streaming)?$/.test(label))) score = 5;
+        else if (labels.some(label => /^live(?: streaming| control room| control panel)?$/.test(label))) score = 4;
+        else if (/\/livestreaming(?:\/|$)/i.test(href)) score = 2;
+        if (!score) return [];
+      }
+      const innerButton = el.shadowRoot?.querySelector('button, [role="button"]') ||
+        el.querySelector('button, [role="button"]');
+      const disabled = el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true' ||
+        Boolean(el.disabled) || Boolean(innerButton?.disabled) || innerButton?.getAttribute('aria-disabled') === 'true';
+      const rect = el.getBoundingClientRect();
+      return [{
+        score,
+        disabled,
+        text: labels[0] || href || el.tagName.toLowerCase(),
+        tag: el.tagName,
+        href,
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      }];
+    });
+    matches.sort((a, b) => b.score - a.score);
+    return matches[0] || null;
+  }, createOnly);
+}
+
+/** Start at Studio home and follow its own Live action to the current control room. */
+async function navigateToLiveControlRoom(browser, page) {
+  const homeUrl = 'https://studio.youtube.com/';
+  log('step4_home', 'Opening YouTube Studio home', { homeUrl });
+  await page.goto(homeUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  const homeReady = await waitFor(() => page.evaluate(() =>
+    document.readyState !== 'loading' && Boolean(document.body)), 20000, 300);
+  if (!homeReady) throw new Error('FATAL: YouTube Studio home did not finish loading');
+
+  const homeInfo = await page.evaluate(() => ({
+    url: window.location.href,
+    title: document.title,
+    isSignedOut: !!document.querySelector('ytd-signin-renderer, [data-screen="signin"]'),
+  }));
+  log('step4_home_loaded', 'Studio home loaded', homeInfo);
+  if (homeInfo.isSignedOut || /accounts\.google\.com|\/signin/i.test(homeInfo.url)) {
+    throw new Error('FATAL: Chrome is not logged into YouTube — sign in required');
+  }
+  if (new URL(homeInfo.url).hostname !== 'studio.youtube.com') {
+    throw new Error(`FATAL: Studio home redirected away from YouTube Studio: ${homeInfo.url}`);
+  }
+
+  let action = null;
+  await waitFor(async () => {
+    action = await findStudioLiveAction(page);
+    return Boolean(action);
+  }, 15000, 400);
+  if (!action) {
+    let create = null;
+    await waitFor(async () => {
+      create = await findStudioLiveAction(page, true);
+      return Boolean(create);
+    }, 5000, 400);
+    if (create) {
+      if (create.disabled) throw new Error(`FATAL: Studio Create action is disabled: ${JSON.stringify(create)}`);
+      log('step4_create_menu', 'Opening Studio Create menu to find its Go live action', create);
+      await page.mouse.click(create.x, create.y);
+      await waitFor(async () => {
+        action = await findStudioLiveAction(page);
+        return Boolean(action);
+      }, 10000, 300);
+    }
+  }
+  if (!action) {
+    const visibleLabels = await page.evaluate(() => {
+      const found = [];
+      const roots = new Set();
+      const visit = root => {
+        if (!root || roots.has(root)) return;
+        roots.add(root);
+        for (const el of root.querySelectorAll(
+          'a, button, [role="button"], [aria-label], [title], ytcp-button, ytcp-icon-button, tp-yt-paper-icon-button'
+        )) {
+          const text = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim();
+          if (text) found.push(text.slice(0, 80));
+        }
+        for (const host of root.querySelectorAll('*')) if (host.shadowRoot) visit(host.shadowRoot);
+      };
+      visit(document);
+      return [...new Set(found)].slice(0, 30);
+    });
+    throw new Error(`FATAL: Could not find a visible Live/Go live action on Studio home. Visible actions: ${JSON.stringify(visibleLabels)}`);
+  }
+  if (action.disabled) throw new Error(`FATAL: Studio Live action is disabled: ${JSON.stringify(action)}`);
+
+  const pagesBeforeLiveClick = new Set(await browser.pages());
+  log('step4_live_click', 'Clicking the Live action found on Studio home', action);
+  await page.mouse.click(action.x, action.y);
+
+  let controlPage = null;
+  const arrived = await waitFor(async () => {
+    const pages = await browser.pages();
+    for (const candidate of pages) {
+      try {
+        const url = new URL(candidate.url());
+        const wasExistingUnchangedTab = pagesBeforeLiveClick.has(candidate) && candidate !== page;
+        if (!wasExistingUnchangedTab && url.hostname === 'studio.youtube.com' && /livestream/i.test(url.pathname)) {
+          controlPage = candidate;
+          return true;
+        }
+      } catch {}
+    }
+    return false;
+  }, 30000, 400);
+  if (!arrived || !controlPage) {
+    const pages = await browser.pages();
+    const currentUrls = pages.map(candidate => candidate.url());
+    throw new Error(`FATAL: Studio Live action did not open a livestream control room within 30s. Open pages: ${JSON.stringify(currentUrls)}`);
+  }
+
+  await controlPage.setDefaultTimeout(35000);
+  const controlInfo = await controlPage.evaluate(() => ({
+    url: window.location.href,
+    title: document.title,
+    isSignedOut: !!document.querySelector('ytd-signin-renderer, [data-screen="signin"]'),
+  }));
+  if (controlInfo.isSignedOut || /accounts\.google\.com|\/signin/i.test(controlInfo.url)) {
+    throw new Error('FATAL: Studio Live action led to a signed-out page');
+  }
+  log('step4_control_room', 'Studio Live action opened the current control room', controlInfo);
+  return controlPage;
+}
 
 async function readTitleField(page) {
   return page.evaluate(() => {
@@ -659,7 +823,6 @@ async function verifyPersistedTitle(page, expectedTitle, timeZone, configuredBas
 // ---------------------------------------------------------------------------
 
 async function run() {
-  const targetUrl       = process.env.STUDIO_URL || 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming';
   const configBaseTitle = process.env.STUDIO_BASE_TITLE || '';
   const timeZone        = process.env.STUDIO_TIMEZONE || 'Asia/Kolkata';
   const chromePath      = process.env.CHROME_BIN || '/usr/bin/google-chrome';
@@ -670,7 +833,7 @@ async function run() {
   const timeoutMs       = Number(process.env.STUDIO_TIMEOUT_MS) || 180000;
   const debugPort       = 9222;
 
-  log('start', 'Studio worker starting', { targetUrl, display, timeoutMs });
+  log('start', 'Studio worker starting', { studioHome: 'https://studio.youtube.com/', display, timeoutMs });
 
   let browser = null;
   let chromeProcess = null;
@@ -779,41 +942,16 @@ async function run() {
     });
 
     const pages = await browser.pages();
-    const page = pages.length > 0 ? pages[0] : await browser.newPage();
+    let page = pages.length > 0 ? pages[0] : await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
     page.setDefaultTimeout(35000);
     log('step3_ok', 'Puppeteer connected');
 
     // -----------------------------------------------------------------------
-    // STEP 4: Navigate to Studio and verify correct page + logged in
+    // STEP 4: Open Studio home, click its Live action, and follow the current control room
     // -----------------------------------------------------------------------
-    log('step4_navigate', `Navigating to: ${targetUrl}`);
-    await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 60000 });
-
-    const pageInfo = await page.evaluate(() => ({
-      url: window.location.href,
-      title: document.title,
-      isSignedOut: !!document.querySelector('ytd-signin-renderer, [data-screen="signin"]'),
-    }));
-    log('step4_loaded', 'Page loaded', pageInfo);
-
-    const expectedStudioUrl = new URL(targetUrl);
-    const actualStudioUrl = new URL(pageInfo.url);
-    const expectedVideoId = expectedStudioUrl.pathname.match(/\/video\/([^/]+)/)?.[1];
-    const actualVideoId = actualStudioUrl.pathname.match(/\/video\/([^/]+)/)?.[1];
-    if (pageInfo.isSignedOut || /accounts\.google\.com|\/signin/i.test(pageInfo.url)) {
-      throw new Error('FATAL: Chrome is not logged into YouTube — sign in required');
-    }
-    if (actualStudioUrl.hostname !== 'studio.youtube.com') {
-      throw new Error(`FATAL: Redirected away from Studio: ${pageInfo.url}`);
-    }
-    if (!expectedVideoId || actualVideoId !== expectedVideoId) {
-      throw new Error(`FATAL: Studio opened the wrong broadcast (expected ${expectedVideoId || 'video route'}, got ${actualVideoId || pageInfo.url})`);
-    }
-    if (!actualStudioUrl.pathname.includes('/livestreaming')) {
-      throw new Error(`FATAL: Studio did not open the livestream control room: ${pageInfo.url}`);
-    }
-    log('step4_ok', 'Correct livestream control room and signed-in Studio session verified');
+    page = await navigateToLiveControlRoom(browser, page);
+    log('step4_ok', 'Dynamic Studio control room and signed-in session verified', { url: page.url() });
 
     // -----------------------------------------------------------------------
     // STEP 5: Dismiss any blocking modals

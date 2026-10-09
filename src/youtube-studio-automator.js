@@ -25,7 +25,6 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
     throw asError(`Studio automation requires Linux, current platform is ${process.platform}`);
   }
 
-  const studioUrl = autoCfg.url || settings.youtube?.studioUrl || 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming';
   const baseTitle = autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== ''
     ? autoCfg.baseTitle
     : (settings.youtube?.title || '');
@@ -43,7 +42,6 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
   if (!onReadyToStream) throw asError('A stream launch callback is required for strict Studio automation');
 
   logger.info('studio_auto.start', 'Starting strict YouTube Studio automation', {
-    studioUrl,
     baseTitle,
     timeZone,
     display,
@@ -64,7 +62,6 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
 
     const workerEnv = {
       ...process.env,
-      STUDIO_URL: studioUrl,
       STUDIO_BASE_TITLE: baseTitle,
       STUDIO_TIMEZONE: timeZone,
       STUDIO_PREVIEW_WAIT_SEC: String(previewWaitSec),

@@ -156,7 +156,6 @@ const SCHEDULER_SCHEMA = {
 
 const STUDIO_AUTOMATION_SCHEMA = {
   enabled:       { type: 'boolean' },
-  url:           { type: 'string', minLen: 1, maxLen: 512 },
   baseTitle:     { type: 'string', maxLen: 256 },
   timezone:      { type: 'string', minLen: 1, maxLen: 64 },
   previewWaitSec:{ type: 'number', min: 0, max: 300 },
@@ -481,17 +480,6 @@ export function validateSettings(input, { partial = true } = {}) {
     } else {
       for (const [key, spec] of Object.entries(STUDIO_AUTOMATION_SCHEMA)) {
         if (studio[key] !== undefined) validateField(`studioAutomation.${key}`, studio[key], spec, errors);
-      }
-      if (studio.url !== undefined && typeof studio.url === 'string') {
-        try {
-          const url = new URL(studio.url);
-          if (url.protocol !== 'https:' || url.hostname !== 'studio.youtube.com' ||
-              !/^\/video\/[A-Za-z0-9_-]+\/livestreaming\/?$/.test(url.pathname)) {
-            errors.push(fieldErr('studioAutomation.url', 'must be a YouTube Studio broadcast URL ending in /video/VIDEO_ID/livestreaming'));
-          }
-        } catch {
-          errors.push(fieldErr('studioAutomation.url', 'must be a valid HTTPS YouTube Studio broadcast URL'));
-        }
       }
       if (studio.timezone !== undefined) validateTimezone('studioAutomation.timezone', studio.timezone, errors);
       for (const key of Object.keys(studio)) {

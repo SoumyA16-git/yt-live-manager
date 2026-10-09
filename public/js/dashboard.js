@@ -225,7 +225,6 @@ const btnCancelSettings = document.getElementById('btn-cancel-settings');
 const settingsForm = document.getElementById('settings-form');
 const cfgRtmpsUrl = document.getElementById('cfg-rtmps-url');
 const cfgStreamKey = document.getElementById('cfg-stream-key');
-const cfgStudioUrl = document.getElementById('cfg-studio-url');
 const cfgStudioBaseTitle = document.getElementById('cfg-studio-base-title');
 const cfgStudioAutoEnabled = document.getElementById('cfg-studio-auto-enabled');
 const btnRevealKey = document.getElementById('btn-reveal-key');
@@ -1933,9 +1932,6 @@ async function openSettings() {
     if (iconEyeHide) iconEyeHide.style.display = 'none';
     if (btnRevealText) btnRevealText.textContent = 'Show';
 
-    if (cfgStudioUrl) {
-      cfgStudioUrl.value = settings.studioAutomation?.url || 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming';
-    }
     if (cfgStudioBaseTitle) {
       cfgStudioBaseTitle.value = settings.studioAutomation?.baseTitle || settings.youtube?.title || '';
     }
@@ -2888,7 +2884,6 @@ async function init() {
       },
       studioAutomation: {
         enabled: cfgStudioAutoEnabled ? cfgStudioAutoEnabled.checked : true,
-        url: cfgStudioUrl ? cfgStudioUrl.value.trim() : '',
         baseTitle: cfgStudioBaseTitle ? cfgStudioBaseTitle.value.trim() : '',
       },
     };

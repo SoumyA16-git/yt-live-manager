@@ -16,20 +16,20 @@ import PATHS from './lib/paths.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
-export const SCHEMA_VERSION = 2;
-
-const PREVIOUS_STUDIO_TARGET = 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
-const CURRENT_STUDIO_TARGET = 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming';
+export const SCHEMA_VERSION = 3;
 
 /** Migration table: { fromVersion → (data) => migratedData } */
 const MIGRATIONS = {
-  1: data => {
-    const migrated = { ...data, schemaVersion: 2 };
-    if (data.studioAutomation?.url === PREVIOUS_STUDIO_TARGET) {
-      migrated.studioAutomation = {
-        ...data.studioAutomation,
-        url: CURRENT_STUDIO_TARGET,
-      };
+  1: data => ({ ...data, schemaVersion: 2 }),
+  2: data => {
+    const migrated = { ...data, schemaVersion: 3 };
+    if (data.studioAutomation && typeof data.studioAutomation === 'object') {
+      migrated.studioAutomation = { ...data.studioAutomation };
+      delete migrated.studioAutomation.url;
+    }
+    if (data.youtube && typeof data.youtube === 'object') {
+      migrated.youtube = { ...data.youtube };
+      delete migrated.youtube.studioUrl;
     }
     return migrated;
   },
@@ -115,7 +115,6 @@ export const DEFAULTS = Object.freeze({
   backups: { keep: 20, minIntervalSeconds: 3600 },
   studioAutomation: {
     enabled: true,
-    url: CURRENT_STUDIO_TARGET,
     baseTitle: '',
     timezone: 'Asia/Kolkata',
     previewWaitSec: 10,
