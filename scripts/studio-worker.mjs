@@ -198,7 +198,8 @@ async function openTitleEditor(page, attempts = 6) {
 }
 
 async function typeTitleIntoEditor(page, title) {
-  const selected = await page.evaluate(() => {
+  // Find the title textbox element and get its bounding box for real click
+  const box = await page.evaluate(() => {
     const candidates = Array.from(document.querySelectorAll(
       'div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, ' +
       '[contenteditable="true"]#textbox, div#textbox, [contenteditable="true"]'
@@ -211,21 +212,50 @@ async function typeTitleIntoEditor(page, title) {
       const aria = (el.getAttribute('aria-label') || '').toLowerCase();
       const parentText = (el.parentElement?.textContent || '').toLowerCase();
       if (aria.includes('description') || (!aria.includes('title') && parentText.includes('description'))) continue;
-
-      el.focus();
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      return true;
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     }
-    return false;
+    return null;
   });
 
-  if (!selected) return false;
-  await page.keyboard.type(title, { delay: 8 });
-  return (await readTitleEditor(page)) === title;
+  if (!box) return false;
+
+  // Real mouse click to properly focus the element
+  await page.mouse.click(box.x, box.y);
+  await new Promise(r => setTimeout(r, 300));
+
+  // Select all existing text with Ctrl+A, then delete it
+  await page.keyboard.down('Control');
+  await page.keyboard.press('KeyA');
+  await page.keyboard.up('Control');
+  await new Promise(r => setTimeout(r, 150));
+  await page.keyboard.press('Backspace');
+  await new Promise(r => setTimeout(r, 150));
+
+  // Type the new title character by character
+  await page.keyboard.type(title, { delay: 10 });
+  await new Promise(r => setTimeout(r, 200));
+
+  // Dispatch an input event to trigger YouTube's change detection
+  await page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll(
+      'div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, ' +
+      '[contenteditable="true"]#textbox, div#textbox, [contenteditable="true"]'
+    ));
+    for (const el of candidates) {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      if (rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden') continue;
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      const parentText = (el.parentElement?.textContent || '').toLowerCase();
+      if (aria.includes('description') || (!aria.includes('title') && parentText.includes('description'))) continue;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      break;
+    }
+  });
+
+  const typedTitle = await readTitleEditor(page);
+  return typedTitle === title;
 }
 
 async function saveTitleEditor(page, attempts = 15) {
