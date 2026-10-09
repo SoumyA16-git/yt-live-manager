@@ -265,11 +265,30 @@ async function navigateToLiveControlRoom(browser, page) {
   }
 
   await controlPage.setDefaultTimeout(35000);
-  const controlInfo = await controlPage.evaluate(() => ({
-    url: window.location.href,
-    title: document.title,
-    isSignedOut: !!document.querySelector('ytd-signin-renderer, [data-screen="signin"]'),
-  }));
+  let controlInfo = null;
+  const controlInfoReady = await waitFor(async () => {
+    try {
+      controlInfo = await controlPage.evaluate(() => {
+        if (document.readyState === 'loading') return null;
+        return {
+          url: window.location.href,
+          title: document.title,
+          isSignedOut: !!document.querySelector('ytd-signin-renderer, [data-screen="signin"]'),
+        };
+      });
+      return Boolean(controlInfo);
+    } catch (err) {
+      // A URL can change before Chromium has installed the new document's
+      // execution context. Retry these navigation races; surface other errors.
+      if (/execution context was destroyed|cannot find context|target closed|session closed/i.test(err.message)) {
+        return false;
+      }
+      throw err;
+    }
+  }, 20000, 300);
+  if (!controlInfoReady) {
+    throw new Error(`FATAL: Studio control-room page did not settle after navigation: ${controlPage.url()}`);
+  }
   if (controlInfo.isSignedOut || /accounts\.google\.com|\/signin/i.test(controlInfo.url)) {
     throw new Error('FATAL: Studio Live action led to a signed-out page');
   }
