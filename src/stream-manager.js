@@ -901,56 +901,88 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     };
 
     try {
-      // YouTube Studio Automation workflow (if enabled and on Linux):
-      // 1. Opens Chrome with Live Control Panel
-      // 2. Dismisses previous stream finished modal if present
-      // 3. Edits title to baseTitle + current date + current time
-      // 4. Saves title and triggers FFmpeg spawn via doLaunch
-      // 5. Waits for preview to connect, waits 10s, closes Chrome!
-      if (settings.studioAutomation?.enabled !== false && process.platform === 'linux') {
-        logger.info('stream.studio_auto_invoked', `Preparing YouTube Studio prior to stream start (reason: ${reason})`);
-        const autoPromise = prepareYouTubeStudioStream({
-          settings,
-          onReadyToStream: async () => {
-            await doLaunch();
-          },
-        });
+      if (settings.studioAutomation?.enabled !== false) {
+        if (process.platform !== 'linux') {
+          throw Object.assign(new Error(`Studio automation is enabled but unsupported on ${process.platform}`), {
+            code: 'E_STUDIO_PLATFORM',
+          });
+        }
 
-        // Poll until launchResult or timeout of 50s
-        const maxWaitMs = 50000;
-        const t0 = Date.now();
-        while (!launchResult && (Date.now() - t0 < maxWaitMs)) {
-          if (launchPromise) {
+        logger.info('stream.studio_auto_invoked', `Starting strict YouTube Studio gates (reason: ${reason})`);
+        try {
+          const startupTimeoutMs = ((settings.stream?.startupTimeoutSeconds ?? 30) * 1000) + 5000;
+          const verifiedLaunch = await prepareYouTubeStudioStream({
+            settings,
+            onReadyToStream: async () => {
+              const result = await doLaunch();
+              if (!result?.started) {
+                throw Object.assign(new Error(result?.message || 'FFmpeg process did not start'), {
+                  code: result?.code || 'E_STREAM_START_FAILED',
+                });
+              }
+
+              const deadline = Date.now() + startupTimeoutMs;
+              while (Date.now() < deadline) {
+                const current = getState();
+                if (current.status === 'RUNNING' && isFfmpegRunning()) return result;
+                if (!isFfmpegRunning() && current.status === 'ERROR') {
+                  throw Object.assign(new Error(current.lastError?.message || 'FFmpeg exited before output became healthy'), {
+                    code: current.lastError?.code || 'E_STREAM_HEALTH_FAILED',
+                  });
+                }
+                await new Promise(r => setTimeout(r, 250));
+              }
+
+              throw Object.assign(new Error(`RTMPS output did not become healthy within ${startupTimeoutMs}ms`), {
+                code: 'E_STREAM_HEALTH_TIMEOUT',
+              });
+            },
+          });
+
+          if (!verifiedLaunch?.started || verifiedLaunch.studioVerified !== true) {
+            throw Object.assign(new Error('Studio worker did not confirm every startup stage'), {
+              code: 'E_STUDIO_VERIFICATION_FAILED',
+            });
+          }
+          launchResult = launchResult || verifiedLaunch;
+          const finalState = getState();
+          if (finalState.status !== 'RUNNING' || !isFfmpegRunning()) {
+            throw Object.assign(new Error('Stream lost healthy RTMPS output before Studio confirmed the broadcast live'), {
+              code: 'E_STREAM_HEALTH_LOST',
+            });
+          }
+        } catch (err) {
+          // Disarm the regular recovery path before stopping a publisher whose
+          // Studio gate failed, so failure cannot silently restart via fallback.
+          try {
+            await saveState({ desiredState: 'stopped' });
+          } catch (stateErr) {
+            logger.error('stream.studio_auto_state_error', `Could not disarm retries after Studio gate failure: ${stateErr.message}`);
+          }
+          if (launchResult?.started || isFfmpegRunning()) {
             try {
-              launchResult = await launchPromise;
-              break;
-            } catch (err) {
-              throw err;
+              await stopStream({ keepDesiredRunning: false, reason: 'studio_start_gate_failed' });
+            } catch (stopErr) {
+              logger.error('stream.studio_auto_cleanup_error', `Could not stop publisher after Studio gate failure: ${stopErr.message}`);
             }
           }
-          await new Promise(r => setTimeout(r, 250));
+          err.code ||= 'E_STUDIO_AUTOMATION';
+          throw err;
         }
-
-        if (!launchResult && !launchPromise) {
-          logger.warn('stream.studio_auto_timeout', 'Studio automation ready signal timed out; starting stream directly');
-          launchResult = await doLaunch();
-        }
-
-        autoPromise.catch(err => {
-          logger.warn('stream.studio_auto_bg_error', `Studio automation background task error: ${err.message}`);
-        });
       } else {
+        logger.info('stream.studio_auto_disabled', 'Studio automation explicitly disabled; using configured direct stream startup');
         launchResult = await doLaunch();
       }
 
       return launchResult;
     } catch (err) {
-      logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);
+      logger.error('stream.start_failed', `Stream startup gate failed: ${err.message}`);
       await transitionState('ERROR', err.message);
       await saveState({
-        lastError: { code: err.code || 'E_SPAWN_FAILED', message: err.message, at: new Date().toISOString() },
+        desiredState: 'stopped',
+        lastError: { code: err.code || 'E_START_FAILED', message: err.message, at: new Date().toISOString() },
       });
-      return { started: false, code: err.code || 'E_SPAWN_FAILED', message: err.message };
+      return { started: false, code: err.code || 'E_START_FAILED', message: err.message };
     }
   } finally {
     _startInProgress = false;
