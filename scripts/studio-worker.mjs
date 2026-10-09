@@ -541,32 +541,48 @@ async function run() {
     emitEvent('ready_to_stream');
 
     // Step 8: Wait for live video preview to appear in YouTube Studio
-    log('waiting_for_preview', 'Waiting for encoder connection and preview video in Studio');
+    // Minimum 8s initial wait: FFmpeg needs time to connect to RTMPS before Studio shows preview.
+    // Without this, the page hasn't loaded "Connect your encoder" text yet and we get a false positive.
+    log('waiting_for_preview', 'Waiting for encoder connection and preview video in Studio (min 8s)');
+    await new Promise(r => setTimeout(r, 8000));
+
     let previewDetected = false;
     const previewStartWait = Date.now();
-    const maxPreviewWaitMs = 60000;
+    const maxPreviewWaitMs = 52000; // total max ~60s including initial 8s wait
 
     while (Date.now() - previewStartWait < maxPreviewWaitMs) {
       try {
         previewDetected = await page.evaluate(() => {
+          // 1. Actual video element playing (most reliable signal)
           const video = document.querySelector('video');
           if (video && (video.readyState >= 2 || video.currentTime > 0)) {
             return true;
           }
 
-          const bodyText = document.body.innerText || '';
-          const hasConnectEncoder = bodyText.includes('Connect your encoder to go live');
-          const hasNoData = bodyText.includes('No data');
-
-          const badges = Array.from(document.querySelectorAll('.badge, [class*="badge"], [class*="health"]'));
+          // 2. Explicit stream health badges (Excellent / Good / Live)
+          const badges = Array.from(document.querySelectorAll(
+            '.badge, [class*="badge"], [class*="health"], ytcp-stream-health-badge, ' +
+            '[class*="stream-health"], ytcp-badge'
+          ));
           for (const b of badges) {
-            const bTxt = (b.innerText || '').toLowerCase();
-            if (bTxt.includes('excellent') || bTxt.includes('good') || bTxt.includes('live')) {
+            const bTxt = (b.innerText || b.textContent || '').trim().toLowerCase();
+            if (bTxt.includes('excellent') || bTxt.includes('good') || bTxt === 'live') {
               return true;
             }
           }
 
-          return !hasConnectEncoder && !hasNoData;
+          // 3. Studio shows encoder bitrate/fps stats (means stream is live)
+          const statsEls = Array.from(document.querySelectorAll(
+            '[class*="bitrate"], [class*="framerate"], [class*="encoder"]'
+          ));
+          for (const el of statsEls) {
+            const txt = (el.innerText || el.textContent || '').trim();
+            if (/\d+\s*(kbps|fps|Mbps)/i.test(txt)) return true;
+          }
+
+          // NOTE: Do NOT return true based on absence of "Connect your encoder" text —
+          // that text may not have rendered yet immediately after page load, causing false positives.
+          return false;
         });
 
         if (previewDetected) {
