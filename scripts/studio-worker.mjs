@@ -827,6 +827,25 @@ async function run() {
     // -----------------------------------------------------------------------
     await verifyPersistedTitle(page, newTitle, timeZone, configBaseTitle);
 
+    // A standalone title-only simulation must stop here. It must never ask
+    // stream-manager to launch FFmpeg, wait for a stream ack, or click Go Live.
+    if (process.env.STUDIO_TITLE_ONLY_TEST === '1') {
+      log('title_only_test_passed', 'Studio title persisted and verified; stream startup intentionally skipped', {
+        title: newTitle,
+        streamStarted: false,
+        goLiveClicked: false
+      });
+      emitEvent('finished', {
+        success: true,
+        titleVerified: true,
+        liveVerified: false,
+        streamStarted: false,
+        mode: 'title_only_test',
+        title: newTitle
+      });
+      return;
+    }
+
     // -----------------------------------------------------------------------
     // STEP 12: Signal stream-manager, then wait for its verified RTMPS health ack
     // -----------------------------------------------------------------------
