@@ -1287,6 +1287,88 @@ export async function setPlaylist(playlistIds, playbackOrder = 'serial', mode = 
 }
 
 /**
+ * Auto-triggers random video playlist selection for a specified stream mode.
+ * - Filters all videos in library matching the target mode orientation.
+ * - Sorts by newest (uploadedAt or mtimeMs) descending.
+ * - Position #1 is ALWAYS the newest video.
+ * - Positions #2..N are the remaining videos, shuffled randomly with Fisher-Yates.
+ * - Atomically persists the new playlist order to settings and state via setPlaylist.
+ *
+ * @param {'horizontal'|'vertical'} [mode]
+ * @returns {Promise<{ mode: string, newestId: string, playlist: string[], count: number }|null>}
+ */
+export async function triggerRandomPlaylistSelection(mode = null) {
+  const currentSettings = getSettings();
+  const targetMode = (mode === 'horizontal' || mode === 'vertical')
+    ? mode
+    : (currentSettings.stream?.mode || 'vertical');
+
+  const allVideos = await listVideos();
+  const compatibleVideos = allVideos.filter(v => {
+    const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
+    return targetMode === 'horizontal' ? isHoriz : !isHoriz;
+  });
+
+  if (compatibleVideos.length === 0) {
+    logger.warn('playlist.random_select_empty', `No videos found in library for mode ${targetMode}`);
+    return null;
+  }
+
+  let finalIds = [];
+  let newestVideo = null;
+
+  if (compatibleVideos.length === 1) {
+    newestVideo = compatibleVideos[0];
+    finalIds = [newestVideo.id];
+  } else {
+    const getVideoTime = (v) => {
+      if (v.uploadedAt) {
+        const t = new Date(v.uploadedAt).getTime();
+        if (!isNaN(t) && t > 0) return t;
+      }
+      if (v.mtimeMs && !isNaN(Number(v.mtimeMs))) {
+        return Number(v.mtimeMs);
+      }
+      return 0;
+    };
+
+    const sortedByNewest = [...compatibleVideos].sort((a, b) => getVideoTime(b) - getVideoTime(a));
+    newestVideo = sortedByNewest[0];
+    const newestId = newestVideo.id;
+    const remainingVideos = compatibleVideos.filter(v => v.id !== newestId);
+    const remainingIds = remainingVideos.map(v => v.id);
+
+    // Fisher-Yates shuffle on remaining videos
+    for (let i = remainingIds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [remainingIds[i], remainingIds[j]] = [remainingIds[j], remainingIds[i]];
+    }
+
+    finalIds = [newestId, ...remainingIds];
+  }
+
+  const playbackOrder = currentSettings.stream?.playbackOrder || 'serial';
+  await setPlaylist(finalIds, playbackOrder, targetMode);
+
+  const newestLabel = newestVideo?.label || newestVideo?.originalName || finalIds[0];
+  logger.info('playlist.random_select_auto_triggered', `Auto-triggered random video selection for mode ${targetMode}: newest video "${newestLabel}" (${finalIds[0]}) as #1, total ${finalIds.length} videos shuffled`, {
+    mode: targetMode,
+    newestId: finalIds[0],
+    newestLabel,
+    count: finalIds.length,
+    playlist: finalIds,
+  });
+
+  return {
+    mode: targetMode,
+    newestId: finalIds[0],
+    newestLabel,
+    playlist: finalIds,
+    count: finalIds.length,
+  };
+}
+
+/**
  * Migrate legacy playlist and videos into mode-specific playlists based on ffprobe dimensions.
  */
 export async function migratePlaylistsByOrientation(providedVideos = null) {

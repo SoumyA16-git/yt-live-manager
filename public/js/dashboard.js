@@ -275,14 +275,10 @@ const schedStatusText = document.getElementById('sched-status-text');
 const btnModeContinuous = document.getElementById('btn-mode-continuous');
 const btnModeScheduled = document.getElementById('btn-mode-scheduled');
 const schedWindowsCard = document.getElementById('sched-windows-card');
-const schedSlot1Enabled = document.getElementById('sched-slot1-enabled');
-const schedSlot1Badge = document.getElementById('sched-slot1-badge');
-const schedSlot1Start = document.getElementById('sched-slot1-start');
-const schedSlot1Stop = document.getElementById('sched-slot1-stop');
-const schedSlot2Enabled = document.getElementById('sched-slot2-enabled');
-const schedSlot2Badge = document.getElementById('sched-slot2-badge');
-const schedSlot2Start = document.getElementById('sched-slot2-start');
-const schedSlot2Stop = document.getElementById('sched-slot2-stop');
+const schedSlotsContainer = document.getElementById('sched-slots-container');
+const schedSlotsCountTag = document.getElementById('sched-slots-count-tag');
+const btnAddSchedSlot = document.getElementById('btn-add-sched-slot');
+const btnAddSchedSlotBottom = document.getElementById('btn-add-sched-slot-bottom');
 const schedRecycleCard = document.getElementById('sched-recycle-card');
 const schedRecycleStatusBadge = document.getElementById('sched-recycle-status-badge');
 const schedRecycleEnabled = document.getElementById('sched-recycle-enabled');
@@ -926,22 +922,21 @@ function renderScheduler(data) {
     }
   }
 
-  // 3. Daily Streaming Windows (Slots 1 & 2 in IST)
-  const windows = Array.isArray(data.windows) ? data.windows : [];
-  if (windows.length > 0 && windows[0]) {
-    if (schedSlot1Start) schedSlot1Start.value = windows[0].start || '10:00';
-    if (schedSlot1Stop) schedSlot1Stop.value = windows[0].stop || '14:00';
-    if (schedSlot1Enabled) schedSlot1Enabled.checked = true;
+  // 3. Daily Streaming Windows (Dynamic Slots in IST)
+  if (schedSlotsContainer) {
+    schedSlotsContainer.innerHTML = '';
+    const windows = Array.isArray(data.windows) ? data.windows : [];
+    if (windows.length > 0) {
+      windows.forEach((win, i) => {
+        const box = createSlotBox({ start: win.start || '10:00', stop: win.stop || '14:00', enabled: true }, i + 1);
+        schedSlotsContainer.appendChild(box);
+      });
+    } else {
+      const box = createSlotBox({ start: '10:00', stop: '14:00', enabled: false }, 1);
+      schedSlotsContainer.appendChild(box);
+    }
+    renumberSlots();
   }
-  if (windows.length > 1 && windows[1]) {
-    if (schedSlot2Start) schedSlot2Start.value = windows[1].start || '18:00';
-    if (schedSlot2Stop) schedSlot2Stop.value = windows[1].stop || '22:00';
-    if (schedSlot2Enabled) schedSlot2Enabled.checked = true;
-  } else if (windows.length === 1) {
-    if (schedSlot2Enabled) schedSlot2Enabled.checked = false;
-  }
-
-  updateSlotBadges();
 
   // 4. Auto-Recycle Settings (VOD Archive Protection)
   const ar = data.autoRecycle || {};
@@ -994,15 +989,111 @@ function renderScheduler(data) {
   }
 }
 
-function updateSlotBadges() {
-  if (schedSlot1Badge && schedSlot1Enabled) {
-    schedSlot1Badge.textContent = schedSlot1Enabled.checked ? 'Active' : 'Disabled';
-    schedSlot1Badge.className = `badge-tag ${schedSlot1Enabled.checked ? 'compatible' : 'disabled'}`;
+function createSlotBox(slot = { start: '10:00', stop: '14:00', enabled: true }, index = 1) {
+  const box = document.createElement('div');
+  box.className = 'sched-slot-box';
+  box.style.marginTop = index > 1 ? '0.5rem' : '0';
+  box.innerHTML = `
+    <div class="sched-slot-top">
+      <label class="sched-checkbox-label">
+        <input type="checkbox" class="sched-slot-enabled" ${slot.enabled !== false ? 'checked' : ''}>
+        <strong class="sched-slot-title">Slot ${index}</strong>
+      </label>
+      <div style="display: flex; align-items: center; gap: 0.5rem;">
+        <span class="badge-tag ${slot.enabled !== false ? 'compatible' : 'disabled'} sched-slot-badge">${slot.enabled !== false ? 'Active' : 'Disabled'}</span>
+        <button type="button" class="btn-remove-sched-slot" title="Delete slot">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"></polyline>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+    <div class="sched-time-inputs">
+      <div class="form-group">
+        <span class="form-label">Start Time (IST)</span>
+        <input type="time" class="form-control sched-slot-start" value="${slot.start || '10:00'}">
+      </div>
+      <div class="form-group">
+        <span class="form-label">Stop Time (IST)</span>
+        <input type="time" class="form-control sched-slot-stop" value="${slot.stop || '14:00'}">
+      </div>
+    </div>
+  `;
+
+  const chk = box.querySelector('.sched-slot-enabled');
+  const badge = box.querySelector('.sched-slot-badge');
+  chk?.addEventListener('change', () => {
+    if (badge) {
+      badge.textContent = chk.checked ? 'Active' : 'Disabled';
+      badge.className = `badge-tag ${chk.checked ? 'compatible' : 'disabled'} sched-slot-badge`;
+    }
+    updateSlotsCountTag();
+  });
+
+  const btnDel = box.querySelector('.btn-remove-sched-slot');
+  btnDel?.addEventListener('click', () => {
+    const totalSlots = schedSlotsContainer ? schedSlotsContainer.querySelectorAll('.sched-slot-box').length : 0;
+    if (totalSlots <= 1) {
+      showToast('At least one slot must remain. You can uncheck it to disable.', 'info', 'Slot Required');
+      return;
+    }
+    box.remove();
+    renumberSlots();
+  });
+
+  return box;
+}
+
+function updateSlotsCountTag() {
+  if (!schedSlotsCountTag || !schedSlotsContainer) return;
+  const boxes = schedSlotsContainer.querySelectorAll('.sched-slot-box');
+  const activeCount = Array.from(boxes).filter(b => b.querySelector('.sched-slot-enabled')?.checked).length;
+  schedSlotsCountTag.textContent = `${activeCount} / ${boxes.length} Active`;
+}
+
+function renumberSlots() {
+  if (!schedSlotsContainer) return;
+  const boxes = schedSlotsContainer.querySelectorAll('.sched-slot-box');
+  boxes.forEach((box, i) => {
+    const title = box.querySelector('.sched-slot-title');
+    if (title) title.textContent = `Slot ${i + 1}`;
+    box.style.marginTop = i > 0 ? '0.5rem' : '0';
+  });
+  updateSlotsCountTag();
+}
+
+function addNewStreamingSlot(startVal = null, stopVal = null) {
+  if (!schedSlotsContainer) return;
+  const boxes = schedSlotsContainer.querySelectorAll('.sched-slot-box');
+  const nextIdx = boxes.length + 1;
+
+  let defStart = '10:00';
+  let defStop = '14:00';
+  if (boxes.length === 1) {
+    defStart = '18:00';
+    defStop = '22:00';
+  } else if (boxes.length > 1) {
+    const lastBox = boxes[boxes.length - 1];
+    const lastStop = lastBox.querySelector('.sched-slot-stop')?.value || '22:00';
+    const [h, m] = lastStop.split(':').map(Number);
+    const nextH = ((h || 0) + 1) % 24;
+    const endH = ((nextH + 4) % 24);
+    defStart = `${String(nextH).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
+    defStop = `${String(endH).padStart(2, '0')}:${String(m || 0).padStart(2, '0')}`;
   }
-  if (schedSlot2Badge && schedSlot2Enabled) {
-    schedSlot2Badge.textContent = schedSlot2Enabled.checked ? 'Active' : 'Disabled';
-    schedSlot2Badge.className = `badge-tag ${schedSlot2Enabled.checked ? 'compatible' : 'disabled'}`;
-  }
+
+  const newBox = createSlotBox({
+    start: startVal || defStart,
+    stop: stopVal || defStop,
+    enabled: true,
+  }, nextIdx);
+
+  schedSlotsContainer.appendChild(newBox);
+  renumberSlots();
+
+  const startInput = newBox.querySelector('.sched-slot-start');
+  startInput?.focus();
 }
 
 function tickLocalSchedulerClock() {
@@ -1031,18 +1122,19 @@ async function saveSchedulerSettings() {
 
   try {
     const windows = [];
-    if (schedSlot1Enabled?.checked && schedSlot1Start?.value && schedSlot1Stop?.value) {
-      windows.push({
-        days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
-        start: schedSlot1Start.value,
-        stop: schedSlot1Stop.value,
-      });
-    }
-    if (schedSlot2Enabled?.checked && schedSlot2Start?.value && schedSlot2Stop?.value) {
-      windows.push({
-        days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
-        start: schedSlot2Start.value,
-        stop: schedSlot2Stop.value,
+    if (schedSlotsContainer) {
+      const boxes = schedSlotsContainer.querySelectorAll('.sched-slot-box');
+      boxes.forEach(box => {
+        const enabled = box.querySelector('.sched-slot-enabled')?.checked;
+        const start = box.querySelector('.sched-slot-start')?.value?.trim();
+        const stop = box.querySelector('.sched-slot-stop')?.value?.trim();
+        if (enabled && start && stop) {
+          windows.push({
+            days: ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'],
+            start,
+            stop,
+          });
+        }
       });
     }
 
@@ -2816,63 +2908,18 @@ async function init() {
   if (btnRandomSelectVideos) {
     btnRandomSelectVideos.addEventListener('click', async () => {
       if (btnRandomSelectVideos.disabled) return;
-
-      const tabVideos = _cachedVideos.filter(v => {
-        const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
-        return _currentTabMode === 'horizontal' ? isHoriz : !isHoriz;
-      });
-
-      if (tabVideos.length === 0) {
-        showToast(`No ${_currentTabMode === 'horizontal' ? '16:9' : '9:16'} videos available in library.`, 'warning', 'No Videos');
-        return;
-      }
-
       btnRandomSelectVideos.disabled = true;
 
       try {
-        if (tabVideos.length === 1) {
-          const single = tabVideos[0];
-          await updatePlaylist([single.id], _currentPlaybackOrder, _currentTabMode, {
-            message: `Selected only available video: "${single.label || single.originalName}".`,
-            title: 'Random Select'
-          });
-          return;
+        const res = await apiPost('/api/videos/random-select', { mode: _currentTabMode });
+        if (res?.success) {
+          showToast(res.message, 'success', 'Random Select');
+          await loadVideos({ forceSync: false });
+        } else {
+          showToast(res?.error || 'Could not randomize videos', 'warning', 'Random Select');
         }
-
-        // 1. Identify the newest video in the current orientation tab
-        const getVideoTimestamp = (v) => {
-          if (v.uploadedAt) {
-            const t = new Date(v.uploadedAt).getTime();
-            if (!isNaN(t) && t > 0) return t;
-          }
-          if (v.mtimeMs && !isNaN(Number(v.mtimeMs))) {
-            return Number(v.mtimeMs);
-          }
-          return 0;
-        };
-
-        const sortedByNewest = [...tabVideos].sort((a, b) => getVideoTimestamp(b) - getVideoTimestamp(a));
-        const newestVideo = sortedByNewest[0];
-        const newestId = newestVideo.id;
-
-        // 2. Remaining videos to shuffle randomly
-        const remainingVideos = tabVideos.filter(v => v.id !== newestId);
-        const remainingIds = remainingVideos.map(v => v.id);
-
-        // 3. Shuffle remaining videos with Fisher-Yates so order is randomized
-        for (let i = remainingIds.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [remainingIds[i], remainingIds[j]] = [remainingIds[j], remainingIds[i]];
-        }
-
-        // 4. Position #1 is ALWAYS the newest video, followed by the shuffled remaining videos
-        const allPlaylistIds = [newestId, ...remainingIds];
-        const newestLabel = newestVideo.label || newestVideo.originalName || newestId;
-
-        await updatePlaylist(allPlaylistIds, _currentPlaybackOrder, _currentTabMode, {
-          message: `Newest video "${newestLabel}" selected as #1. Remaining ${remainingIds.length} videos randomly shuffled.`,
-          title: 'Random Select'
-        });
+      } catch (err) {
+        showToast(err.message, 'error', 'Random Select Failed');
       } finally {
         btnRandomSelectVideos.disabled = false;
       }
@@ -2945,12 +2992,12 @@ async function init() {
     });
   }
 
-  if (schedSlot1Enabled) {
-    schedSlot1Enabled.addEventListener('change', updateSlotBadges);
+  if (btnAddSchedSlot) {
+    btnAddSchedSlot.addEventListener('click', () => addNewStreamingSlot());
   }
 
-  if (schedSlot2Enabled) {
-    schedSlot2Enabled.addEventListener('change', updateSlotBadges);
+  if (btnAddSchedSlotBottom) {
+    btnAddSchedSlotBottom.addEventListener('click', () => addNewStreamingSlot());
   }
 
   if (schedRecycleEnabled) {

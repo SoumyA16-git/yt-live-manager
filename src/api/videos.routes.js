@@ -17,6 +17,7 @@ import {
   syncDiskVideos,
   buildLogicalVideos,
   resolveVideoPath,
+  triggerRandomPlaylistSelection,
 } from '../video-manager.js';
 import { getState } from '../state-manager.js';
 import { stopStream, startStream } from '../stream-manager.js';
@@ -109,6 +110,29 @@ export function createVideosRouter() {
     } catch (err) {
       const status = err.code === 'E_INVALID_PLAYLIST' ? 400 : 500;
       res.status(status).json({ error: err.message, code: err.code });
+    }
+  });
+
+  // POST /api/videos/random-select
+  router.post('/random-select', async (req, res) => {
+    try {
+      const mode = (req.body?.mode === 'horizontal' || req.body?.mode === 'vertical')
+        ? req.body.mode
+        : (getSettings().stream?.mode || 'vertical');
+
+      const result = await triggerRandomPlaylistSelection(mode);
+      if (!result) {
+        return res.status(400).json({ error: `No ${mode === 'horizontal' ? '16:9' : '9:16'} videos available in library` });
+      }
+
+      res.json({
+        success: true,
+        message: `Newest video "${result.newestLabel}" selected as #1. Remaining ${result.count - 1} videos randomly shuffled.`,
+        ...result,
+      });
+    } catch (err) {
+      logger.error('video.random_select_api_error', err.message);
+      res.status(500).json({ error: err.message });
     }
   });
 

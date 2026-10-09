@@ -33,6 +33,7 @@ import {
   listVideos,
   setActiveVideo,
   getFreshPlayablePlaylist,
+  triggerRandomPlaylistSelection,
 } from './video-manager.js';
 import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage, resetProcessBaseline } from './usage-manager.js';
@@ -622,6 +623,20 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
     // Set desired state to running
     await saveState({ desiredState: 'running' });
+
+    // Auto-trigger random video selection before every live start (newest video at #1, remaining shuffled)
+    try {
+      const activeStreamMode = (getSettings().stream?.mode || 'vertical').toLowerCase();
+      const autoSel = await triggerRandomPlaylistSelection(activeStreamMode);
+      if (autoSel) {
+        logger.info('stream.prestart_random_select', `Pre-start random playlist selection auto-triggered: newest "${autoSel.newestLabel}" at #1, total ${autoSel.count} videos shuffled (${reason})`);
+        if (reason === 'auto_recycle_resume') {
+          await saveState({ resumeBookmark: null });
+        }
+      }
+    } catch (err) {
+      logger.warn('stream.prestart_random_select_error', `Could not auto-trigger random video selection before stream start: ${err.message}`);
+    }
 
     // Gate evaluation
     const gate = await evaluateStartGates({ reason });
