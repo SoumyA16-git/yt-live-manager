@@ -181,12 +181,13 @@ export function buildPublisherArgs(settings, secretTarget) {
     '-loglevel', 'warning',
     '-nostats',
     '-progress', 'pipe:1',
-    '-re',
-    '-fflags', '+genpts+igndts+discardcorrupt',
+    '-fflags', '+genpts+discardcorrupt',
     '-f', 'mpegts',
+    '-analyzeduration', '1000000',
+    '-probesize', '1000000',
     '-i', 'pipe:0',
     '-c', 'copy',
-    '-max_muxing_queue_size', '1024',
+    '-max_muxing_queue_size', '4096',
     '-flvflags', 'no_duration_filesize',
     '-f', 'flv',
     secretTarget,
@@ -227,7 +228,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const pixFmt = videoMeta?.probe?.pixFmt;
   const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
   const maxKeyframe = videoMeta?.probe?.maxKeyframeIntervalSec;
-  const keyframeMaxAllowed = isCapActive ? 4.0 : Math.max(Number(streamCfg.keyframeMaxSeconds) || 8.5, 8.5);
+  const keyframeMaxAllowed = Math.max(Number(streamCfg.keyframeMaxSeconds) || 8.5, 8.5);
   const isKeyframeCompliant = maxKeyframe === null || maxKeyframe === undefined || maxKeyframe <= keyframeMaxAllowed;
   const isCompatibleCodec = isH264 && isStandardPixel && isKeyframeCompliant;
 
@@ -275,6 +276,8 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         '-ac', '2',
         '-shortest',
         '-avoid_negative_ts', 'make_zero',
+        '-muxdelay', '0.1',
+        '-muxpreload', '0.1',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
         'pipe:1'
@@ -296,6 +299,8 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       }
       args.push(
         '-avoid_negative_ts', 'make_zero',
+        '-muxdelay', '0.1',
+        '-muxpreload', '0.1',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
         'pipe:1'
@@ -329,7 +334,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         '-shortest'
       );
     }
-    args.push('-avoid_negative_ts', 'make_zero', '-bsf:v', 'h264_mp4toannexb', '-f', 'mpegts', 'pipe:1');
+    args.push('-avoid_negative_ts', 'make_zero', '-muxdelay', '0.1', '-muxpreload', '0.1', '-bsf:v', 'h264_mp4toannexb', '-f', 'mpegts', 'pipe:1');
   } else {
     // Dynamic transcode mode: tuned for rock-solid 30.0 fps real-time speed and ~30-40% CPU
     const sourceWidth = Number(videoMeta?.probe?.width || 0);
@@ -396,12 +401,11 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     args.push(
       '-c:v', 'libx264',
       '-preset', preset,
+      '-tune', 'zerolatency',
       '-threads', '0',
       '-profile:v', 'high',
       '-level:v', '4.2',
-      '-coder', '1',
-      '-bf', '2',
-      '-x264opts', 'aq-mode=1:aq-strength=1.2:rc-lookahead=10:b-adapt=0',
+      '-r', String(fps),
       '-b:v', `${videoKbps}k`,
       '-maxrate', `${maxrateKbps}k`,
       '-bufsize', `${bufSizeKbps}k`,
@@ -447,6 +451,8 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
 
     args.push(
       '-avoid_negative_ts', 'make_zero',
+      '-muxdelay', '0.1',
+      '-muxpreload', '0.1',
       '-bsf:v', 'h264_mp4toannexb',
       '-f', 'mpegts',
       'pipe:1'

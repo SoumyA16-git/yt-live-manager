@@ -597,6 +597,7 @@ export async function normalizeVideoGop(inputPath, outputPath, jobId = null, pro
       '-map', '0:a:0?',
       '-c:v', 'libx264',
       '-preset', 'veryfast',
+      '-r', String(Math.round(fps) || 30),
       '-b:v', `${targetKbps}k`,
       '-maxrate', `${maxrateKbps}k`,
       '-bufsize', `${bufsizeKbps}k`,
