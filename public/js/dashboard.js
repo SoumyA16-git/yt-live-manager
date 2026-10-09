@@ -2951,8 +2951,15 @@ async function init() {
       try {
         const res = await apiPost('/api/videos/random-select', { mode: _currentTabMode });
         if (res?.success) {
-          showToast(res.message, 'success', 'Random Select');
-          await loadVideos({ forceSync: false });
+          if (res.playlists) {
+            _playlists = res.playlists;
+          } else if (res.playlist) {
+            _playlists[_currentTabMode] = res.playlist;
+          }
+          _currentPlaylist = _playlists[_currentTabMode] || [];
+          const isLive = _currentStatus === 'RUNNING' || _currentStatus === 'STARTING';
+          showToast(res.message, 'success', isLive ? 'Hot Sync Active' : 'Random Select');
+          await fetchVideos();
         } else {
           showToast(res?.error || 'Could not randomize videos', 'warning', 'Random Select');
         }

@@ -1169,13 +1169,29 @@ export async function deleteVideo(id) {
     needSettingsSave = true;
   }
 
+  if (currentStream.playlists) {
+    const horiz = Array.isArray(currentStream.playlists.horizontal) ? currentStream.playlists.horizontal.filter(vid => vid !== id) : [];
+    const vert = Array.isArray(currentStream.playlists.vertical) ? currentStream.playlists.vertical.filter(vid => vid !== id) : [];
+    if (horiz.length !== (currentStream.playlists.horizontal?.length || 0) ||
+        vert.length !== (currentStream.playlists.vertical?.length || 0)) {
+      newStreamSettings.playlists = { horizontal: horiz, vertical: vert };
+      needSettingsSave = true;
+    }
+  }
+
   if (currentStream.videoId === id) {
-    newStreamSettings.videoId = (newStreamSettings.playlist && newStreamSettings.playlist[0]) || '';
+    const fallbackId = (newStreamSettings.playlist && newStreamSettings.playlist[0]) ||
+      (newStreamSettings.playlists && (newStreamSettings.playlists.vertical?.[0] || newStreamSettings.playlists.horizontal?.[0])) ||
+      '';
+    newStreamSettings.videoId = fallbackId;
     needSettingsSave = true;
   }
 
   if (needSettingsSave) {
     await saveSettings({ stream: newStreamSettings });
+    logger.info('playlist.hot_sync', `Deleted video ${id} pruned from playlists and hot-synced`, {
+      deletedVideoId: id,
+    });
   }
   if (state.activeVideoId === id) {
     await saveState({ activeVideoId: newStreamSettings.videoId || null });
@@ -1365,6 +1381,7 @@ export async function triggerRandomPlaylistSelection(mode = null) {
     newestLabel,
     playlist: finalIds,
     count: finalIds.length,
+    playlists: getSettings().stream?.playlists || {},
   };
 }
 

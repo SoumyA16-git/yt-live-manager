@@ -890,6 +890,11 @@ async function _executePipeline(jobId, url, autoSetActive, quality = '1080p') {
 
     await saveSettings(patch);
     logger.info('ytdlp.playlist_appended', `Successfully appended ${videoMeta.id} to ${mode} (16:9/9:16) playlist`);
+    logger.info('playlist.hot_sync', `Hot playlist configuration updated with downloaded video ${videoMeta.id} (${currentPlaylists[mode].length} items)`, {
+      itemCount: currentPlaylists[mode].length,
+      videoId: videoMeta.id,
+      mode,
+    });
   } catch (plErr) {
     logger.warn('ytdlp.playlist_append_warning', `Failed to auto-append to playlist: ${plErr.message}`);
   }
