@@ -225,25 +225,56 @@ async function readStudioBroadcastStatus(page) {
       const style = window.getComputedStyle(el);
       return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
     };
-    const endButton = Array.from(document.querySelectorAll(
-      '#stop-stream-button, #end-stream-button, [aria-label*="End stream" i], [title*="End stream" i]'
-    )).find(el => visible(el) && !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true');
-    const livePhrases = Array.from(document.querySelectorAll(
-      '[class*="status" i], [class*="badge" i], [id*="status" i], [aria-label], [title]'
-    )).filter(visible).some(el => {
+    // YouTube Studio renders its control room with nested Polymer elements.
+    // The preview player and status badges can be inside open shadow roots,
+    // which document.querySelectorAll() cannot see.
+    const queryDeep = selector => {
+      const matches = [];
+      const seen = new Set();
+      const visitedRoots = new Set();
+      const visit = root => {
+        if (!root || visitedRoots.has(root)) return;
+        visitedRoots.add(root);
+        for (const el of root.querySelectorAll(selector)) {
+          if (!seen.has(el)) {
+            seen.add(el);
+            matches.push(el);
+          }
+        }
+        for (const host of root.querySelectorAll('*')) {
+          if (host.shadowRoot) visit(host.shadowRoot);
+        }
+      };
+      visit(document);
+      return matches;
+    };
+    const statusElements = queryDeep(
+      'video, [class*="status" i], [class*="badge" i], [class*="health" i], [id*="status" i], ' +
+      '[aria-label], [title], #start-stream-button, #stop-stream-button, #end-stream-button'
+    );
+    const endButton = statusElements.find(el =>
+      (el.id === 'stop-stream-button' || el.id === 'end-stream-button' ||
+        /end stream/i.test(`${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`)) &&
+      visible(el) && !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true'
+    );
+    const livePhrases = statusElements.filter(visible).some(el => {
       const text = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
       const label = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.trim();
       return /^(live( now)?|streaming)$/i.test(text) || /^(live( now)?|streaming)$/i.test(label) ||
         /you(?:'|’)re live|you are live/i.test(text);
     });
-    const healthyPreviewBadge = Array.from(document.querySelectorAll(
-      '[class*="badge" i], [class*="health" i], [aria-label*="stream health" i]'
-    )).filter(visible).some(el => /^(excellent|good)( connection)?$/i.test((el.innerText || el.textContent || '').trim()));
-    const videoPreview = Array.from(document.querySelectorAll('ytcp-live-control-room video, #preview-player video, video'))
+    const healthBadges = statusElements.filter(el =>
+      el.matches('[class*="badge" i], [class*="health" i], [aria-label*="stream health" i]') && visible(el)
+    );
+    const healthyPreviewBadge = healthBadges.some(el =>
+      /^(excellent|good)( connection)?$/i.test((el.innerText || el.textContent || '').trim())
+    );
+    const videos = statusElements.filter(el => el.tagName === 'VIDEO');
+    const videoPreview = videos
       .some(video => visible(video) && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0);
-    const goLiveButton = Array.from(document.querySelectorAll(
-      '#start-stream-button, [aria-label*="Go live" i]'
-    )).find(visible);
+    const goLiveButton = statusElements.find(el =>
+      (el.id === 'start-stream-button' || /go live/i.test(`${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`)) && visible(el)
+    );
     let goLive = null;
     if (goLiveButton) {
       const rect = goLiveButton.getBoundingClientRect();
@@ -252,7 +283,24 @@ async function readStudioBroadcastStatus(page) {
         goLiveButton.classList.contains('disabled') || (inner && (inner.disabled || inner.getAttribute('aria-disabled') === 'true'));
       goLive = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, disabled };
     }
-    return { live: Boolean(endButton || livePhrases), preview: Boolean(videoPreview || healthyPreviewBadge), goLive };
+    const previewVideos = videos.slice(0, 8).map(video => ({
+      visible: visible(video),
+      readyState: video.readyState,
+      width: video.videoWidth,
+      height: video.videoHeight,
+      paused: video.paused,
+      currentTime: Number.isFinite(video.currentTime) ? Number(video.currentTime.toFixed(2)) : null,
+    }));
+    const previewBadgeDiagnostics = healthBadges.slice(0, 8).map(el => ({
+      text: (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 80),
+      label: `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`.trim().slice(0, 100),
+    }));
+    return {
+      live: Boolean(endButton || livePhrases),
+      preview: Boolean(videoPreview || healthyPreviewBadge),
+      goLive,
+      diagnostics: { videoCount: videos.length, previewVideos, previewBadgeDiagnostics },
+    };
   });
 }
 
@@ -887,7 +935,7 @@ async function run() {
       await sleep(1500);
     }
     if (!status?.preview) {
-      throw new Error('FATAL: Studio did not show a decoded encoder preview within 60 seconds');
+      throw new Error(`FATAL: Studio did not show a decoded encoder preview within 60 seconds; last status: ${JSON.stringify(status)}`);
     }
     log('step13_preview_ok', 'Studio decoded encoder preview verified', status);
 
