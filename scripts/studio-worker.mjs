@@ -132,6 +132,42 @@ async function dismissAnyModals(page) {
   }
 }
 
+async function retryControlRoomIfNeeded(page) {
+  const clicked = await page.evaluate(() => {
+    function findRetryButton(root) {
+      const candidates = Array.from(root.querySelectorAll?.('#error-retry-button, [id*="retry-button"], [aria-label*="retry" i], button, ytcp-button') || []);
+      for (const candidate of candidates) {
+        const label = `${candidate.id || ''} ${candidate.getAttribute('aria-label') || ''} ${candidate.innerText || candidate.textContent || ''}`.toLowerCase();
+        if (!label.includes('retry')) continue;
+        const rect = candidate.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) continue;
+        return candidate;
+      }
+
+      for (const element of Array.from(root.querySelectorAll?.('*') || [])) {
+        if (element.shadowRoot) {
+          const nested = findRetryButton(element.shadowRoot);
+          if (nested) return nested;
+        }
+      }
+      return null;
+    }
+
+    const button = findRetryButton(document);
+    if (!button) return false;
+    const inner = button.shadowRoot?.querySelector('button') || button.querySelector('button');
+    (inner || button).click();
+    return true;
+  });
+
+  if (clicked) {
+    log('control_room_retry', 'Clicked YouTube Studio retry control after detecting a page error');
+    await new Promise(r => setTimeout(r, 5000));
+    return true;
+  }
+  return false;
+}
+
 async function run() {
   const targetUrl = process.env.STUDIO_URL || 'https://studio.youtube.com/video/I9B8mog4d7c/livestreaming';
   const configuredBaseTitle = process.env.STUDIO_BASE_TITLE || '';
@@ -262,6 +298,8 @@ async function run() {
       await new Promise(r => setTimeout(r, 1000));
     }
 
+    await retryControlRoomIfNeeded(page);
+
     // Step 3: Wait for control panel to settle and title data to populate
     log('settling', 'Waiting for YouTube Studio control room data to populate');
     for (let w = 0; w < 10; w++) {
@@ -328,7 +366,7 @@ async function run() {
         }
 
         // Search for edit button by ID
-        const editBtns = deepQueryAll(document, 'ytcp-button#edit-button, button#edit-button');
+        const editBtns = deepQueryAll(document, 'ytcp-button#edit-button, button#edit-button, [role="button"][aria-label*="edit" i], button[aria-label*="edit" i]');
         for (const btn of editBtns) {
           const rect = btn.getBoundingClientRect();
           if (rect.width > 0 || rect.height > 0) {
@@ -341,10 +379,12 @@ async function run() {
         }
 
         // Fallback: search all buttons with text 'Edit' at any depth
-        const allBtns = deepQueryAll(document, 'button, ytcp-button');
+        const allBtns = deepQueryAll(document, 'button, ytcp-button, [role="button"], tp-yt-paper-button');
         for (const b of allBtns) {
-          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
-          if (txt === 'edit') {
+          const labels = [b.getAttribute('aria-label'), b.getAttribute('title'), b.innerText, b.textContent]
+            .filter(Boolean)
+            .map(value => value.trim().toLowerCase());
+          if (labels.some(label => /^(edit|edit title|edit stream details)$/.test(label))) {
             const inner = b.shadowRoot ? b.shadowRoot.querySelector('button') : b.querySelector('button');
             if (inner) { inner.click(); return 'recursive_text_inner_clicked'; }
             b.click();
