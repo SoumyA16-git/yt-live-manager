@@ -254,10 +254,26 @@ export async function evaluateStartGates(options = {}) {
     const playbackOrder = settings.stream?.playbackOrder || 'sequential';
 
     if (playbackOrder === 'shuffle') {
-      for (let i = orderedMetas.length - 1; i > 0; i--) {
+      const getMetaTime = (m) => {
+        if (m.uploadedAt) {
+          const t = new Date(m.uploadedAt).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (m.mtimeMs && !isNaN(Number(m.mtimeMs))) {
+          return Number(m.mtimeMs);
+        }
+        return 0;
+      };
+
+      const sorted = [...playlistMetas].sort((a, b) => getMetaTime(b) - getMetaTime(a));
+      const newest = sorted[0];
+      const remaining = playlistMetas.filter(m => m.id !== newest.id);
+
+      for (let i = remaining.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
-        [orderedMetas[i], orderedMetas[j]] = [orderedMetas[j], orderedMetas[i]];
+        [remaining[i], remaining[j]] = [remaining[j], remaining[i]];
       }
+      orderedMetas = [newest, ...remaining];
     }
 
     _lastCycleOrder = orderedMetas.map(m => ({ id: m.id, duration: Number(m.probe?.durationSec || m.probe?.duration || 0) }));

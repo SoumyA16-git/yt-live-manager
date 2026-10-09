@@ -2822,39 +2822,38 @@ async function init() {
           return;
         }
 
-        // Identify currently active / first video ID in this playlist mode
-        const currentModePlaylist = _playlists[_currentTabMode] || [];
-        const currentFirstId = currentModePlaylist[0] || _currentActiveVideoId || null;
+        // 1. Identify the newest video in the current orientation tab
+        const getVideoTimestamp = (v) => {
+          if (v.uploadedAt) {
+            const t = new Date(v.uploadedAt).getTime();
+            if (!isNaN(t) && t > 0) return t;
+          }
+          if (v.mtimeMs && !isNaN(Number(v.mtimeMs))) {
+            return Number(v.mtimeMs);
+          }
+          return 0;
+        };
 
-        // Maintain unpicked pool for the active orientation tab
-        let pool = _unpickedRandomPool[_currentTabMode] || [];
-        // Keep only IDs that exist in current library and are not the current first video
-        pool = pool.filter(id => id !== currentFirstId && tabVideos.some(v => v.id === id));
+        const sortedByNewest = [...tabVideos].sort((a, b) => getVideoTimestamp(b) - getVideoTimestamp(a));
+        const newestVideo = sortedByNewest[0];
+        const newestId = newestVideo.id;
 
-        // If pool is exhausted or empty, refill with all video IDs except currentFirstId
-        if (pool.length === 0) {
-          pool = tabVideos.map(v => v.id).filter(id => id !== currentFirstId);
-        }
+        // 2. Remaining videos to shuffle randomly
+        const remainingVideos = tabVideos.filter(v => v.id !== newestId);
+        const remainingIds = remainingVideos.map(v => v.id);
 
-        // Pick a random ID from the pool
-        const randomIndex = Math.floor(Math.random() * pool.length);
-        const chosenId = pool.splice(randomIndex, 1)[0];
-        _unpickedRandomPool[_currentTabMode] = pool;
-
-        // Shuffle remaining videos with Fisher-Yates so order is randomized
-        const remainingIds = tabVideos.map(v => v.id).filter(id => id !== chosenId);
+        // 3. Shuffle remaining videos with Fisher-Yates so order is randomized
         for (let i = remainingIds.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [remainingIds[i], remainingIds[j]] = [remainingIds[j], remainingIds[i]];
         }
 
-        // Full playlist contains ALL videos with the unique random video at position #1
-        const allPlaylistIds = [chosenId, ...remainingIds];
-        const chosenVideo = tabVideos.find(v => v.id === chosenId);
-        const chosenLabel = chosenVideo ? (chosenVideo.label || chosenVideo.originalName) : chosenId;
+        // 4. Position #1 is ALWAYS the newest video, followed by the shuffled remaining videos
+        const allPlaylistIds = [newestId, ...remainingIds];
+        const newestLabel = newestVideo.label || newestVideo.originalName || newestId;
 
         await updatePlaylist(allPlaylistIds, _currentPlaybackOrder, _currentTabMode, {
-          message: `Randomly selected "${chosenLabel}" as #1. All ${allPlaylistIds.length} videos active in playlist.`,
+          message: `Newest video "${newestLabel}" selected as #1. Remaining ${remainingIds.length} videos randomly shuffled.`,
           title: 'Random Select'
         });
       } finally {
