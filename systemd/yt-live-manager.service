@@ -5,8 +5,8 @@ Wants=network-online.target time-sync.target
 
 [Service]
 Type=simple
-User=ytlive
-Group=ytlive
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/opt/yt-live-manager
 ExecStart=/usr/bin/node /opt/yt-live-manager/src/server.js
 Restart=always
@@ -15,24 +15,18 @@ TimeoutStopSec=30
 KillMode=control-group
 KillSignal=SIGTERM
 LimitNOFILE=4096
-UMask=0077
+UMask=0022
 
-# Memory Boundaries (Ultra-low RAM tuning: < 40 MB footprint)
+# Environment & Memory Boundaries (Allows Chrome Puppeteer + Node.js)
 Environment="NODE_OPTIONS=--max-old-space-size=128 --expose-gc"
-MemoryMax=256M
-MemoryHigh=192M
+Environment="DISPLAY=:10"
+MemoryMax=1G
+MemoryHigh=768M
 
-# Hardening
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-LockPersonality=true
-ReadWritePaths=/opt/yt-live-manager/config /opt/yt-live-manager/data /opt/yt-live-manager/videos /opt/yt-live-manager/logs /opt/yt-live-manager/backups
+# Permissions & Filesystem Access
+ProtectSystem=full
+ProtectHome=false
+ReadWritePaths=/opt/yt-live-manager /home/ubuntu /tmp
 EnvironmentFile=/etc/yt-live-manager/env
 
 [Install]

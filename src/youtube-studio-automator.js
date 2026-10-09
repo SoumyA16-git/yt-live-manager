@@ -99,20 +99,9 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
       }
     }, timeoutMs);
 
-    // Spawn worker as user ubuntu if on Linux and running as ytlive
-    let cmd = process.execPath;
-    let args = [workerScriptPath];
-
-    if (process.platform === 'linux') {
-      try {
-        const userInfo = process.getuid ? process.getuid() : -1;
-        // If not running as root or ubuntu, use sudo -u ubuntu
-        if (userInfo !== 0 && userInfo !== 1001) {
-          cmd = 'sudo';
-          args = ['-u', 'ubuntu', process.execPath, workerScriptPath];
-        }
-      } catch { }
-    }
+    // Spawn worker directly with current node binary
+    const cmd = process.execPath;
+    const args = [workerScriptPath];
 
     const workerEnv = {
       ...process.env,

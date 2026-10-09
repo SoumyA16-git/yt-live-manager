@@ -92,16 +92,23 @@ function cleanBaseTitle(title) {
 async function dismissAnyModals(page) {
   try {
     const dismissed = await page.evaluate(() => {
-      // Common dismiss buttons
+      // CRITICAL: DO NOT dismiss if the edit modal / metadata editor is open!
+      const metaEditor = document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor');
+      if (metaEditor && metaEditor.getBoundingClientRect().width > 0) {
+        return false;
+      }
+
+      // Common dismiss buttons (never inside metadata editor)
       const candidates = Array.from(document.querySelectorAll(
         '#dismiss-button, ytcp-button#dismiss-button, button[aria-label="Dismiss"], ' +
         'ytcp-button[aria-label="Dismiss"], tp-yt-paper-button#dismiss-button, ' +
         'ytcp-dialog #dismiss-button, ytcp-confirmation-dialog #confirm-button, ' +
         'button[aria-label="Close"], [aria-label="Close dialog"]'
-      ));
+      )).filter(b => !b.closest('ytcp-video-metadata-editor, ytcp-live-metadata-editor'));
 
       // Also look for buttons with text "Dismiss", "Done", "Got it", "Close"
       const textButtons = Array.from(document.querySelectorAll('ytcp-button, button, tp-yt-paper-button')).filter(b => {
+        if (b.closest('ytcp-video-metadata-editor, ytcp-live-metadata-editor')) return false;
         const txt = (b.textContent || '').trim().toLowerCase();
         return txt === 'dismiss' || txt === 'got it' || txt === 'done' || txt === 'close';
       });
@@ -117,9 +124,9 @@ async function dismissAnyModals(page) {
         }
       }
 
-      // Check if iron-overlay-backdrop is opened and lingering
+      // Check if iron-overlay-backdrop is opened and lingering (never if edit modal exists)
       const backdrops = Array.from(document.querySelectorAll('tp-yt-iron-overlay-backdrop.opened, iron-overlay-backdrop.opened'));
-      if (backdrops.length > 0) {
+      if (backdrops.length > 0 && !document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor')) {
         for (const b of backdrops) {
           b.classList.remove('opened');
           b.style.display = 'none';
@@ -252,8 +259,10 @@ async function run() {
     let editModalOpened = false;
 
     for (let attempt = 1; attempt <= 6; attempt++) {
-      // First dismiss any popup that may have appeared late
-      await dismissAnyModals(page);
+      // First dismiss any popup that may have appeared late (only on attempt 1 before trying to open)
+      if (attempt === 1) {
+        await dismissAnyModals(page);
+      }
 
       // Check if edit modal is already open
       editModalOpened = await page.evaluate(() => {
@@ -548,10 +557,23 @@ async function run() {
 
     while (Date.now() - previewStartWait < maxPreviewWaitMs) {
       try {
-        previewDetected = await page.evaluate(() => {
+        const status = await page.evaluate(() => {
+          // Check if "Go live" button is enabled
+          const goLiveBtn = document.querySelector('#start-stream-button, [aria-label*="Go live" i]');
+          const isGoLiveEnabled = goLiveBtn &&
+            !goLiveBtn.hasAttribute('disabled') &&
+            goLiveBtn.getAttribute('aria-disabled') !== 'true';
+
+          if (isGoLiveEnabled) {
+            const inner = goLiveBtn.querySelector('button') || goLiveBtn;
+            inner.click();
+            goLiveBtn.click();
+            return { goLiveClicked: true, previewDetected: true };
+          }
+
           const video = document.querySelector('video');
           if (video && (video.readyState >= 2 || video.currentTime > 0)) {
-            return true;
+            return { previewDetected: true };
           }
 
           const bodyText = document.body.innerText || '';
@@ -562,14 +584,31 @@ async function run() {
           for (const b of badges) {
             const bTxt = (b.innerText || '').toLowerCase();
             if (bTxt.includes('excellent') || bTxt.includes('good') || bTxt.includes('live')) {
-              return true;
+              return { previewDetected: true };
             }
           }
 
-          return !hasConnectEncoder && !hasNoData;
+          return { previewDetected: !hasConnectEncoder && !hasNoData };
         });
 
-        if (previewDetected) {
+        if (status.goLiveClicked) {
+          log('go_live_clicked', 'Clicked "Go live" button in YouTube Studio header');
+          previewDetected = true;
+          // Check for confirmation modal (e.g. "Are you sure you want to go live?")
+          await new Promise(r => setTimeout(r, 1500));
+          await page.evaluate(() => {
+            const conf = document.querySelector('ytcp-confirmation-dialog #confirm-button, #confirm-button, [aria-label="Go live"]');
+            if (conf) {
+              const inner = conf.querySelector('button') || conf;
+              inner.click();
+              conf.click();
+            }
+          });
+          break;
+        }
+
+        if (status.previewDetected) {
+          previewDetected = true;
           log('preview_detected', 'Live video preview detected in YouTube Studio!');
           break;
         }

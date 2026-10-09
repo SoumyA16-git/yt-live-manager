@@ -45,7 +45,7 @@ echo "--> Creating pre-update backup of config and data..."
 mkdir -p "${INSTALL_DIR}/backups"
 tar -czf "${BACKUP_ARCHIVE}" -C "${INSTALL_DIR}" config data
 chmod 0600 "${BACKUP_ARCHIVE}"
-chown ytlive:ytlive "${BACKUP_ARCHIVE}"
+chown ubuntu:ubuntu "${BACKUP_ARCHIVE}" 2>/dev/null || chown ytlive:ytlive "${BACKUP_ARCHIVE}" 2>/dev/null || true
 
 # Create full code snapshot for rollback
 mkdir -p "${ROLLBACK_DIR}"
