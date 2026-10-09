@@ -39,7 +39,7 @@ import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage, resetProcessBaseline } from './usage-manager.js';
 import { logger } from './logger.js';
 import { isInsideWindow } from './scheduler.js';
-import { prepareYouTubeStudioStream } from './youtube-studio-automator.js';
+import { prepareYouTubeStudioStream, signalStudioStreamHealthy } from './youtube-studio-automator.js';
 import PATHS from './lib/paths.js';
 
 export const streamEvents = new EventEmitter();
@@ -769,6 +769,8 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         },
         onHealthy: async () => {
           _streamStartTime = Date.now();
+          // Signal studio-worker that FFmpeg is healthy → Chrome closes promptly
+          signalStudioStreamHealthy();
           await transitionState('RUNNING', 'FFmpeg healthy output detected');
           logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid} (${streamMode})`);
           armAutoRecycleTimer();

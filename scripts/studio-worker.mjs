@@ -151,6 +151,16 @@ async function run() {
   const timeoutMs = Number(process.env.STUDIO_TIMEOUT_MS) || 120000;
   const debugPort = 9222;
 
+  // Flag set externally by parent process (via IPC file) when FFmpeg is confirmed healthy
+  let _streamHealthySignalled = false;
+  const healthFlagFile = process.env.STUDIO_HEALTH_FLAG_FILE || '';
+  // Poll the health flag file every 1s
+  const healthPollInterval = setInterval(() => {
+    if (healthFlagFile && fs.existsSync(healthFlagFile)) {
+      _streamHealthySignalled = true;
+    }
+  }, 1000);
+
   // Global safety watchdog to ensure process terminates
   const watchdog = setTimeout(() => {
     log('watchdog_timeout', 'Safety watchdog triggered after timeout; exiting');
@@ -542,7 +552,6 @@ async function run() {
 
     // Step 8: Wait for live video preview to appear in YouTube Studio
     // Minimum 8s initial wait: FFmpeg needs time to connect to RTMPS before Studio shows preview.
-    // Without this, the page hasn't loaded "Connect your encoder" text yet and we get a false positive.
     log('waiting_for_preview', 'Waiting for encoder connection and preview video in Studio (min 8s)');
     await new Promise(r => setTimeout(r, 8000));
 
@@ -551,6 +560,13 @@ async function run() {
     const maxPreviewWaitMs = 52000; // total max ~60s including initial 8s wait
 
     while (Date.now() - previewStartWait < maxPreviewWaitMs) {
+      // Priority 1: parent process signalled FFmpeg is healthy — no need to wait further
+      if (_streamHealthySignalled) {
+        previewDetected = true;
+        log('preview_detected', 'Stream healthy signal received from stream-manager (FFmpeg RTMPS confirmed)');
+        break;
+      }
+
       try {
         previewDetected = await page.evaluate(() => {
           // 1. Actual video element playing (most reliable signal)
@@ -580,8 +596,12 @@ async function run() {
             if (/\d+\s*(kbps|fps|Mbps)/i.test(txt)) return true;
           }
 
-          // NOTE: Do NOT return true based on absence of "Connect your encoder" text —
-          // that text may not have rendered yet immediately after page load, causing false positives.
+          // 4. After min 8s wait: if "Connect your encoder" NOT present, stream is active
+          const bodyText = document.body.innerText || '';
+          if (!bodyText.includes('Connect your encoder to go live') && !bodyText.includes('No data')) {
+            return true;
+          }
+
           return false;
         });
 
@@ -619,11 +639,16 @@ async function run() {
     emitEvent('finished', { success: false, error: err.message });
   } finally {
     clearTimeout(watchdog);
+    clearInterval(healthPollInterval);
     if (browser) {
       try { await browser.close(); } catch {}
     }
     if (chromeProcess) {
       try { chromeProcess.kill('SIGTERM'); } catch {}
+    }
+    // Clean up health flag file
+    if (healthFlagFile) {
+      try { fs.unlinkSync(healthFlagFile); } catch {}
     }
     try { execSync(`fuser -k ${debugPort}/tcp || true`, { stdio: 'ignore' }); } catch {}
     process.exit(0);

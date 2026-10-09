@@ -23,6 +23,7 @@ import { logger } from './logger.js';
 import PATHS from './lib/paths.js';
 
 let _activeWorkerProcess = null;
+let _currentHealthFlagFile = null;
 
 /**
  * Execute YouTube Studio preparation workflow before launching stream.
@@ -114,7 +115,10 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
       } catch { }
     }
 
-    const workerEnv = {
+    const healthFlagFile = `/tmp/yt-studio-healthy-${Date.now()}.flag`;
+  _currentHealthFlagFile = healthFlagFile;
+
+  const workerEnv = {
       ...process.env,
       STUDIO_URL: studioUrl,
       STUDIO_BASE_TITLE: baseTitle,
@@ -124,6 +128,7 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
       CHROME_BIN: chromePath,
       CHROME_USER_DATA_DIR: userDataDir,
       DISPLAY: display,
+      STUDIO_HEALTH_FLAG_FILE: healthFlagFile,
     };
 
     logger.info('studio_auto.spawn', `Spawning worker: ${cmd} ${args.join(' ')}`);
@@ -225,5 +230,22 @@ export function abortYouTubeStudioWorker() {
       _activeWorkerProcess.kill('SIGTERM');
     } catch { }
     _activeWorkerProcess = null;
+  }
+}
+
+/**
+ * Signal to studio-worker that FFmpeg stream is healthy.
+ * Called by stream-manager when RTMPS connection is confirmed.
+ * Worker polls a flag file and exits Chrome immediately on detection.
+ */
+export function signalStudioStreamHealthy() {
+  if (_currentHealthFlagFile) {
+    try {
+      fs.writeFileSync(_currentHealthFlagFile, '1');
+      logger.info('studio_auto.health_signal_sent', 'FFmpeg healthy signal written to flag file for studio-worker');
+    } catch (e) {
+      logger.warn('studio_auto.health_signal_error', `Could not write health flag: ${e.message}`);
+    }
+    _currentHealthFlagFile = null;
   }
 }
