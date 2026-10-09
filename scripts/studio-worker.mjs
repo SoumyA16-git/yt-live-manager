@@ -87,36 +87,43 @@ function cleanBaseTitle(title) {
 }
 
 /**
- * Dismiss any blocking popup modals in YouTube Studio (e.g. Stream Finished).
+ * Dismiss any blocking popup modals in YouTube Studio.
  */
 async function dismissAnyModals(page) {
   try {
     const dismissed = await page.evaluate(() => {
-      // 1. Look for dialogs specifically for "Stream finished"
-      const dialogs = Array.from(document.querySelectorAll('ytcp-dialog, [role="dialog"], ytcp-confirmation-dialog'));
-      for (const d of dialogs) {
-        if (d.closest('ytcp-video-metadata-editor') || d.querySelector('ytcp-social-suggestions-textbox')) {
-          continue;
-        }
+      // Common dismiss buttons
+      const candidates = Array.from(document.querySelectorAll(
+        '#dismiss-button, ytcp-button#dismiss-button, button[aria-label="Dismiss"], ' +
+        'ytcp-button[aria-label="Dismiss"], tp-yt-paper-button#dismiss-button, ' +
+        'ytcp-dialog #dismiss-button, ytcp-confirmation-dialog #confirm-button, ' +
+        'button[aria-label="Close"], [aria-label="Close dialog"]'
+      ));
 
-        const text = (d.innerText || '').toLowerCase();
-        if (text.includes('stream finished') || text.includes('stream ended') || text.includes('stream stats')) {
-          const btn = d.querySelector('#dismiss-button, button[aria-label="Dismiss"], ytcp-button#dismiss-button, button');
-          if (btn) {
-            const inner = btn.querySelector('button') || btn;
-            inner.click();
-            btn.click();
-            return true;
-          }
+      // Also look for buttons with text "Dismiss", "Done", "Got it", "Close"
+      const textButtons = Array.from(document.querySelectorAll('ytcp-button, button, tp-yt-paper-button')).filter(b => {
+        const txt = (b.textContent || '').trim().toLowerCase();
+        return txt === 'dismiss' || txt === 'got it' || txt === 'done' || txt === 'close';
+      });
+
+      const all = [...candidates, ...textButtons];
+      for (const btn of all) {
+        const rect = btn.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0) {
+          const inner = btn.querySelector('button, [role="button"], .label') || btn;
+          inner.click();
+          btn.click();
+          return true;
         }
       }
 
-      // 2. Standalone dismiss button not inside metadata editor
-      const dismissBtn = document.querySelector('ytcp-button#dismiss-button, button#dismiss-button');
-      if (dismissBtn && !dismissBtn.closest('ytcp-video-metadata-editor, ytcp-live-metadata-editor')) {
-        const inner = dismissBtn.querySelector('button') || dismissBtn;
-        inner.click();
-        dismissBtn.click();
+      // Check if iron-overlay-backdrop is opened and lingering
+      const backdrops = Array.from(document.querySelectorAll('tp-yt-iron-overlay-backdrop.opened, iron-overlay-backdrop.opened'));
+      if (backdrops.length > 0) {
+        for (const b of backdrops) {
+          b.classList.remove('opened');
+          b.style.display = 'none';
+        }
         return true;
       }
 
@@ -124,58 +131,16 @@ async function dismissAnyModals(page) {
     });
 
     if (dismissed) {
-      log('dismiss_clicked', 'Dismissed stream finished popup modal');
-      await new Promise(r => setTimeout(r, 1000));
+      log('dismiss_clicked', 'Dismissed popup modal or overlay');
+      await new Promise(r => setTimeout(r, 1500));
     }
   } catch (err) {
     log('dismiss_error', `Non-fatal dismiss check error: ${err.message}`);
   }
 }
 
-async function retryControlRoomIfNeeded(page) {
-  let clicked = false;
-  const selectors = [
-    'ytcp-button#error-retry-button >>> button',
-    '#error-retry-button >>> button',
-    'ytcp-button#error-retry-button',
-    '#error-retry-button',
-  ];
-
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    let retryButton = null;
-    let matchedSelector = '';
-    for (const selector of selectors) {
-      retryButton = await page.$(selector);
-      if (retryButton) {
-        matchedSelector = selector;
-        break;
-      }
-    }
-
-    log('control_room_retry_check', 'Checked for YouTube Studio error retry control', {
-      attempt,
-      found: Boolean(retryButton),
-      selector: matchedSelector || null,
-    });
-    if (!retryButton) break;
-
-    try {
-      await retryButton.click({ timeout: 5000 });
-      clicked = true;
-      log('control_room_retry', 'Clicked YouTube Studio retry control after detecting a page error', { attempt });
-    } catch (err) {
-      log('control_room_retry_failed', `Could not click YouTube Studio retry control: ${err.message}`, { attempt });
-      break;
-    }
-
-    await new Promise(r => setTimeout(r, 5000));
-  }
-
-  return clicked;
-}
-
 async function run() {
-  const targetUrl = process.env.STUDIO_URL || 'https://studio.youtube.com/video/I9B8mog4d7c/livestreaming';
+  const targetUrl = process.env.STUDIO_URL || 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
   const configuredBaseTitle = process.env.STUDIO_BASE_TITLE || '';
   const timeZone = process.env.STUDIO_TIMEZONE || 'Asia/Kolkata';
   const chromePath = process.env.CHROME_BIN || '/usr/bin/google-chrome';
@@ -185,16 +150,6 @@ async function run() {
   const previewWaitSec = Number(process.env.STUDIO_PREVIEW_WAIT_SEC) || 10;
   const timeoutMs = Number(process.env.STUDIO_TIMEOUT_MS) || 120000;
   const debugPort = 9222;
-
-  // Flag set externally by parent process (via IPC file) when FFmpeg is confirmed healthy
-  let _streamHealthySignalled = false;
-  const healthFlagFile = process.env.STUDIO_HEALTH_FLAG_FILE || '';
-  // Poll the health flag file every 1s
-  const healthPollInterval = setInterval(() => {
-    if (healthFlagFile && fs.existsSync(healthFlagFile)) {
-      _streamHealthySignalled = true;
-    }
-  }, 1000);
 
   // Global safety watchdog to ensure process terminates
   const watchdog = setTimeout(() => {
@@ -271,7 +226,6 @@ async function run() {
 
     const pages = await browser.pages();
     const page = pages.length > 0 ? pages[0] : await browser.newPage();
-    await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36');
     await page.setViewport({ width: 1920, height: 1080 });
     page.setDefaultTimeout(35000);
 
@@ -283,20 +237,6 @@ async function run() {
 
     log('page_loaded', 'YouTube Studio page loaded', { title: await page.title(), url: page.url() });
 
-    // Handle "Improve your experience" / unsupported browser banner if present
-    try {
-      await page.evaluate(() => {
-        const allEls = Array.from(document.querySelectorAll('a, button, [role="button"], span'));
-        for (const el of allEls) {
-          if ((el.innerText || '').trim().toLowerCase().includes('skip to youtube studio')) {
-            el.click();
-            break;
-          }
-        }
-      });
-      await new Promise(r => setTimeout(r, 2000));
-    } catch {}
-
     // Step 2: Dismiss any lingering popup modals
     log('check_dismiss', 'Checking for Stream Finished modal or overlays');
     for (let d = 0; d < 3; d++) {
@@ -304,217 +244,295 @@ async function run() {
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    await retryControlRoomIfNeeded(page);
-
-    // Step 3: Wait for control panel to settle and title data to populate
-    log('settling', 'Waiting for YouTube Studio control room data to populate');
-    for (let w = 0; w < 10; w++) {
-      const settled = await page.evaluate(() => {
-        const titleEl = document.querySelector('#stream-title, ytcp-live-title, [class*="stream-title"], #title');
-        const txt = (titleEl?.innerText || titleEl?.textContent || '').trim();
-        return txt.length > 0 && txt !== '—';
-      });
-      if (settled) break;
-      await new Promise(r => setTimeout(r, 1000));
-    }
-
-    // Dismiss any initial stream-finished popup before editing
-    await dismissAnyModals(page);
+    // Step 3: Wait for control panel to settle
+    await new Promise(r => setTimeout(r, 2000));
 
     // Step 4: Locate and Click the Edit button with robust retries
     log('edit_title_start', 'Looking for Edit button in Title section');
-    let titleBox = null;
+    let editModalOpened = false;
 
-    const findTitleBox = async () => {
-      // Only match the TITLE box, not description
-      // aria-label contains 'title' ensures we get the right contenteditable
-      return await page.$(
-        'ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ' +
-        'ytcp-social-suggestions-textbox >>> div#textbox[aria-label*="title" i], ' +
-        'ytcp-video-metadata-editor div#textbox[aria-label*="title" i]'
-      );
-    };
+    for (let attempt = 1; attempt <= 6; attempt++) {
+      // First dismiss any popup that may have appeared late
+      await dismissAnyModals(page);
 
-    for (let attempt = 1; attempt <= 8; attempt++) {
-      // Check if title box is already accessible
-      titleBox = await findTitleBox();
-      if (titleBox) {
+      // Check if edit modal is already open
+      editModalOpened = await page.evaluate(() => {
+        const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor');
+        const tb = document.querySelector('div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, [contenteditable="true"]#textbox');
+        if (modal) {
+          const r = modal.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) return true;
+        }
+        if (tb) {
+          const r = tb.getBoundingClientRect();
+          if (r.width > 0 && r.height > 0) return true;
+        }
+        return false;
+      });
+
+      if (editModalOpened) {
         log('edit_modal_detected', `Edit modal already opened on attempt ${attempt}`);
         break;
       }
 
-      // Take screenshot on first attempt to debug page state
-      if (attempt === 1) {
-        try {
-          await page.screenshot({ path: '/tmp/studio-debug.png', fullPage: false });
-          log('debug_screenshot', 'Screenshot saved to /tmp/studio-debug.png');
-        } catch (e) { /* ignore */ }
-      }
+      // Try finding and clicking the Edit button
+      const clickResult = await page.evaluate(() => {
+        // Broad selectors for the Edit button in YouTube Studio
+        const candidates = Array.from(document.querySelectorAll(
+          '#edit-button, ytcp-button#edit-button, button[aria-label="Edit"], ' +
+          '[aria-label*="Edit" i], ytcp-button[aria-label="Edit"], ' +
+          'ytcp-stream-metadata-editor ytcp-button, ytcp-stream-metadata-editor button'
+        ));
 
-      // Strategy: Recursive shadow DOM traversal — finds element at ANY nesting depth
-      const evalResult = await page.evaluate(() => {
-        // Recursively search all shadow roots for a matching element
-        function deepQueryAll(root, selector) {
-          const results = [];
-          try {
-            const direct = Array.from(root.querySelectorAll(selector));
-            results.push(...direct);
-          } catch (e) {}
-          // Walk all elements in this root and recurse into their shadow roots
-          const allEls = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
-          for (const el of allEls) {
-            if (el.shadowRoot) {
-              const nested = deepQueryAll(el.shadowRoot, selector);
-              results.push(...nested);
-            }
-          }
-          return results;
-        }
+        // Also search for buttons with text "Edit"
+        const textCandidates = Array.from(document.querySelectorAll('ytcp-button, button')).filter(el => {
+          const t = (el.textContent || '').trim().toLowerCase();
+          return t === 'edit';
+        });
 
-        // Search for edit button by ID
-        const editBtns = deepQueryAll(document, 'ytcp-button#edit-button, button#edit-button, [role="button"][aria-label*="edit" i], button[aria-label*="edit" i]');
-        for (const btn of editBtns) {
-          const rect = btn.getBoundingClientRect();
-          if (rect.width > 0 || rect.height > 0) {
-            // Found a visible edit button — click inner button or the element itself
-            const inner = btn.shadowRoot ? btn.shadowRoot.querySelector('button') : btn.querySelector('button');
-            if (inner) { inner.click(); return 'recursive_inner_clicked'; }
-            btn.click();
-            return 'recursive_host_clicked';
+        const all = [...candidates, ...textCandidates];
+        for (const el of all) {
+          const r = el.getBoundingClientRect();
+          const s = window.getComputedStyle(el);
+          if (r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden') {
+            el.scrollIntoView({ behavior: 'instant', block: 'center' });
+            // Click host element and inner button
+            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+            el.click();
+            const inner = el.querySelector('button, [role="button"], .label');
+            if (inner) inner.click();
+            return { clicked: true, tagName: el.tagName, id: el.id };
           }
         }
-
-        // Fallback: search all buttons with text 'Edit' at any depth
-        const allBtns = deepQueryAll(document, 'button, ytcp-button, [role="button"], tp-yt-paper-button');
-        for (const b of allBtns) {
-          const labels = [b.getAttribute('aria-label'), b.getAttribute('title'), b.innerText, b.textContent]
-            .filter(Boolean)
-            .map(value => value.trim().toLowerCase());
-          if (labels.some(label => /^(edit|edit title|edit stream details)$/.test(label))) {
-            const inner = b.shadowRoot ? b.shadowRoot.querySelector('button') : b.querySelector('button');
-            if (inner) { inner.click(); return 'recursive_text_inner_clicked'; }
-            b.click();
-            return 'recursive_text_clicked';
-          }
-        }
-
-        // Debug: report what ytcp elements exist
-        const ytcpEls = deepQueryAll(document, 'ytcp-button');
-        const ids = ytcpEls.slice(0, 10).map(e => e.id || e.tagName).join(',');
-        return `not_found|ytcp_ids:${ids}`;
+        return { clicked: false };
       });
-      log('edit_evaluate_result', `Evaluate fallback result on attempt ${attempt}: ${evalResult}`);
 
-      // Wait up to 3 seconds for modal to appear
-      for (let w = 0; w < 6; w++) {
-        await new Promise(r => setTimeout(r, 500));
-        titleBox = await findTitleBox();
-        if (titleBox) break;
+      if (clickResult.clicked) {
+        log('edit_button_clicked', `Clicked Edit button on attempt ${attempt}`, clickResult);
+        // Wait for modal to open
+        await new Promise(r => setTimeout(r, 2000));
+
+        // Check if modal opened
+        editModalOpened = await page.evaluate(() => {
+          const tb = document.querySelector('div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, [contenteditable="true"]#textbox');
+          return !!(tb && tb.getBoundingClientRect().width > 0);
+        });
+
+        if (editModalOpened) break;
+      } else {
+        log('edit_search_retry', `Attempt ${attempt}: Edit button not found yet, retrying...`);
       }
-      if (titleBox) break;
 
-      // Small pause before next attempt
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 1500));
     }
 
-    if (!titleBox) {
+    if (!editModalOpened) {
       log('edit_not_clicked', 'Could not open Edit modal; proceeding with stream start fallback');
     } else {
       // Step 5: Update the Title inside the Edit Modal
-      log('updating_title', 'Updating title in edit modal via native keyboard input');
-      const currentText = await page.evaluate(el => (el.innerText || el.textContent || '').trim(), titleBox);
-
-      let base = configuredBaseTitle ? configuredBaseTitle.trim() : '';
-      if (!base) {
-        base = cleanBaseTitle(currentText);
-        if (!base) base = 'Live Stream';
-      }
-
+      log('updating_title', 'Updating title in edit modal');
       const dt = getFormattedDateTime(timeZone);
-      const dateSuffix = ` ${dt.full}`;
-      const maxBaseLen = Math.max(10, 100 - dateSuffix.length);
-      if (base.length > maxBaseLen) {
-        base = base.substring(0, maxBaseLen).trim();
-      }
-      const targetTitle = `${base}${dateSuffix}`.trim().slice(0, 100);
 
-      log('typing_title', `Typing new target title into title box`, { targetTitle, oldTitle: currentText });
+      let titleUpdated = false;
+      let finalNewTitle = '';
 
-      // Focus and select all existing text
-      await titleBox.click();
-      await new Promise(r => setTimeout(r, 300));
+      for (let tAttempt = 1; tAttempt <= 8; tAttempt++) {
+        // Evaluate in DOM to find title box, clean current text, and set new title
+        const updateAttempt = await page.evaluate((cfgBase, dateTimeFull, cleanFnStr) => {
+          const cleanBase = new Function('return ' + cleanFnStr)();
 
-      await page.keyboard.down('Control');
-      await page.keyboard.press('KeyA');
-      await page.keyboard.up('Control');
-      await new Promise(r => setTimeout(r, 200));
+          // Selectors for title editable div
+          const candidates = Array.from(document.querySelectorAll(
+            'div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, ' +
+            '[contenteditable="true"]#textbox, div#textbox, [contenteditable="true"]'
+          ));
 
-      await page.keyboard.press('Backspace');
-      await new Promise(r => setTimeout(r, 200));
-
-      // Native typing causes Polymer to mark the field dirty and enable the Save button
-      await page.keyboard.type(targetTitle, { delay: 10 });
-      log('title_typed', `Successfully typed new title into box via keyboard: ${targetTitle}`);
-      await new Promise(r => setTimeout(r, 1000));
-
-      // Step 6: Wait for and Click the "Save" Button
-      log('save_title', 'Waiting for Save button to become enabled and saving');
-      let saveCompleted = false;
-
-      for (let sAttempt = 1; sAttempt <= 15; sAttempt++) {
-        const saveStatus = await page.evaluate(() => {
-          const host = document.querySelector('ytcp-button#save-button, ytcp-video-metadata-editor ytcp-button#save-button');
-          if (!host) return { found: false };
-          const btn = host.shadowRoot ? host.shadowRoot.querySelector('button') : host.querySelector('button');
-          const disabled = host.hasAttribute('disabled') ||
-                           host.getAttribute('aria-disabled') === 'true' ||
-                           host.classList.contains('disabled') ||
-                           (btn && (btn.hasAttribute('disabled') || btn.getAttribute('aria-disabled') === 'true'));
-          return { found: true, disabled: !!disabled, innerText: host.innerText.trim() };
-        });
-
-        if (saveStatus.found && !saveStatus.disabled) {
-          log('save_button_enabled', `Save button is active on attempt ${sAttempt}`);
-          const saveBtn = await page.$('ytcp-button#save-button >>> button, #save-button');
-          if (saveBtn) {
-            await saveBtn.click();
-          } else {
-            await page.evaluate(() => {
-              const host = document.querySelector('ytcp-button#save-button');
-              if (host) {
-                const btn = host.shadowRoot ? host.shadowRoot.querySelector('button') : host.querySelector('button');
-                if (btn) btn.click();
-                host.click();
+          let titleDiv = null;
+          for (const el of candidates) {
+            const r = el.getBoundingClientRect();
+            const s = window.getComputedStyle(el);
+            if (r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden') {
+              // Ensure it belongs to title (not description)
+              const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+              const parentText = (el.parentElement?.textContent || '').toLowerCase();
+              if (aria.includes('description') || (!aria.includes('title') && parentText.includes('description'))) {
+                continue;
               }
-            });
+              titleDiv = el;
+              break;
+            }
           }
 
-          log('save_clicked', `Save button clicked on attempt ${sAttempt}`);
-          await new Promise(r => setTimeout(r, 3000));
+          if (!titleDiv) {
+            return { success: false, reason: 'title_field_not_found' };
+          }
 
-          // Check if modal has closed (either removed or hidden/width 0)
-          const modalClosed = await page.evaluate(() => {
-            const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-dialog');
-            if (!modal) return true;
-            const r = modal.getBoundingClientRect();
-            if (r.width === 0 || r.height === 0) return true;
-            if (modal.getAttribute('aria-hidden') === 'true') return true;
-            const s = window.getComputedStyle(modal);
-            return s.display === 'none' || s.visibility === 'hidden';
+          const currentText = (titleDiv.innerText || titleDiv.textContent || '').trim();
+          let base = cfgBase ? cfgBase.trim() : '';
+          if (!base) {
+            base = cleanBase(currentText);
+            if (!base) base = 'Live Stream';
+          }
+
+          // Enforce YouTube 100 character limit strictly
+          const dateSuffix = ` ${dateTimeFull}`;
+          const maxBaseLen = Math.max(10, 100 - dateSuffix.length);
+          if (base.length > maxBaseLen) {
+            base = base.substring(0, maxBaseLen).trim();
+          }
+          const targetTitle = `${base}${dateSuffix}`.trim().slice(0, 100);
+
+          // Focus the textbox
+          titleDiv.focus();
+
+          // Select all content and replace using execCommand (fires native inputType: insertText)
+          try {
+            const range = document.createRange();
+            range.selectNodeContents(titleDiv);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            document.execCommand('delete', false, null);
+            document.execCommand('insertText', false, targetTitle);
+          } catch (_) {}
+
+          // Fallback if execCommand didn't apply
+          if ((titleDiv.innerText || '').trim() !== targetTitle) {
+            titleDiv.innerText = targetTitle;
+          }
+
+          // Dispatch full suite of input events to ensure Polymer/Angular detects the change
+          titleDiv.dispatchEvent(new InputEvent('beforeinput', {
+            bubbles: true,
+            cancelable: true,
+            inputType: 'insertText',
+            data: targetTitle
+          }));
+          titleDiv.dispatchEvent(new InputEvent('input', {
+            bubbles: true,
+            cancelable: true,
+            inputType: 'insertText',
+            data: targetTitle
+          }));
+          titleDiv.dispatchEvent(new Event('change', { bubbles: true }));
+
+          return {
+            success: true,
+            oldTitle: currentText,
+            newTitle: targetTitle
+          };
+        }, configuredBaseTitle, dt.full, cleanBaseTitle.toString());
+
+        if (updateAttempt.success) {
+          titleUpdated = true;
+          finalNewTitle = updateAttempt.newTitle;
+          log('title_updated', 'Updated title in edit modal', updateAttempt);
+
+          // Simulate real keyboard activity to force Polymer dirty state
+          try {
+            await page.keyboard.press('Space');
+            await new Promise(r => setTimeout(r, 60));
+            await page.keyboard.press('Backspace');
+          } catch (_) {}
+
+          // Blur field to trigger blur/change handlers
+          await page.evaluate(() => {
+            const el = document.activeElement;
+            if (el && el.blur) el.blur();
           });
-
-          if (modalClosed) {
-            saveCompleted = true;
-            log('save_verified', 'Edit modal closed; stream title saved successfully', { newTitle: targetTitle });
-            break;
-          }
+          break;
         }
 
         await new Promise(r => setTimeout(r, 1000));
       }
 
-      if (!saveCompleted) {
-        log('save_warning', 'Save button timed out or modal did not close; proceeding to stream start');
+      if (titleUpdated) {
+        // Step 6: Wait for and Click the "Save" Button
+        log('save_title', 'Waiting for Save button to become enabled and saving');
+        let saveCompleted = false;
+
+        for (let sAttempt = 1; sAttempt <= 15; sAttempt++) {
+          const saveResult = await page.evaluate((isLateAttempt) => {
+            // Find save button
+            const candidates = Array.from(document.querySelectorAll(
+              '#save-button, ytcp-button#save-button, button[aria-label="Save"], ' +
+              'ytcp-button[aria-label="Save"], ytcp-button.save-button, ' +
+              'ytcp-video-metadata-editor #save-button, ytcp-live-metadata-editor #save-button'
+            ));
+
+            // Also check buttons with text "Save"
+            const textButtons = Array.from(document.querySelectorAll('ytcp-button, button')).filter(b => {
+              const t = (b.textContent || '').trim().toLowerCase();
+              return t === 'save';
+            });
+
+            const all = [...candidates, ...textButtons];
+            for (const btn of all) {
+              const rect = btn.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0) {
+                const isDisabled = btn.hasAttribute('disabled') ||
+                                   btn.getAttribute('aria-disabled') === 'true' ||
+                                   btn.classList.contains('disabled');
+
+                if (!isDisabled) {
+                  btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+                  btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                  btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                  btn.click();
+                  const inner = btn.querySelector('button, [role="button"], .label');
+                  if (inner) inner.click();
+                  return { clicked: true, forced: false };
+                }
+
+                // If late attempt (>= 6) and still disabled, force-enable and click
+                if (isLateAttempt) {
+                  btn.removeAttribute('disabled');
+                  btn.removeAttribute('aria-disabled');
+                  btn.classList.remove('disabled');
+                  const inner = btn.querySelector('button');
+                  if (inner) {
+                    inner.removeAttribute('disabled');
+                    inner.removeAttribute('aria-disabled');
+                    inner.click();
+                  }
+                  btn.click();
+                  return { clicked: true, forced: true };
+                }
+
+                return { clicked: false, waitingForEnable: true };
+              }
+            }
+
+            return { clicked: false, notFound: true };
+          }, sAttempt >= 6);
+
+          if (saveResult.clicked) {
+            log('save_clicked', `Save button clicked on attempt ${sAttempt}`, saveResult);
+            // Wait for save request to complete and modal to close
+            await new Promise(r => setTimeout(r, 2000));
+
+            // Check if modal has closed
+            const modalClosed = await page.evaluate(() => {
+              const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor');
+              if (!modal) return true;
+              const r = modal.getBoundingClientRect();
+              return r.width === 0 || r.height === 0;
+            });
+
+            if (modalClosed) {
+              saveCompleted = true;
+              log('save_verified', 'Edit modal closed; stream title saved successfully', { newTitle: finalNewTitle });
+              break;
+            }
+          }
+
+          await new Promise(r => setTimeout(r, 800));
+        }
+
+        if (!saveCompleted) {
+          log('save_warning', 'Save button was clicked or timed out; proceeding to stream start');
+        }
       }
     }
 
@@ -522,111 +540,42 @@ async function run() {
     log('ready_to_stream', 'Control panel ready; signalling to start live stream');
     emitEvent('ready_to_stream');
 
-    // Step 8: Wait for real encoder preview video and trigger Go Live if needed
-    log('waiting_for_preview', 'Waiting for encoder connection, video preview and Go Live readiness in Studio');
-
+    // Step 8: Wait for live video preview to appear in YouTube Studio
+    log('waiting_for_preview', 'Waiting for encoder connection and preview video in Studio');
     let previewDetected = false;
-    let liveConfirmed = false;
     const previewStartWait = Date.now();
-    const maxPreviewWaitMs = 90000; // allow up to 90s for RTMP handshake and YouTube player ingestion
+    const maxPreviewWaitMs = 60000;
 
     while (Date.now() - previewStartWait < maxPreviewWaitMs) {
       try {
-        const status = await page.evaluate(() => {
-          // 1. Check if stream is ALREADY LIVE (End Stream button visible or LIVE badge)
-          const endBtn = document.querySelector('#end-stream-button, button.end-stream-button, ytcp-button#end-stream-button');
-          const isEndBtnVisible = endBtn && endBtn.getBoundingClientRect().width > 0;
-
-          const badges = Array.from(document.querySelectorAll(
-            '.badge, [class*="badge"], [class*="health"], ytcp-stream-health-badge, ' +
-            '[class*="stream-health"], ytcp-badge, ytls-stream-health, [class*="connection"]'
-          ));
-          let isLiveBadge = false;
-          let isHealthyBadge = false;
-          for (const b of badges) {
-            const bTxt = (b.innerText || b.textContent || '').trim().toLowerCase();
-            if (bTxt === 'live' || bTxt.includes('is live')) isLiveBadge = true;
-            if (bTxt.includes('excellent') || bTxt.includes('good')) isHealthyBadge = true;
-          }
-
-          if (isEndBtnVisible || isLiveBadge) {
-            return { state: 'live', isLive: true };
-          }
-
-          // 2. Check if "Go live" button is enabled
-          const goLiveBtn = document.querySelector('#start-stream-button, [aria-label*="Go live" i]');
-          const isGoLiveEnabled = goLiveBtn &&
-            !goLiveBtn.hasAttribute('disabled') &&
-            goLiveBtn.getAttribute('aria-disabled') !== 'true';
-
-          // 3. Check if video preview is active and playing
+        previewDetected = await page.evaluate(() => {
           const video = document.querySelector('video');
-          const isVideoPlaying = video && (video.readyState >= 2 || video.currentTime > 0);
+          if (video && (video.readyState >= 2 || video.currentTime > 0)) {
+            return true;
+          }
 
-          return {
-            state: isGoLiveEnabled ? 'go_live_ready' : (isVideoPlaying || isHealthyBadge ? 'preview_active' : 'waiting'),
-            isGoLiveEnabled: !!isGoLiveEnabled,
-            isVideoPlaying: !!isVideoPlaying,
-            isHealthyBadge: !!isHealthyBadge,
-          };
-        });
+          const bodyText = document.body.innerText || '';
+          const hasConnectEncoder = bodyText.includes('Connect your encoder to go live');
+          const hasNoData = bodyText.includes('No data');
 
-        if (status.state === 'live') {
-          previewDetected = true;
-          liveConfirmed = true;
-          log('stream_live_confirmed', 'Stream is confirmed LIVE in YouTube Studio!');
-          break;
-        }
-
-        if (status.state === 'go_live_ready') {
-          previewDetected = true;
-          log('go_live_enabled', 'Encoder preview connected! "Go live" button is now enabled. Clicking "Go live"...');
-
-          // Click Go Live
-          const clicked = await page.evaluate(() => {
-            const btn = document.querySelector('#start-stream-button, [aria-label*="Go live" i]');
-            if (btn) {
-              const inner = btn.querySelector('button') || btn;
-              inner.click();
-              btn.click();
+          const badges = Array.from(document.querySelectorAll('.badge, [class*="badge"], [class*="health"]'));
+          for (const b of badges) {
+            const bTxt = (b.innerText || '').toLowerCase();
+            if (bTxt.includes('excellent') || bTxt.includes('good') || bTxt.includes('live')) {
               return true;
             }
-            return false;
-          });
+          }
 
-          if (clicked) {
-            log('go_live_clicked', 'Clicked "Go live" button in YouTube Studio header');
-            // Check for confirmation dialog (e.g. "Are you sure you want to go live?")
-            await new Promise(r => setTimeout(r, 2000));
-            await page.evaluate(() => {
-              const conf = document.querySelector('ytcp-confirmation-dialog #confirm-button, #confirm-button, [aria-label="Go live"]');
-              if (conf) {
-                const inner = conf.querySelector('button') || conf;
-                inner.click();
-                conf.click();
-              }
-            });
-            await new Promise(r => setTimeout(r, 4000));
-          }
-        } else if (status.state === 'preview_active') {
-          if (!previewDetected) {
-            previewDetected = true;
-            log('preview_detected', 'Live video preview detected playing in YouTube Studio player', status);
-          }
+          return !hasConnectEncoder && !hasNoData;
+        });
+
+        if (previewDetected) {
+          log('preview_detected', 'Live video preview detected in YouTube Studio!');
+          break;
         }
-      } catch (err) {
-        log('preview_poll_error', `Non-fatal poll error: ${err.message}`);
-      }
-
+      } catch {}
       await new Promise(r => setTimeout(r, 2000));
     }
-
-    // Capture visual confirmation screenshot on the VPS
-    try {
-      const confirmationScreenshotPath = '/opt/yt-live-manager/logs/studio_live_confirmed.png';
-      await page.screenshot({ path: confirmationScreenshotPath });
-      log('screenshot_saved', `Saved confirmation screenshot to ${confirmationScreenshotPath}`);
-    } catch {}
 
     if (!previewDetected) {
       log('preview_timeout', 'Preview wait reached limit; proceeding with shutdown');
@@ -654,16 +603,11 @@ async function run() {
     emitEvent('finished', { success: false, error: err.message });
   } finally {
     clearTimeout(watchdog);
-    clearInterval(healthPollInterval);
     if (browser) {
       try { await browser.close(); } catch {}
     }
     if (chromeProcess) {
       try { chromeProcess.kill('SIGTERM'); } catch {}
-    }
-    // Clean up health flag file
-    if (healthFlagFile) {
-      try { fs.unlinkSync(healthFlagFile); } catch {}
     }
     try { execSync(`fuser -k ${debugPort}/tcp || true`, { stdio: 'ignore' }); } catch {}
     process.exit(0);
