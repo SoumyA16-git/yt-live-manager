@@ -123,18 +123,19 @@ async function readTitleField(page) {
     const editors = Array.from(document.querySelectorAll('ytcp-video-metadata-editor, ytcp-live-metadata-editor')).filter(visible);
     for (const editor of editors) {
       const fields = Array.from(editor.querySelectorAll(
-        'div#textbox[aria-label*="title" i], [contenteditable="true"][aria-label*="title" i], ' +
-        '[id*="title" i] #textbox, [id*="title" i][contenteditable="true"], ' +
-        'ytcp-social-suggestions-textbox #textbox, [contenteditable="true"]#textbox, div#textbox'
+        'input, textarea, [role="textbox"], [contenteditable="true"], ' +
+        'ytcp-social-suggestions-textbox #textbox, [id*="title" i] #textbox, div#textbox'
       ));
       for (const field of fields) {
         if (!visible(field)) continue;
-        const aria = (field.getAttribute('aria-label') || '').toLowerCase();
+        const attributes = ['aria-label', 'aria-labelledby', 'placeholder', 'name', 'id', 'title']
+          .map(name => field.getAttribute(name) || '').join(' ').toLowerCase();
         const owner = field.closest('[id*="title" i], ytcp-social-suggestions-textbox, ytcp-form-input-container');
         const context = (owner?.innerText || field.parentElement?.innerText || '').toLowerCase();
-        if (aria.includes('description') || context.includes('description')) continue;
-        if (!aria.includes('title') && !context.includes('title') && !field.closest('ytcp-social-suggestions-textbox')) continue;
-        return (field.innerText || field.textContent || '').trim();
+        if (attributes.includes('description') || context.includes('description')) continue;
+        if (!attributes.includes('title') && !context.includes('title') && !field.closest('ytcp-social-suggestions-textbox')) continue;
+        const value = ('value' in field) ? field.value : (field.innerText || field.textContent || '');
+        return String(value || '').trim();
       }
     }
     return null;
@@ -151,22 +152,35 @@ async function getTitleFieldBox(page) {
     const editors = Array.from(document.querySelectorAll('ytcp-video-metadata-editor, ytcp-live-metadata-editor')).filter(visible);
     for (const editor of editors) {
       const fields = Array.from(editor.querySelectorAll(
-        'div#textbox[aria-label*="title" i], [contenteditable="true"][aria-label*="title" i], ' +
-        '[id*="title" i] #textbox, [id*="title" i][contenteditable="true"], ' +
-        'ytcp-social-suggestions-textbox #textbox, [contenteditable="true"]#textbox, div#textbox'
+        'input, textarea, [role="textbox"], [contenteditable="true"], ' +
+        'ytcp-social-suggestions-textbox #textbox, [id*="title" i] #textbox, div#textbox'
       ));
       for (const field of fields) {
         if (!visible(field)) continue;
-        const aria = (field.getAttribute('aria-label') || '').toLowerCase();
+        const attributes = ['aria-label', 'aria-labelledby', 'placeholder', 'name', 'id', 'title']
+          .map(name => field.getAttribute(name) || '').join(' ').toLowerCase();
         const owner = field.closest('[id*="title" i], ytcp-social-suggestions-textbox, ytcp-form-input-container');
         const context = (owner?.innerText || field.parentElement?.innerText || '').toLowerCase();
-        if (aria.includes('description') || context.includes('description')) continue;
-        if (!aria.includes('title') && !context.includes('title') && !field.closest('ytcp-social-suggestions-textbox')) continue;
+        if (attributes.includes('description') || context.includes('description')) continue;
+        if (!attributes.includes('title') && !context.includes('title') && !field.closest('ytcp-social-suggestions-textbox')) continue;
         const rect = field.getBoundingClientRect();
         return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
       }
     }
     return null;
+  });
+}
+
+async function inspectMetadataEditor(page) {
+  return page.evaluate(() => {
+    const visible = el => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    return Array.from(document.querySelectorAll('ytcp-video-metadata-editor, ytcp-live-metadata-editor'))
+      .filter(visible)
+      .map(el => ({ tag: el.tagName, id: el.id || '', text: (el.innerText || '').trim().slice(0, 160) }));
   });
 }
 
@@ -296,11 +310,16 @@ async function openEditModal(page) {
   log('edit_open_start', 'Opening metadata Edit modal');
 
   for (let attempt = 1; attempt <= 8; attempt++) {
-    // Check if already open
-    const isOpen = (await readTitleField(page)) !== null;
-    if (isOpen) {
+    // Detect the editor shell separately from its title field. Studio can
+    // change the textbox implementation without changing the modal itself.
+    const titleValue = await readTitleField(page);
+    const editorState = await inspectMetadataEditor(page);
+    if (titleValue !== null) {
       log('edit_modal_open', `Metadata editor already open (attempt ${attempt})`);
       return;
+    }
+    if (editorState.length) {
+      throw new Error(`FATAL: Metadata editor opened but title textbox was not recognized: ${JSON.stringify(editorState)}`);
     }
 
     // Try clicking Edit
@@ -321,21 +340,65 @@ async function openEditModal(page) {
         if (r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden') {
           el.scrollIntoView({ behavior: 'instant', block: 'center' });
           const box = el.getBoundingClientRect();
-          return { clicked: true, tag: el.tagName, id: el.id, x: box.left + box.width / 2, y: box.top + box.height / 2 };
+          const innerButton = el.shadowRoot?.querySelector('button, [role="button"]') || el.querySelector('button, [role="button"]');
+          const disabled = el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true' ||
+            Boolean(el.disabled) || Boolean(innerButton?.disabled) || innerButton?.getAttribute('aria-disabled') === 'true';
+          const x = box.left + box.width / 2;
+          const y = box.top + box.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          const hitBelongsToButton = Boolean(hit && (hit === el || el.contains(hit) || hit.closest?.('#edit-button') === el));
+          return {
+            clicked: true, tag: el.tagName, id: el.id, x, y, disabled,
+            hitBelongsToButton,
+            hitTarget: hit ? `${hit.tagName}${hit.id ? `#${hit.id}` : ''}` : null
+          };
         }
       }
       return { clicked: false };
     });
 
     if (clicked.clicked) {
+      if (clicked.disabled) {
+        throw new Error(`FATAL: Studio Edit button is disabled: ${JSON.stringify(clicked)}`);
+      }
       await page.mouse.click(clicked.x, clicked.y);
       log('edit_button_clicked', `Edit clicked on attempt ${attempt}`, clicked);
-      // Wait for textbox to appear
-      const opened = await waitFor(async () => (await readTitleField(page)) !== null, 4000);
+      let opened = await waitFor(async () => {
+        if ((await readTitleField(page)) !== null) return true;
+        return (await inspectMetadataEditor(page)).length > 0;
+      }, 1800, 200);
+      if (!opened) {
+        // Some Studio controls attach activation to the custom element rather
+        // than the hit-tested surface. Try the element's own click once, then
+        // continue only if the metadata editor is positively detected.
+        const activated = await page.evaluate(() => {
+          const button = document.querySelector('#edit-button');
+          if (!button || button.hasAttribute('disabled') || button.getAttribute('aria-disabled') === 'true' || button.disabled) return false;
+          button.click();
+          return true;
+        });
+        log('edit_button_dom_activation', 'Tried the Edit control activation handler', { activated });
+        if (activated) {
+          opened = await waitFor(async () => {
+            if ((await readTitleField(page)) !== null) return true;
+            return (await inspectMetadataEditor(page)).length > 0;
+          }, 1800, 200);
+        }
+      }
       if (opened) {
+        const titleField = await readTitleField(page);
+        if (titleField === null) {
+          const state = await inspectMetadataEditor(page);
+          throw new Error(`FATAL: Metadata editor opened but title textbox was not recognized: ${JSON.stringify(state)}`);
+        }
         log('edit_modal_verified', 'Metadata editor opened and title textbox visible');
         return;
       }
+      log('edit_button_no_modal', 'Edit activation produced no metadata editor', {
+        hitBelongsToButton: clicked.hitBelongsToButton,
+        hitTarget: clicked.hitTarget,
+        attempt
+      });
     } else {
       log('edit_button_not_found', `Attempt ${attempt}: Edit button not found, retrying`);
     }
