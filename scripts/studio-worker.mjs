@@ -299,59 +299,63 @@ async function run() {
         break;
       }
 
-      // Strategy 1: Puppeteer pierce shadow DOM with >>> selector (confirmed working in test)
-      let editBtn = await page.$('ytcp-button#edit-button >>> button');
-      if (!editBtn) {
-        // Strategy 2: Fallback to direct element (non-shadow pierce)
-        editBtn = await page.$('ytcp-button#edit-button');
-      }
-
-      if (editBtn) {
+      // Take screenshot on first attempt to debug page state
+      if (attempt === 1) {
         try {
-          await editBtn.click({ delay: 50 });
-          log('edit_button_clicked', `Clicked Edit button via puppeteer handle on attempt ${attempt}`);
-        } catch (e) {
-          log('edit_btn_click_error', `Handle click failed on attempt ${attempt}: ${e.message}`);
-        }
-      } else {
-        log('edit_btn_not_found', `Puppeteer could not find edit button on attempt ${attempt}; trying evaluate fallback`);
+          await page.screenshot({ path: '/tmp/studio-debug.png', fullPage: false });
+          log('debug_screenshot', 'Screenshot saved to /tmp/studio-debug.png');
+        } catch (e) { /* ignore */ }
       }
 
-      // Strategy 3: evaluate fallback — walk shadow roots
+      // Strategy: Recursive shadow DOM traversal — finds element at ANY nesting depth
       const evalResult = await page.evaluate(() => {
-        // Try direct querySelector first
-        const hostDirect = document.querySelector('ytcp-button#edit-button');
-        if (hostDirect) {
-          const inner = hostDirect.shadowRoot ? hostDirect.shadowRoot.querySelector('button') : hostDirect.querySelector('button');
-          if (inner) { inner.click(); return 'shadow_inner_clicked'; }
-          hostDirect.click();
-          return 'host_clicked';
-        }
-
-        // Walk all custom elements looking for edit button
-        const allCustom = Array.from(document.querySelectorAll('*'));
-        for (const el of allCustom) {
-          if (el.shadowRoot) {
-            const eb = el.shadowRoot.querySelector('ytcp-button#edit-button, button#edit-button');
-            if (eb) {
-              const inner = eb.shadowRoot ? eb.shadowRoot.querySelector('button') : eb.querySelector('button');
-              if (inner) { inner.click(); return 'deep_shadow_inner_clicked'; }
-              eb.click();
-              return 'deep_shadow_host_clicked';
-            }
-            // Look for any button with text 'Edit' in shadow roots
-            const btns = Array.from(el.shadowRoot.querySelectorAll('button, ytcp-button'));
-            for (const b of btns) {
-              if ((b.innerText || b.textContent || '').trim().toLowerCase() === 'edit') {
-                b.click();
-                const inner = b.querySelector('button');
-                if (inner) inner.click();
-                return 'text_match_clicked';
-              }
+        // Recursively search all shadow roots for a matching element
+        function deepQueryAll(root, selector) {
+          const results = [];
+          try {
+            const direct = Array.from(root.querySelectorAll(selector));
+            results.push(...direct);
+          } catch (e) {}
+          // Walk all elements in this root and recurse into their shadow roots
+          const allEls = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
+          for (const el of allEls) {
+            if (el.shadowRoot) {
+              const nested = deepQueryAll(el.shadowRoot, selector);
+              results.push(...nested);
             }
           }
+          return results;
         }
-        return 'not_found';
+
+        // Search for edit button by ID
+        const editBtns = deepQueryAll(document, 'ytcp-button#edit-button, button#edit-button');
+        for (const btn of editBtns) {
+          const rect = btn.getBoundingClientRect();
+          if (rect.width > 0 || rect.height > 0) {
+            // Found a visible edit button — click inner button or the element itself
+            const inner = btn.shadowRoot ? btn.shadowRoot.querySelector('button') : btn.querySelector('button');
+            if (inner) { inner.click(); return 'recursive_inner_clicked'; }
+            btn.click();
+            return 'recursive_host_clicked';
+          }
+        }
+
+        // Fallback: search all buttons with text 'Edit' at any depth
+        const allBtns = deepQueryAll(document, 'button, ytcp-button');
+        for (const b of allBtns) {
+          const txt = (b.innerText || b.textContent || '').trim().toLowerCase();
+          if (txt === 'edit') {
+            const inner = b.shadowRoot ? b.shadowRoot.querySelector('button') : b.querySelector('button');
+            if (inner) { inner.click(); return 'recursive_text_inner_clicked'; }
+            b.click();
+            return 'recursive_text_clicked';
+          }
+        }
+
+        // Debug: report what ytcp elements exist
+        const ytcpEls = deepQueryAll(document, 'ytcp-button');
+        const ids = ytcpEls.slice(0, 10).map(e => e.id || e.tagName).join(',');
+        return `not_found|ytcp_ids:${ids}`;
       });
       log('edit_evaluate_result', `Evaluate fallback result on attempt ${attempt}: ${evalResult}`);
 
