@@ -186,87 +186,35 @@ async function inspectMetadataEditor(page) {
 
 async function closeTitleEditor(page) {
   await page.keyboard.press('Escape');
-  let closed = await waitFor(async () => (await readTitleField(page)) === null, 2500, 200);
-  if (closed) {
-    log('editor_close_verified', 'Title textbox closed after Escape');
-    return;
-  }
-
-  // Studio can ignore Escape while its video-details overlay is active. After
-  // a reload/read-back there are no unsaved edits, so use an explicit Cancel,
-  // Done, or Close control and verify that the title textbox disappears.
-  const action = await page.evaluate(() => {
+  const isControlRoomReady = async () => page.evaluate(() => {
     const visible = el => {
       const rect = el.getBoundingClientRect();
       const style = window.getComputedStyle(el);
       return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
     };
-    const editors = Array.from(document.querySelectorAll('ytcp-video-metadata-editor, ytcp-live-metadata-editor'))
-      .filter(visible);
-    const buttons = editors.flatMap(editor => Array.from(editor.querySelectorAll(
-      'button, ytcp-button, ytcp-icon-button, [role="button"]'
-    ))).filter(visible);
-    const ranked = buttons.map(button => {
-      const label = [button.textContent, button.getAttribute('aria-label'), button.getAttribute('title'), button.id]
-        .filter(Boolean).join(' ').trim().replace(/\s+/g, ' ');
-      const normalized = label.toLowerCase();
-      const rank = /\bcancel\b/.test(normalized) ? 0 :
-        /\bdone\b/.test(normalized) ? 1 :
-        /\bclose\b/.test(normalized) ? 2 : Infinity;
-      return { button, label, rank };
-    }).filter(item => Number.isFinite(item.rank) &&
-      !item.button.hasAttribute('disabled') && item.button.getAttribute('aria-disabled') !== 'true' &&
-      !item.button.disabled);
-    ranked.sort((a, b) => a.rank - b.rank);
-    const selected = ranked[0];
-    if (!selected) {
-      return {
-        found: false,
-        available: buttons.map(button => ({
-          tag: button.tagName,
-          id: button.id || '',
-          label: [button.textContent, button.getAttribute('aria-label'), button.getAttribute('title')]
-            .filter(Boolean).join(' ').trim().replace(/\s+/g, ' ').slice(0, 80),
-          disabled: button.hasAttribute('disabled') || button.getAttribute('aria-disabled') === 'true' || Boolean(button.disabled)
-        }))
-      };
-    }
-    selected.button.setAttribute('data-studio-title-close-target', 'true');
-    selected.button.scrollIntoView({ behavior: 'instant', block: 'center' });
-    const rect = selected.button.getBoundingClientRect();
-    return {
-      found: true,
-      label: selected.label,
-      tag: selected.button.tagName,
-      id: selected.button.id || '',
-      x: rect.left + rect.width / 2,
-      y: rect.top + rect.height / 2
-    };
+    return Array.from(document.querySelectorAll('ytcp-stream-metadata-editor, #edit-button'))
+      .some(visible);
   });
-
-  if (action.found) {
-    log('editor_close_action', 'Activating Studio title-editor close control', action);
-    await page.mouse.click(action.x, action.y);
-    closed = await waitFor(async () => (await readTitleField(page)) === null, 1800, 200);
-    if (!closed) {
-      const activated = await page.evaluate(() => {
-        const button = document.querySelector('[data-studio-title-close-target="true"]');
-        if (!button) return false;
-        button.click();
-        button.removeAttribute('data-studio-title-close-target');
-        return true;
-      });
-      if (activated) closed = await waitFor(async () => (await readTitleField(page)) === null, 1800, 200);
-    }
-  } else {
-    log('editor_close_controls_missing', 'No enabled Cancel, Done, or Close control found', action);
+  let closed = await waitFor(async () =>
+    (await readTitleField(page)) === null && await isControlRoomReady(), 2500, 200);
+  if (closed) {
+    log('editor_close_verified', 'Title textbox closed after Escape');
+    return;
   }
 
+  // Studio's current metadata editor does not close from Escape, and its
+  // overlay has no stable close control. The title was already read back
+  // exactly after a reload, so reload once more to dismiss the unchanged editor.
+  log('editor_close_reload', 'Escape did not close Studio editor; reloading verified control room');
+  await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+  await sleep(1500);
+  closed = await waitFor(async () =>
+    (await readTitleField(page)) === null && await isControlRoomReady(), 15000, 300);
   if (!closed) {
     const remaining = await inspectMetadataEditor(page);
-    throw new Error(`FATAL: Studio title textbox remained open after close attempts: ${JSON.stringify({ action, remaining })}`);
+    throw new Error(`FATAL: Studio title editor remained open after control-room reload: ${JSON.stringify(remaining)}`);
   }
-  log('editor_close_verified', 'Title textbox closed after verified Studio close action');
+  log('editor_close_verified', 'Verified Studio metadata editor closed after control-room reload');
 }
 
 async function readStudioBroadcastStatus(page) {
