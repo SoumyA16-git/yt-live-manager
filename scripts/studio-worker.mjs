@@ -87,48 +87,36 @@ function cleanBaseTitle(title) {
 }
 
 /**
- * Dismiss any blocking popup modals in YouTube Studio.
+ * Dismiss any blocking popup modals in YouTube Studio (e.g. Stream Finished).
  */
 async function dismissAnyModals(page) {
   try {
     const dismissed = await page.evaluate(() => {
-      // Common dismiss buttons
-      const candidates = Array.from(document.querySelectorAll(
-        '#dismiss-button, ytcp-button#dismiss-button, button[aria-label="Dismiss"], ' +
-        'ytcp-button[aria-label="Dismiss"], tp-yt-paper-button#dismiss-button, ' +
-        'ytcp-dialog #dismiss-button, ytcp-confirmation-dialog #confirm-button, ' +
-        'button[aria-label="Close"], [aria-label="Close dialog"]'
-      ));
+      // 1. Look for dialogs specifically for "Stream finished"
+      const dialogs = Array.from(document.querySelectorAll('ytcp-dialog, [role="dialog"], ytcp-confirmation-dialog'));
+      for (const d of dialogs) {
+        if (d.closest('ytcp-video-metadata-editor') || d.querySelector('ytcp-social-suggestions-textbox')) {
+          continue;
+        }
 
-      // Only look for dismiss buttons inside actual dialogs or overlays
-      const dialogCandidates = Array.from(document.querySelectorAll('ytcp-dialog, ytcp-confirmation-dialog, [role="dialog"], tp-yt-paper-dialog'));
-      const textButtons = [];
-      for (const d of dialogCandidates) {
-        const btns = Array.from(d.querySelectorAll('ytcp-button, button, tp-yt-paper-button')).filter(b => {
-          const txt = (b.textContent || '').trim().toLowerCase();
-          return txt === 'dismiss' || txt === 'got it' || txt === 'done' || txt === 'close';
-        });
-        textButtons.push(...btns);
-      }
-
-      const all = [...candidates, ...textButtons];
-      for (const btn of all) {
-        const rect = btn.getBoundingClientRect();
-        if (rect.width > 0 && rect.height > 0) {
-          const inner = btn.querySelector('button, [role="button"], .label') || btn;
-          inner.click();
-          btn.click();
-          return true;
+        const text = (d.innerText || '').toLowerCase();
+        if (text.includes('stream finished') || text.includes('stream ended') || text.includes('stream stats')) {
+          const btn = d.querySelector('#dismiss-button, button[aria-label="Dismiss"], ytcp-button#dismiss-button, button');
+          if (btn) {
+            const inner = btn.querySelector('button') || btn;
+            inner.click();
+            btn.click();
+            return true;
+          }
         }
       }
 
-      // Check if iron-overlay-backdrop is opened and lingering
-      const backdrops = Array.from(document.querySelectorAll('tp-yt-iron-overlay-backdrop.opened, iron-overlay-backdrop.opened'));
-      if (backdrops.length > 0) {
-        for (const b of backdrops) {
-          b.classList.remove('opened');
-          b.style.display = 'none';
-        }
+      // 2. Standalone dismiss button not inside metadata editor
+      const dismissBtn = document.querySelector('ytcp-button#dismiss-button, button#dismiss-button');
+      if (dismissBtn && !dismissBtn.closest('ytcp-video-metadata-editor, ytcp-live-metadata-editor')) {
+        const inner = dismissBtn.querySelector('button') || dismissBtn;
+        inner.click();
+        dismissBtn.click();
         return true;
       }
 
@@ -136,8 +124,8 @@ async function dismissAnyModals(page) {
     });
 
     if (dismissed) {
-      log('dismiss_clicked', 'Dismissed popup modal or overlay');
-      await new Promise(r => setTimeout(r, 1500));
+      log('dismiss_clicked', 'Dismissed stream finished popup modal');
+      await new Promise(r => setTimeout(r, 1000));
     }
   } catch (err) {
     log('dismiss_error', `Non-fatal dismiss check error: ${err.message}`);
@@ -286,13 +274,14 @@ async function run() {
       await new Promise(r => setTimeout(r, 1000));
     }
 
+    // Dismiss any initial stream-finished popup before editing
+    await dismissAnyModals(page);
+
     // Step 4: Locate and Click the Edit button with robust retries
     log('edit_title_start', 'Looking for Edit button in Title section');
     let titleBox = null;
 
     for (let attempt = 1; attempt <= 6; attempt++) {
-      await dismissAnyModals(page);
-
       // Check if title box is already accessible
       titleBox = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
       if (titleBox) {
@@ -322,8 +311,12 @@ async function run() {
         log('edit_button_clicked', `Dispatched Edit button click via evaluate on attempt ${attempt}`);
       }
 
-      await new Promise(r => setTimeout(r, 2000));
-      titleBox = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
+      // Wait up to 3 seconds for modal to appear
+      for (let w = 0; w < 6; w++) {
+        await new Promise(r => setTimeout(r, 500));
+        titleBox = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
+        if (titleBox) break;
+      }
       if (titleBox) break;
     }
 
@@ -442,9 +435,6 @@ async function run() {
 
     while (Date.now() - previewStartWait < maxPreviewWaitMs) {
       try {
-        // Continuously dismiss any lingering or newly popped modals (e.g. Stream Finished)
-        await dismissAnyModals(page);
-
         const status = await page.evaluate(() => {
           // 1. Check if stream is ALREADY LIVE (End Stream button visible or LIVE badge)
           const endBtn = document.querySelector('#end-stream-button, button.end-stream-button, ytcp-button#end-stream-button');
