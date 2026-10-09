@@ -16,11 +16,23 @@ import PATHS from './lib/paths.js';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+const PREVIOUS_STUDIO_TARGET = 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
+const CURRENT_STUDIO_TARGET = 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming';
 
 /** Migration table: { fromVersion → (data) => migratedData } */
 const MIGRATIONS = {
-  // Example: 1: d => ({ ...d, schemaVersion: 2, newField: 'default' })
+  1: data => {
+    const migrated = { ...data, schemaVersion: 2 };
+    if (data.studioAutomation?.url === PREVIOUS_STUDIO_TARGET) {
+      migrated.studioAutomation = {
+        ...data.studioAutomation,
+        url: CURRENT_STUDIO_TARGET,
+      };
+    }
+    return migrated;
+  },
 };
 
 // ─── Defaults (PRD §24) ───────────────────────────────────────────────────────
@@ -103,7 +115,7 @@ export const DEFAULTS = Object.freeze({
   backups: { keep: 20, minIntervalSeconds: 3600 },
   studioAutomation: {
     enabled: true,
-    url: 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming',
+    url: CURRENT_STUDIO_TARGET,
     baseTitle: '',
     timezone: 'Asia/Kolkata',
     previewWaitSec: 10,

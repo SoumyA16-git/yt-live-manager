@@ -65,6 +65,24 @@ describe('config-manager — loadSettings', () => {
     // Secret should have been registered in redact
     assert.equal(redact('Streaming to my-secret-key-1234 now'), 'Streaming to **** now');
   });
+
+  test('migrates the obsolete default Studio broadcast URL to the configured broadcast', async () => {
+    const sPath = path.join(tmpDir, 'studio-target-migration.json');
+    const bDir  = path.join(tmpDir, 'backups-studio-migration');
+    _setPathsForTest(sPath, bDir);
+
+    await fs.writeFile(sPath, JSON.stringify({
+      schemaVersion: 1,
+      studioAutomation: {
+        enabled: true,
+        url: 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming',
+      },
+    }), 'utf8');
+
+    const cfg = await loadSettings();
+    assert.equal(cfg.schemaVersion, 2);
+    assert.equal(cfg.studioAutomation.url, 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming');
+  });
 });
 
 describe('config-manager — getMaskedSettings', () => {

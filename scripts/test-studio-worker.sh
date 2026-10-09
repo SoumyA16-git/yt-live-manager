@@ -15,11 +15,11 @@ export NODE_PATH="$APP_ROOT/node_modules"
 # Load settings from config
 SETTINGS="$APP_ROOT/config/settings.json"
 if [ -f "$SETTINGS" ]; then
-  STUDIO_URL=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('url', d.get('youtube',{}).get('studioUrl','https://studio.youtube.com/video/xHUulPKBtJs/livestreaming')))" 2>/dev/null || echo "https://studio.youtube.com/video/xHUulPKBtJs/livestreaming")
+  STUDIO_URL=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('url', d.get('youtube',{}).get('studioUrl','https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming')))" 2>/dev/null || echo "https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming")
   STUDIO_BASE_TITLE=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('baseTitle', d.get('youtube',{}).get('title','')))" 2>/dev/null || echo "")
   STUDIO_TIMEZONE=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('timezone', d.get('scheduler',{}).get('timezone','Asia/Kolkata')))" 2>/dev/null || echo "Asia/Kolkata")
 else
-  STUDIO_URL="https://studio.youtube.com/video/xHUulPKBtJs/livestreaming"
+  STUDIO_URL="https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming"
   STUDIO_BASE_TITLE=""
   STUDIO_TIMEZONE="Asia/Kolkata"
 fi

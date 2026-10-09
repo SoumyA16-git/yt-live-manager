@@ -659,7 +659,7 @@ async function verifyPersistedTitle(page, expectedTitle, timeZone, configuredBas
 // ---------------------------------------------------------------------------
 
 async function run() {
-  const targetUrl       = process.env.STUDIO_URL || 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
+  const targetUrl       = process.env.STUDIO_URL || 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming';
   const configBaseTitle = process.env.STUDIO_BASE_TITLE || '';
   const timeZone        = process.env.STUDIO_TIMEZONE || 'Asia/Kolkata';
   const chromePath      = process.env.CHROME_BIN || '/usr/bin/google-chrome';

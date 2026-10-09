@@ -154,6 +154,18 @@ const SCHEDULER_SCHEMA = {
   // windows — handled specially
 };
 
+const STUDIO_AUTOMATION_SCHEMA = {
+  enabled:       { type: 'boolean' },
+  url:           { type: 'string', minLen: 1, maxLen: 512 },
+  baseTitle:     { type: 'string', maxLen: 256 },
+  timezone:      { type: 'string', minLen: 1, maxLen: 64 },
+  previewWaitSec:{ type: 'number', min: 0, max: 300 },
+  timeoutMs:     { type: 'number', integer: true, min: 30000, max: 600000 },
+  display:       { type: 'string', maxLen: 64 },
+  chromePath:    { type: 'string', maxLen: 512 },
+  userDataDir:   { type: 'string', maxLen: 1024 },
+};
+
 const DISK_SCHEMA = {
   warnPercent:      { type: 'number', integer: true, min: 1, max: 98 },
   criticalPercent:  { type: 'number', integer: true, min: 2, max: 99 },
@@ -457,6 +469,35 @@ export function validateSettings(input, { partial = true } = {}) {
       const KNOWN_SC = new Set([...Object.keys(SCHEDULER_SCHEMA), 'windows', 'autoRecycle']);
       for (const k of Object.keys(sc)) {
         if (!KNOWN_SC.has(k)) errors.push(fieldErr(`scheduler.${k}`, 'unknown field'));
+      }
+    }
+  }
+
+  // ── YouTube Studio automation ──
+  if (input.studioAutomation !== undefined) {
+    const studio = input.studioAutomation;
+    if (!isObject(studio)) {
+      errors.push(fieldErr('studioAutomation', 'must be an object'));
+    } else {
+      for (const [key, spec] of Object.entries(STUDIO_AUTOMATION_SCHEMA)) {
+        if (studio[key] !== undefined) validateField(`studioAutomation.${key}`, studio[key], spec, errors);
+      }
+      if (studio.url !== undefined && typeof studio.url === 'string') {
+        try {
+          const url = new URL(studio.url);
+          if (url.protocol !== 'https:' || url.hostname !== 'studio.youtube.com' ||
+              !/^\/video\/[A-Za-z0-9_-]+\/livestreaming\/?$/.test(url.pathname)) {
+            errors.push(fieldErr('studioAutomation.url', 'must be a YouTube Studio broadcast URL ending in /video/VIDEO_ID/livestreaming'));
+          }
+        } catch {
+          errors.push(fieldErr('studioAutomation.url', 'must be a valid HTTPS YouTube Studio broadcast URL'));
+        }
+      }
+      if (studio.timezone !== undefined) validateTimezone('studioAutomation.timezone', studio.timezone, errors);
+      for (const key of Object.keys(studio)) {
+        if (!Object.hasOwn(STUDIO_AUTOMATION_SCHEMA, key)) {
+          errors.push(fieldErr(`studioAutomation.${key}`, 'unknown field'));
+        }
       }
     }
   }

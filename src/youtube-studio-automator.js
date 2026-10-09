@@ -25,7 +25,7 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
     throw asError(`Studio automation requires Linux, current platform is ${process.platform}`);
   }
 
-  const studioUrl = autoCfg.url || settings.youtube?.studioUrl || 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
+  const studioUrl = autoCfg.url || settings.youtube?.studioUrl || 'https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming';
   const baseTitle = autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== ''
     ? autoCfg.baseTitle
     : (settings.youtube?.title || '');

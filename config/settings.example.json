@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "stream": {
     "videoId": "",
     "modePreference": "auto",
@@ -85,7 +85,7 @@
   },
   "studioAutomation": {
     "enabled": true,
-    "url": "https://studio.youtube.com/video/xHUulPKBtJs/livestreaming",
+    "url": "https://studio.youtube.com/video/uJyJyeNDoMM/livestreaming",
     "baseTitle": "",
     "timezone": "Asia/Kolkata",
     "previewWaitSec": 10,
