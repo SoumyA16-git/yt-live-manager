@@ -146,6 +146,139 @@ async function dismissAnyModals(page) {
   }
 }
 
+async function readTitleEditor(page) {
+  return page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll(
+      'div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, ' +
+      '[contenteditable="true"]#textbox, div#textbox, [contenteditable="true"]'
+    ));
+
+    for (const el of candidates) {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      if (rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden') continue;
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      const parentText = (el.parentElement?.textContent || '').toLowerCase();
+      if (aria.includes('description') || (!aria.includes('title') && parentText.includes('description'))) continue;
+      return (el.innerText || el.textContent || '').trim();
+    }
+    return null;
+  });
+}
+
+async function openTitleEditor(page, attempts = 6) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    if (await readTitleEditor(page) !== null) return true;
+
+    const clicked = await page.evaluate(() => {
+      const candidates = Array.from(document.querySelectorAll(
+        '#edit-button, ytcp-button#edit-button, button[aria-label="Edit"], ' +
+        '[aria-label*="Edit" i], ytcp-button[aria-label="Edit"], ' +
+        'ytcp-stream-metadata-editor ytcp-button, ytcp-stream-metadata-editor button'
+      ));
+      const textCandidates = Array.from(document.querySelectorAll('ytcp-button, button')).filter(el =>
+        (el.textContent || '').trim().toLowerCase() === 'edit'
+      );
+
+      for (const el of [...candidates, ...textCandidates]) {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden') continue;
+        el.scrollIntoView({ behavior: 'instant', block: 'center' });
+        (el.querySelector('button, [role="button"]') || el).click();
+        return true;
+      }
+      return false;
+    });
+
+    if (clicked) await new Promise(resolve => setTimeout(resolve, 1200));
+    else await new Promise(resolve => setTimeout(resolve, 800));
+  }
+  return await readTitleEditor(page) !== null;
+}
+
+async function typeTitleIntoEditor(page, title) {
+  const selected = await page.evaluate(() => {
+    const candidates = Array.from(document.querySelectorAll(
+      'div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, ' +
+      '[contenteditable="true"]#textbox, div#textbox, [contenteditable="true"]'
+    ));
+
+    for (const el of candidates) {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      if (rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden') continue;
+      const aria = (el.getAttribute('aria-label') || '').toLowerCase();
+      const parentText = (el.parentElement?.textContent || '').toLowerCase();
+      if (aria.includes('description') || (!aria.includes('title') && parentText.includes('description'))) continue;
+
+      el.focus();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return true;
+    }
+    return false;
+  });
+
+  if (!selected) return false;
+  await page.keyboard.type(title, { delay: 8 });
+  return (await readTitleEditor(page)) === title;
+}
+
+async function saveTitleEditor(page, attempts = 15) {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const clicked = await page.evaluate(() => {
+      const candidates = Array.from(document.querySelectorAll(
+        '#save-button, ytcp-button#save-button, button[aria-label="Save"], ' +
+        'ytcp-button[aria-label="Save"], ytcp-button.save-button, ' +
+        'ytcp-video-metadata-editor #save-button, ytcp-live-metadata-editor #save-button'
+      ));
+      const textCandidates = Array.from(document.querySelectorAll('ytcp-button, button')).filter(el =>
+        (el.textContent || '').trim().toLowerCase() === 'save'
+      );
+
+      for (const btn of [...candidates, ...textCandidates]) {
+        const rect = btn.getBoundingClientRect();
+        const style = window.getComputedStyle(btn);
+        if (rect.width <= 0 || rect.height <= 0 || style.display === 'none' || style.visibility === 'hidden') continue;
+        if (btn.hasAttribute('disabled') || btn.getAttribute('aria-disabled') === 'true' || btn.classList.contains('disabled')) continue;
+        btn.scrollIntoView({ behavior: 'instant', block: 'center' });
+        (btn.querySelector('button, [role="button"]') || btn).click();
+        return true;
+      }
+      return false;
+    });
+
+    if (clicked) {
+      await new Promise(resolve => setTimeout(resolve, 1800));
+      const closed = await page.evaluate(() => {
+        const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor');
+        if (!modal) return true;
+        const rect = modal.getBoundingClientRect();
+        return rect.width === 0 || rect.height === 0;
+      });
+      if (closed) return true;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 700));
+  }
+  return false;
+}
+
+async function reloadStudioPage(page) {
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+    await new Promise(resolve => setTimeout(resolve, 1800));
+    return true;
+  } catch (err) {
+    log('title_readback_reload_warn', `Could not reload Studio before title read-back: ${err.message}`);
+    return false;
+  }
+}
+
 async function run() {
   const targetUrl = process.env.STUDIO_URL || 'https://studio.youtube.com/video/xHUulPKBtJs/livestreaming';
   const configuredBaseTitle = process.env.STUDIO_BASE_TITLE || '';
@@ -392,40 +525,6 @@ async function run() {
           }
           const targetTitle = `${base}${dateSuffix}`.trim().slice(0, 100);
 
-          // Focus the textbox
-          titleDiv.focus();
-
-          // Select all content and replace using execCommand (fires native inputType: insertText)
-          try {
-            const range = document.createRange();
-            range.selectNodeContents(titleDiv);
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-            document.execCommand('delete', false, null);
-            document.execCommand('insertText', false, targetTitle);
-          } catch (_) {}
-
-          // Fallback if execCommand didn't apply
-          if ((titleDiv.innerText || '').trim() !== targetTitle) {
-            titleDiv.innerText = targetTitle;
-          }
-
-          // Dispatch full suite of input events to ensure Polymer/Angular detects the change
-          titleDiv.dispatchEvent(new InputEvent('beforeinput', {
-            bubbles: true,
-            cancelable: true,
-            inputType: 'insertText',
-            data: targetTitle
-          }));
-          titleDiv.dispatchEvent(new InputEvent('input', {
-            bubbles: true,
-            cancelable: true,
-            inputType: 'insertText',
-            data: targetTitle
-          }));
-          titleDiv.dispatchEvent(new Event('change', { bubbles: true }));
-
           return {
             success: true,
             oldTitle: currentText,
@@ -434,113 +533,80 @@ async function run() {
         }, configuredBaseTitle, dt.full, cleanBaseTitle.toString());
 
         if (updateAttempt.success) {
-          titleUpdated = true;
           finalNewTitle = updateAttempt.newTitle;
-          log('title_updated', 'Updated title in edit modal', updateAttempt);
+          const typed = await typeTitleIntoEditor(page, finalNewTitle);
+          const typedTitle = await readTitleEditor(page);
+          if (typed && typedTitle === finalNewTitle) {
+            titleUpdated = true;
+            log('title_typed', 'Entered the dynamic title with keyboard input', {
+              oldTitle: updateAttempt.oldTitle,
+              newTitle: finalNewTitle,
+            });
+            await page.evaluate(() => {
+              const el = document.activeElement;
+              if (el && el.blur) el.blur();
+            });
+            break;
+          }
 
-          // Simulate real keyboard activity to force Polymer dirty state
-          try {
-            await page.keyboard.press('Space');
-            await new Promise(r => setTimeout(r, 60));
-            await page.keyboard.press('Backspace');
-          } catch (_) {}
-
-          // Blur field to trigger blur/change handlers
-          await page.evaluate(() => {
-            const el = document.activeElement;
-            if (el && el.blur) el.blur();
+          log('title_type_retry', 'Title field did not retain the typed value; retrying', {
+            expectedTitle: finalNewTitle,
+            actualTitle: typedTitle,
           });
-          break;
         }
 
         await new Promise(r => setTimeout(r, 1000));
       }
 
       if (titleUpdated) {
-        // Step 6: Wait for and Click the "Save" Button
+        // Step 6: save, reopen the editor, and verify the value Studio loaded back.
         log('save_title', 'Waiting for Save button to become enabled and saving');
-        let saveCompleted = false;
+        let saveCompleted = await saveTitleEditor(page);
+        if (!saveCompleted) {
+          log('save_warning', 'Save did not complete; proceeding to stream start fallback', { expectedTitle: finalNewTitle });
+        }
 
-        for (let sAttempt = 1; sAttempt <= 15; sAttempt++) {
-          const saveResult = await page.evaluate((isLateAttempt) => {
-            // Find save button
-            const candidates = Array.from(document.querySelectorAll(
-              '#save-button, ytcp-button#save-button, button[aria-label="Save"], ' +
-              'ytcp-button[aria-label="Save"], ytcp-button.save-button, ' +
-              'ytcp-video-metadata-editor #save-button, ytcp-live-metadata-editor #save-button'
-            ));
+        let persistedTitle = null;
+        if (saveCompleted) {
+          await reloadStudioPage(page);
+        }
 
-            // Also check buttons with text "Save"
-            const textButtons = Array.from(document.querySelectorAll('ytcp-button, button')).filter(b => {
-              const t = (b.textContent || '').trim().toLowerCase();
-              return t === 'save';
+        if (saveCompleted && await openTitleEditor(page)) {
+          persistedTitle = await readTitleEditor(page);
+          if (persistedTitle === finalNewTitle) {
+            log('title_readback_verified', 'YouTube Studio reloaded the saved dynamic title', { savedTitle: persistedTitle });
+          } else {
+            log('title_readback_mismatch', 'Studio reopened the editor with a different title; retrying with keyboard input', {
+              expectedTitle: finalNewTitle,
+              actualTitle: persistedTitle,
             });
 
-            const all = [...candidates, ...textButtons];
-            for (const btn of all) {
-              const rect = btn.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                const isDisabled = btn.hasAttribute('disabled') ||
-                                   btn.getAttribute('aria-disabled') === 'true' ||
-                                   btn.classList.contains('disabled');
-
-                if (!isDisabled) {
-                  btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-                  btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-                  btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-                  btn.click();
-                  const inner = btn.querySelector('button, [role="button"], .label');
-                  if (inner) inner.click();
-                  return { clicked: true, forced: false };
-                }
-
-                // If late attempt (>= 6) and still disabled, force-enable and click
-                if (isLateAttempt) {
-                  btn.removeAttribute('disabled');
-                  btn.removeAttribute('aria-disabled');
-                  btn.classList.remove('disabled');
-                  const inner = btn.querySelector('button');
-                  if (inner) {
-                    inner.removeAttribute('disabled');
-                    inner.removeAttribute('aria-disabled');
-                    inner.click();
-                  }
-                  btn.click();
-                  return { clicked: true, forced: true };
-                }
-
-                return { clicked: false, waitingForEnable: true };
+            if (await typeTitleIntoEditor(page, finalNewTitle)) {
+              await page.evaluate(() => {
+                const el = document.activeElement;
+                if (el && el.blur) el.blur();
+              });
+              saveCompleted = await saveTitleEditor(page);
+              if (saveCompleted) await reloadStudioPage(page);
+              if (saveCompleted && await openTitleEditor(page)) {
+                persistedTitle = await readTitleEditor(page);
               }
             }
 
-            return { clicked: false, notFound: true };
-          }, sAttempt >= 6);
-
-          if (saveResult.clicked) {
-            log('save_clicked', `Save button clicked on attempt ${sAttempt}`, saveResult);
-            // Wait for save request to complete and modal to close
-            await new Promise(r => setTimeout(r, 2000));
-
-            // Check if modal has closed
-            const modalClosed = await page.evaluate(() => {
-              const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor');
-              if (!modal) return true;
-              const r = modal.getBoundingClientRect();
-              return r.width === 0 || r.height === 0;
-            });
-
-            if (modalClosed) {
-              saveCompleted = true;
-              log('save_verified', 'Edit modal closed; stream title saved successfully', { newTitle: finalNewTitle });
-              break;
+            if (persistedTitle === finalNewTitle) {
+              log('title_readback_verified', 'Dynamic title persisted after one keyboard retry', { savedTitle: persistedTitle });
+            } else {
+              log('title_not_persisted', 'Studio did not return the requested title after retry; check the Studio session and logs', {
+                expectedTitle: finalNewTitle,
+                actualTitle: persistedTitle,
+              });
             }
           }
 
-          await new Promise(r => setTimeout(r, 800));
-        }
-
-        if (!saveCompleted) {
-          log('save_warning', 'Save button was clicked or timed out; proceeding to stream start');
+          // Close the read-back editor without making any further changes.
+          await page.keyboard.press('Escape').catch(() => {});
+        } else if (saveCompleted) {
+          log('title_readback_unavailable', 'Could not reopen the title editor to verify the saved value', { expectedTitle: finalNewTitle });
         }
       }
     }
