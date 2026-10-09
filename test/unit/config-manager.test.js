@@ -85,6 +85,23 @@ describe('config-manager — loadSettings', () => {
     assert.equal(Object.hasOwn(cfg.studioAutomation, 'url'), false);
     assert.equal(Object.hasOwn(cfg.youtube, 'studioUrl'), false);
   });
+
+  test('cleans legacy Studio URLs even when the settings file already claims the current schema', async () => {
+    const sPath = path.join(tmpDir, 'studio-current-schema-legacy-url.json');
+    const bDir  = path.join(tmpDir, 'backups-studio-current-schema');
+    _setPathsForTest(sPath, bDir);
+
+    await fs.writeFile(sPath, JSON.stringify({
+      schemaVersion: 3,
+      studioAutomation: { enabled: true, url: 'https://studio.youtube.com/video/old/livestreaming' },
+      youtube: { studioUrl: 'https://studio.youtube.com/video/old/livestreaming' },
+    }), 'utf8');
+
+    const cfg = await loadSettings();
+    assert.equal(cfg.schemaVersion, 3);
+    assert.equal(Object.hasOwn(cfg.studioAutomation, 'url'), false);
+    assert.equal(Object.hasOwn(cfg.youtube, 'studioUrl'), false);
+  });
 });
 
 describe('config-manager — getMaskedSettings', () => {

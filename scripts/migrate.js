@@ -11,11 +11,12 @@ import fs from 'node:fs/promises';
 import { readJSON, writeJSON } from '../src/lib/atomic-json.js';
 import { evaluateCompatibility } from '../src/ffprobe-manager.js';
 import { syncDiskVideos } from '../src/video-manager.js';
+import { migrateSettings, SCHEMA_VERSION } from '../src/config-manager.js';
 import PATHS from '../src/lib/paths.js';
 
 const dryRun = process.argv.includes('--dry-run');
 
-async function checkAndMigrate(filePath, name, targetVersion) {
+async function checkAndMigrate(filePath, name, targetVersion, migrateFn = null) {
   try {
     const { data } = await readJSON(filePath, [], null);
     if (!data) {
@@ -24,18 +25,18 @@ async function checkAndMigrate(filePath, name, targetVersion) {
     }
 
     const currentVersion = data.schemaVersion ?? 0;
-    if (currentVersion === targetVersion) {
+    const migrated = migrateFn ? migrateFn(data) : { ...data, schemaVersion: targetVersion };
+    if (currentVersion === targetVersion && JSON.stringify(migrated) === JSON.stringify(data)) {
       console.log(`[PASS] ${name}: Schema version ${currentVersion} is up to date.`);
       return;
     }
 
-    console.log(`[MIGRATE] ${name}: Upgrading from v${currentVersion} to v${targetVersion}...`);
+    console.log(`[MIGRATE] ${name}: Updating from v${currentVersion} to v${targetVersion}...`);
     if (!dryRun) {
-      data.schemaVersion = targetVersion;
-      await writeJSON(filePath, data);
+      await writeJSON(filePath, migrated);
       console.log(`[DONE] ${name}: Migrated successfully.`);
     } else {
-      console.log(`[DRY-RUN] ${name}: Would migrate from v${currentVersion} to v${targetVersion}.`);
+      console.log(`[DRY-RUN] ${name}: Would update to schema version ${targetVersion}.`);
     }
   } catch (err) {
     console.error(`[ERROR] ${name}: Migration check failed:`, err.message);
@@ -45,7 +46,7 @@ async function checkAndMigrate(filePath, name, targetVersion) {
 async function main() {
   console.log(`Running migration check (dryRun: ${dryRun})...\n`);
 
-  await checkAndMigrate(PATHS.settings, 'config/settings.json', 1);
+  await checkAndMigrate(PATHS.settings, 'config/settings.json', SCHEMA_VERSION, migrateSettings);
   await checkAndMigrate(PATHS.streamState, 'data/stream-state.json', 1);
   await checkAndMigrate(PATHS.bandwidthUsage, 'data/bandwidth-usage.json', 1);
   await checkAndMigrate(PATHS.videosIndex, 'data/videos.json', 1);

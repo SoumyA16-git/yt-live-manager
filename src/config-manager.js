@@ -152,13 +152,22 @@ function deepMerge(defaults, overrides) {
 }
 
 /** Apply any pending schema migrations sequentially. */
-function migrate(data) {
+export function migrateSettings(data) {
   let d = { ...data };
   let v = d.schemaVersion ?? 0;
   while (v < SCHEMA_VERSION) {
     const fn = MIGRATIONS[v];
     d = fn ? fn(d) : { ...d, schemaVersion: v + 1 };
     v = d.schemaVersion;
+  }
+  // Also clean up legacy URL fields on already-versioned files.
+  if (d.studioAutomation && typeof d.studioAutomation === 'object') {
+    d.studioAutomation = { ...d.studioAutomation };
+    delete d.studioAutomation.url;
+  }
+  if (d.youtube && typeof d.youtube === 'object') {
+    d.youtube = { ...d.youtube };
+    delete d.youtube.studioUrl;
   }
   return d;
 }
@@ -187,7 +196,7 @@ export async function loadSettings() {
     logger.info('config.using_defaults', 'No settings file found; using factory defaults');
   }
 
-  _settings = deepMerge(DEFAULTS, migrate(data ?? {}));
+  _settings = deepMerge(DEFAULTS, migrateSettings(data ?? {}));
 
   // Auto-heal stream settings and mode-specific playlists
   if (_settings.stream) {
