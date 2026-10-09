@@ -50,26 +50,26 @@ describe('triggerRandomPlaylistSelection — Newest as #1 and randomized remaind
     const now = Date.now();
     const testVideos = [
       {
-        id: 'vid_older001',
-        filename: 'vid_older001.mp4',
+        id: 'vid_aaaa0001',
+        filename: 'vid_aaaa0001.mp4',
         uploadedAt: new Date(now - 300000).toISOString(), // 5m ago
         probe: { width: 1080, height: 1920, durationSec: 60 },
       },
       {
-        id: 'vid_newest99',
-        filename: 'vid_newest99.mp4',
+        id: 'vid_ffff9999',
+        filename: 'vid_ffff9999.mp4',
         uploadedAt: new Date(now - 1000).toISOString(), // 1s ago (NEWEST)
         probe: { width: 1080, height: 1920, durationSec: 60 },
       },
       {
-        id: 'vid_middle02',
-        filename: 'vid_middle02.mp4',
+        id: 'vid_bbbb0002',
+        filename: 'vid_bbbb0002.mp4',
         uploadedAt: new Date(now - 120000).toISOString(), // 2m ago
         probe: { width: 1080, height: 1920, durationSec: 60 },
       },
       {
-        id: 'vid_oldest03',
-        filename: 'vid_oldest03.mp4',
+        id: 'vid_cccc0003',
+        filename: 'vid_cccc0003.mp4',
         uploadedAt: new Date(now - 900000).toISOString(), // 15m ago
         probe: { width: 1080, height: 1920, durationSec: 60 },
       },
@@ -93,24 +93,31 @@ describe('triggerRandomPlaylistSelection — Newest as #1 and randomized remaind
     const res = await triggerRandomPlaylistSelection('vertical');
     assert.ok(res, 'Result must be returned');
     assert.equal(res.mode, 'vertical');
-    assert.equal(res.newestId, 'vid_newest99', 'Position #1 must be the newest video');
+    assert.equal(res.newestId, 'vid_ffff9999', 'Position #1 must be the newest video');
     assert.equal(res.count, 4, 'All 4 vertical videos must be in playlist');
-    assert.equal(res.playlist[0], 'vid_newest99', 'First item in playlist must be newest video');
+    assert.equal(res.playlist[0], 'vid_ffff9999', 'First item in playlist must be newest video');
 
     const remaining = res.playlist.slice(1);
     assert.equal(remaining.length, 3);
-    assert.ok(remaining.includes('vid_older001'));
-    assert.ok(remaining.includes('vid_middle02'));
-    assert.ok(remaining.includes('vid_oldest03'));
+    assert.ok(remaining.includes('vid_aaaa0001'));
+    assert.ok(remaining.includes('vid_bbbb0002'));
+    assert.ok(remaining.includes('vid_cccc0003'));
 
     // Check settings persisted
     const cfg = getSettings();
-    assert.equal(cfg.stream.videoId, 'vid_newest99');
+    assert.equal(cfg.stream.videoId, 'vid_ffff9999');
     assert.deepEqual(cfg.stream.playlists.vertical, res.playlist);
   });
 
   test('returns null gracefully if no compatible videos exist for requested mode', async () => {
     const res = await triggerRandomPlaylistSelection('horizontal');
     assert.equal(res, null);
+  });
+
+  test('deleteVideo prunes deleted video from playlists.vertical', async () => {
+    const { deleteVideo } = await import('../../src/video-manager.js');
+    await deleteVideo('vid_cccc0003');
+    const cfg = getSettings();
+    assert.ok(!cfg.stream.playlists.vertical.includes('vid_cccc0003'), 'Deleted video must be pruned from playlists.vertical');
   });
 });
