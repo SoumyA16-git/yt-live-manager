@@ -283,290 +283,134 @@ async function run() {
 
     // Step 4: Locate and Click the Edit button with robust retries
     log('edit_title_start', 'Looking for Edit button in Title section');
-    let editModalOpened = false;
+    let titleBox = null;
 
     for (let attempt = 1; attempt <= 6; attempt++) {
-      // First dismiss any popup that may have appeared late
       await dismissAnyModals(page);
 
-      // Check if edit modal is already open
-      editModalOpened = await page.evaluate(() => {
-        const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor');
-        const tb = document.querySelector('div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, [contenteditable="true"]#textbox');
-        if (modal) {
-          const r = modal.getBoundingClientRect();
-          if (r.width > 0 && r.height > 0) return true;
-        }
-        if (tb) {
-          const r = tb.getBoundingClientRect();
-          if (r.width > 0 && r.height > 0) return true;
-        }
-        return false;
-      });
-
-      if (editModalOpened) {
+      // Check if title box is already accessible
+      titleBox = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
+      if (titleBox) {
         log('edit_modal_detected', `Edit modal already opened on attempt ${attempt}`);
         break;
       }
 
-      // Try finding and clicking the Edit button
-      const clickResult = await page.evaluate(() => {
-        // Broad selectors for the Edit button in YouTube Studio
-        const candidates = Array.from(document.querySelectorAll(
-          '#edit-button, ytcp-button#edit-button, button[aria-label="Edit"], ' +
-          '[aria-label*="Edit" i], ytcp-button[aria-label="Edit"], ' +
-          'ytcp-stream-metadata-editor ytcp-button, ytcp-stream-metadata-editor button'
-        ));
-
-        // Also search for buttons with text "Edit"
-        const textCandidates = Array.from(document.querySelectorAll('ytcp-button, button')).filter(el => {
-          const t = (el.textContent || '').trim().toLowerCase();
-          return t === 'edit';
-        });
-
-        const all = [...candidates, ...textCandidates];
-        for (const el of all) {
-          const r = el.getBoundingClientRect();
-          const s = window.getComputedStyle(el);
-          if (r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden') {
-            el.scrollIntoView({ behavior: 'instant', block: 'center' });
-            // Click host element and inner button
-            el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-            el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-            el.click();
-            const inner = el.querySelector('button, [role="button"], .label');
-            if (inner) inner.click();
-            return { clicked: true, tagName: el.tagName, id: el.id };
-          }
-        }
-        return { clicked: false };
-      });
-
-      if (clickResult.clicked) {
-        log('edit_button_clicked', `Clicked Edit button on attempt ${attempt}`, clickResult);
-        // Wait for modal to open
-        await new Promise(r => setTimeout(r, 2000));
-
-        // Check if modal opened
-        editModalOpened = await page.evaluate(() => {
-          const tb = document.querySelector('div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, [contenteditable="true"]#textbox');
-          return !!(tb && tb.getBoundingClientRect().width > 0);
-        });
-
-        if (editModalOpened) break;
+      // Try clicking Edit button via Puppeteer deep selector or evaluate
+      const editBtn = await page.$('ytcp-button#edit-button >>> button, button#edit-button, ytcp-button#edit-button, button[aria-label="Edit"]');
+      if (editBtn) {
+        await editBtn.click();
+        log('edit_button_clicked', `Clicked Edit button via handle on attempt ${attempt}`);
       } else {
-        log('edit_search_retry', `Attempt ${attempt}: Edit button not found yet, retrying...`);
+        await page.evaluate(() => {
+          const candidates = Array.from(document.querySelectorAll('button, ytcp-button'));
+          for (const b of candidates) {
+            const text = (b.innerText || '').trim().toLowerCase();
+            if (text === 'edit') {
+              const inner = b.querySelector('button') || b;
+              inner.click();
+              b.click();
+              return true;
+            }
+          }
+          return false;
+        });
+        log('edit_button_clicked', `Dispatched Edit button click via evaluate on attempt ${attempt}`);
       }
 
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 2000));
+      titleBox = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
+      if (titleBox) break;
     }
 
-    if (!editModalOpened) {
+    if (!titleBox) {
       log('edit_not_clicked', 'Could not open Edit modal; proceeding with stream start fallback');
     } else {
       // Step 5: Update the Title inside the Edit Modal
-      log('updating_title', 'Updating title in edit modal');
+      log('updating_title', 'Updating title in edit modal via native keyboard input');
+      const currentText = await page.evaluate(el => (el.innerText || el.textContent || '').trim(), titleBox);
+
+      let base = configuredBaseTitle ? configuredBaseTitle.trim() : '';
+      if (!base) {
+        base = cleanBaseTitle(currentText);
+        if (!base) base = 'Live Stream';
+      }
+
       const dt = getFormattedDateTime(timeZone);
+      const dateSuffix = ` ${dt.full}`;
+      const maxBaseLen = Math.max(10, 100 - dateSuffix.length);
+      if (base.length > maxBaseLen) {
+        base = base.substring(0, maxBaseLen).trim();
+      }
+      const targetTitle = `${base}${dateSuffix}`.trim().slice(0, 100);
 
-      let titleUpdated = false;
-      let finalNewTitle = '';
+      log('typing_title', `Typing new target title into title box`, { targetTitle, oldTitle: currentText });
 
-      for (let tAttempt = 1; tAttempt <= 8; tAttempt++) {
-        // Evaluate in DOM to find title box, clean current text, and set new title
-        const updateAttempt = await page.evaluate((cfgBase, dateTimeFull, cleanFnStr) => {
-          const cleanBase = new Function('return ' + cleanFnStr)();
+      // Focus and select all existing text
+      await titleBox.click();
+      await new Promise(r => setTimeout(r, 300));
 
-          // Selectors for title editable div
-          const candidates = Array.from(document.querySelectorAll(
-            'div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, ' +
-            '[contenteditable="true"]#textbox, div#textbox, [contenteditable="true"]'
-          ));
+      await page.keyboard.down('Control');
+      await page.keyboard.press('KeyA');
+      await page.keyboard.up('Control');
+      await new Promise(r => setTimeout(r, 200));
 
-          let titleDiv = null;
-          for (const el of candidates) {
-            const r = el.getBoundingClientRect();
-            const s = window.getComputedStyle(el);
-            if (r.width > 0 && r.height > 0 && s.display !== 'none' && s.visibility !== 'hidden') {
-              // Ensure it belongs to title (not description)
-              const aria = (el.getAttribute('aria-label') || '').toLowerCase();
-              const parentText = (el.parentElement?.textContent || '').toLowerCase();
-              if (aria.includes('description') || (!aria.includes('title') && parentText.includes('description'))) {
-                continue;
+      await page.keyboard.press('Backspace');
+      await new Promise(r => setTimeout(r, 200));
+
+      // Native typing causes Polymer to mark the field dirty and enable the Save button
+      await page.keyboard.type(targetTitle, { delay: 10 });
+      log('title_typed', `Successfully typed new title into box via keyboard: ${targetTitle}`);
+      await new Promise(r => setTimeout(r, 1000));
+
+      // Step 6: Wait for and Click the "Save" Button
+      log('save_title', 'Waiting for Save button to become enabled and saving');
+      let saveCompleted = false;
+
+      for (let sAttempt = 1; sAttempt <= 15; sAttempt++) {
+        const saveStatus = await page.evaluate(() => {
+          const host = document.querySelector('ytcp-button#save-button, ytcp-video-metadata-editor ytcp-button#save-button');
+          if (!host) return { found: false };
+          const btn = host.shadowRoot ? host.shadowRoot.querySelector('button') : host.querySelector('button');
+          const disabled = host.hasAttribute('disabled') ||
+                           host.getAttribute('aria-disabled') === 'true' ||
+                           host.classList.contains('disabled') ||
+                           (btn && (btn.hasAttribute('disabled') || btn.getAttribute('aria-disabled') === 'true'));
+          return { found: true, disabled: !!disabled, innerText: host.innerText.trim() };
+        });
+
+        if (saveStatus.found && !saveStatus.disabled) {
+          log('save_button_enabled', `Save button is active on attempt ${sAttempt}`);
+          const saveBtn = await page.$('ytcp-button#save-button >>> button, #save-button');
+          if (saveBtn) {
+            await saveBtn.click();
+          } else {
+            await page.evaluate(() => {
+              const host = document.querySelector('ytcp-button#save-button');
+              if (host) {
+                const btn = host.shadowRoot ? host.shadowRoot.querySelector('button') : host.querySelector('button');
+                if (btn) btn.click();
+                host.click();
               }
-              titleDiv = el;
-              break;
-            }
+            });
           }
 
-          if (!titleDiv) {
-            return { success: false, reason: 'title_field_not_found' };
+          log('save_clicked', `Save button clicked on attempt ${sAttempt}`);
+          await new Promise(r => setTimeout(r, 3000));
+
+          // Check if modal has closed
+          const modalStillOpen = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
+          if (!modalStillOpen) {
+            saveCompleted = true;
+            log('save_verified', 'Edit modal closed; stream title saved successfully', { newTitle: targetTitle });
+            break;
           }
-
-          const currentText = (titleDiv.innerText || titleDiv.textContent || '').trim();
-          let base = cfgBase ? cfgBase.trim() : '';
-          if (!base) {
-            base = cleanBase(currentText);
-            if (!base) base = 'Live Stream';
-          }
-
-          // Enforce YouTube 100 character limit strictly
-          const dateSuffix = ` ${dateTimeFull}`;
-          const maxBaseLen = Math.max(10, 100 - dateSuffix.length);
-          if (base.length > maxBaseLen) {
-            base = base.substring(0, maxBaseLen).trim();
-          }
-          const targetTitle = `${base}${dateSuffix}`.trim().slice(0, 100);
-
-          // Focus the textbox
-          titleDiv.focus();
-
-          // Select all content and replace using execCommand (fires native inputType: insertText)
-          try {
-            const range = document.createRange();
-            range.selectNodeContents(titleDiv);
-            const sel = window.getSelection();
-            sel.removeAllRanges();
-            sel.addRange(range);
-            document.execCommand('delete', false, null);
-            document.execCommand('insertText', false, targetTitle);
-          } catch (_) {}
-
-          // Fallback if execCommand didn't apply
-          if ((titleDiv.innerText || '').trim() !== targetTitle) {
-            titleDiv.innerText = targetTitle;
-          }
-
-          // Dispatch full suite of input events to ensure Polymer/Angular detects the change
-          titleDiv.dispatchEvent(new InputEvent('beforeinput', {
-            bubbles: true,
-            cancelable: true,
-            inputType: 'insertText',
-            data: targetTitle
-          }));
-          titleDiv.dispatchEvent(new InputEvent('input', {
-            bubbles: true,
-            cancelable: true,
-            inputType: 'insertText',
-            data: targetTitle
-          }));
-          titleDiv.dispatchEvent(new Event('change', { bubbles: true }));
-
-          return {
-            success: true,
-            oldTitle: currentText,
-            newTitle: targetTitle
-          };
-        }, configuredBaseTitle, dt.full, cleanBaseTitle.toString());
-
-        if (updateAttempt.success) {
-          titleUpdated = true;
-          finalNewTitle = updateAttempt.newTitle;
-          log('title_updated', 'Updated title in edit modal', updateAttempt);
-
-          // Simulate real keyboard activity to force Polymer dirty state
-          try {
-            await page.keyboard.press('Space');
-            await new Promise(r => setTimeout(r, 60));
-            await page.keyboard.press('Backspace');
-          } catch (_) {}
-
-          // Blur field to trigger blur/change handlers
-          await page.evaluate(() => {
-            const el = document.activeElement;
-            if (el && el.blur) el.blur();
-          });
-          break;
         }
 
         await new Promise(r => setTimeout(r, 1000));
       }
 
-      if (titleUpdated) {
-        // Step 6: Wait for and Click the "Save" Button
-        log('save_title', 'Waiting for Save button to become enabled and saving');
-        let saveCompleted = false;
-
-        for (let sAttempt = 1; sAttempt <= 15; sAttempt++) {
-          const saveResult = await page.evaluate((isLateAttempt) => {
-            // Find save button
-            const candidates = Array.from(document.querySelectorAll(
-              '#save-button, ytcp-button#save-button, button[aria-label="Save"], ' +
-              'ytcp-button[aria-label="Save"], ytcp-button.save-button, ' +
-              'ytcp-video-metadata-editor #save-button, ytcp-live-metadata-editor #save-button'
-            ));
-
-            // Also check buttons with text "Save"
-            const textButtons = Array.from(document.querySelectorAll('ytcp-button, button')).filter(b => {
-              const t = (b.textContent || '').trim().toLowerCase();
-              return t === 'save';
-            });
-
-            const all = [...candidates, ...textButtons];
-            for (const btn of all) {
-              const rect = btn.getBoundingClientRect();
-              if (rect.width > 0 && rect.height > 0) {
-                const isDisabled = btn.hasAttribute('disabled') ||
-                                   btn.getAttribute('aria-disabled') === 'true' ||
-                                   btn.classList.contains('disabled');
-
-                if (!isDisabled) {
-                  btn.scrollIntoView({ behavior: 'instant', block: 'center' });
-                  btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-                  btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-                  btn.click();
-                  const inner = btn.querySelector('button, [role="button"], .label');
-                  if (inner) inner.click();
-                  return { clicked: true, forced: false };
-                }
-
-                // If late attempt (>= 6) and still disabled, force-enable and click
-                if (isLateAttempt) {
-                  btn.removeAttribute('disabled');
-                  btn.removeAttribute('aria-disabled');
-                  btn.classList.remove('disabled');
-                  const inner = btn.querySelector('button');
-                  if (inner) {
-                    inner.removeAttribute('disabled');
-                    inner.removeAttribute('aria-disabled');
-                    inner.click();
-                  }
-                  btn.click();
-                  return { clicked: true, forced: true };
-                }
-
-                return { clicked: false, waitingForEnable: true };
-              }
-            }
-
-            return { clicked: false, notFound: true };
-          }, sAttempt >= 6);
-
-          if (saveResult.clicked) {
-            log('save_clicked', `Save button clicked on attempt ${sAttempt}`, saveResult);
-            // Wait for save request to complete and modal to close
-            await new Promise(r => setTimeout(r, 2000));
-
-            // Check if modal has closed
-            const modalClosed = await page.evaluate(() => {
-              const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-live-metadata-editor');
-              if (!modal) return true;
-              const r = modal.getBoundingClientRect();
-              return r.width === 0 || r.height === 0;
-            });
-
-            if (modalClosed) {
-              saveCompleted = true;
-              log('save_verified', 'Edit modal closed; stream title saved successfully', { newTitle: finalNewTitle });
-              break;
-            }
-          }
-
-          await new Promise(r => setTimeout(r, 800));
-        }
-
-        if (!saveCompleted) {
-          log('save_warning', 'Save button was clicked or timed out; proceeding to stream start');
-        }
+      if (!saveCompleted) {
+        log('save_warning', 'Save button timed out or modal did not close; proceeding to stream start');
       }
     }
 
@@ -584,6 +428,9 @@ async function run() {
 
     while (Date.now() - previewStartWait < maxPreviewWaitMs) {
       try {
+        // Continuously dismiss any lingering or newly popped modals (e.g. Stream Finished)
+        await dismissAnyModals(page);
+
         const status = await page.evaluate(() => {
           // 1. Check if stream is ALREADY LIVE (End Stream button visible or LIVE badge)
           const endBtn = document.querySelector('#end-stream-button, button.end-stream-button, ytcp-button#end-stream-button');
