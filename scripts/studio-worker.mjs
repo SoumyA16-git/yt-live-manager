@@ -100,11 +100,16 @@ async function dismissAnyModals(page) {
         'button[aria-label="Close"], [aria-label="Close dialog"]'
       ));
 
-      // Also look for buttons with text "Dismiss", "Done", "Got it", "Close"
-      const textButtons = Array.from(document.querySelectorAll('ytcp-button, button, tp-yt-paper-button')).filter(b => {
-        const txt = (b.textContent || '').trim().toLowerCase();
-        return txt === 'dismiss' || txt === 'got it' || txt === 'done' || txt === 'close';
-      });
+      // Only look for dismiss buttons inside actual dialogs or overlays
+      const dialogCandidates = Array.from(document.querySelectorAll('ytcp-dialog, ytcp-confirmation-dialog, [role="dialog"], tp-yt-paper-dialog'));
+      const textButtons = [];
+      for (const d of dialogCandidates) {
+        const btns = Array.from(d.querySelectorAll('ytcp-button, button, tp-yt-paper-button')).filter(b => {
+          const txt = (b.textContent || '').trim().toLowerCase();
+          return txt === 'dismiss' || txt === 'got it' || txt === 'done' || txt === 'close';
+        });
+        textButtons.push(...btns);
+      }
 
       const all = [...candidates, ...textButtons];
       for (const btn of all) {
@@ -397,9 +402,18 @@ async function run() {
           log('save_clicked', `Save button clicked on attempt ${sAttempt}`);
           await new Promise(r => setTimeout(r, 3000));
 
-          // Check if modal has closed
-          const modalStillOpen = await page.$('ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox >>> div#textbox');
-          if (!modalStillOpen) {
+          // Check if modal has closed (either removed or hidden/width 0)
+          const modalClosed = await page.evaluate(() => {
+            const modal = document.querySelector('ytcp-video-metadata-editor, ytcp-dialog');
+            if (!modal) return true;
+            const r = modal.getBoundingClientRect();
+            if (r.width === 0 || r.height === 0) return true;
+            if (modal.getAttribute('aria-hidden') === 'true') return true;
+            const s = window.getComputedStyle(modal);
+            return s.display === 'none' || s.visibility === 'hidden';
+          });
+
+          if (modalClosed) {
             saveCompleted = true;
             log('save_verified', 'Edit modal closed; stream title saved successfully', { newTitle: targetTitle });
             break;
