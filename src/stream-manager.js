@@ -866,18 +866,23 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       };
     };
 
+    let launchPromise = null;
     let launchResult = null;
-    let launchError = null;
 
     const doLaunch = async () => {
       if (launchResult) return launchResult;
-      try {
-        launchResult = await launchProcesses();
-      } catch (err) {
-        launchError = err;
-        throw err;
+      if (!launchPromise) {
+        launchPromise = launchProcesses()
+          .then(res => {
+            launchResult = res;
+            return res;
+          })
+          .catch(err => {
+            launchPromise = null; // allow retry on error
+            throw err;
+          });
       }
-      return launchResult;
+      return await launchPromise;
     };
 
     try {
@@ -896,26 +901,33 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           },
         });
 
-        // Poll until launchResult or error, with safe fallback timeout of 50s
+        // Poll until launchResult or timeout of 50s
         const maxWaitMs = 50000;
         const t0 = Date.now();
-        while (!launchResult && !launchError && (Date.now() - t0 < maxWaitMs)) {
+        while (!launchResult && (Date.now() - t0 < maxWaitMs)) {
+          if (launchPromise) {
+            try {
+              launchResult = await launchPromise;
+              break;
+            } catch (err) {
+              throw err;
+            }
+          }
           await new Promise(r => setTimeout(r, 250));
         }
 
-        if (!launchResult && !launchError) {
+        if (!launchResult && !launchPromise) {
           logger.warn('stream.studio_auto_timeout', 'Studio automation ready signal timed out; starting stream directly');
-          await doLaunch();
+          launchResult = await doLaunch();
         }
 
         autoPromise.catch(err => {
           logger.warn('stream.studio_auto_bg_error', `Studio automation background task error: ${err.message}`);
         });
       } else {
-        await doLaunch();
+        launchResult = await doLaunch();
       }
 
-      if (launchError) throw launchError;
       return launchResult;
     } catch (err) {
       logger.error('stream.spawn_failed', `Failed to spawn FFmpeg: ${err.message}`);

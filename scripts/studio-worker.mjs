@@ -217,28 +217,33 @@ async function run() {
 
       const dt = getFormattedDateTime(timeZone);
 
-      // Determine new title: use configured base title, or preserve current base title
-      const updateResult = await page.evaluate((cfgBase, dateTimeFull) => {
-        const titleDiv = document.querySelector('div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox');
-        if (!titleDiv) return { success: false, reason: 'title_field_not_found' };
+      let updateResult = { success: false, reason: 'title_field_not_found' };
+      for (let tAttempt = 1; tAttempt <= 5; tAttempt++) {
+        updateResult = await page.evaluate((cfgBase, dateTimeFull) => {
+          const titleDiv = document.querySelector('div#textbox[aria-label*="title" i], ytcp-social-suggestions-textbox #textbox, [contenteditable="true"]#textbox');
+          if (!titleDiv || titleDiv.offsetParent === null) return { success: false, reason: 'title_field_not_found' };
 
-        const currentText = (titleDiv.innerText || titleDiv.textContent || '').trim();
-        let base = cfgBase;
-        if (!base) {
-          // Strip trailing date/time from current title
-          base = currentText.replace(/\s+\d{2}[-/]\d{2}[-/]\d{4}(\s+\d{1,2}[:.]\d{2}(\s*(AM|PM))?)?$/i, '').trim();
-          if (!base) base = currentText || 'Live Stream';
-        }
+          const currentText = (titleDiv.innerText || titleDiv.textContent || '').trim();
+          let base = cfgBase;
+          if (!base) {
+            // Strip trailing date/time from current title
+            base = currentText.replace(/\s+\d{2}[-/]\d{2}[-/]\d{4}(\s+\d{1,2}[:.]\d{2}(\s*(AM|PM))?)?$/i, '').trim();
+            if (!base) base = currentText || 'Live Stream';
+          }
 
-        const newTitle = `${base} ${dateTimeFull}`.trim();
+          const newTitle = `${base} ${dateTimeFull}`.trim();
 
-        titleDiv.focus();
-        titleDiv.innerText = newTitle;
-        titleDiv.dispatchEvent(new Event('input', { bubbles: true }));
-        titleDiv.dispatchEvent(new Event('change', { bubbles: true }));
+          titleDiv.focus();
+          titleDiv.innerText = newTitle;
+          titleDiv.dispatchEvent(new Event('input', { bubbles: true }));
+          titleDiv.dispatchEvent(new Event('change', { bubbles: true }));
 
-        return { success: true, oldTitle: currentText, newTitle };
-      }, configuredBaseTitle, dt.full);
+          return { success: true, oldTitle: currentText, newTitle };
+        }, configuredBaseTitle, dt.full);
+
+        if (updateResult.success) break;
+        await new Promise(r => setTimeout(r, 1000));
+      }
 
       log('title_updated', 'Updated title in edit modal', updateResult);
       await new Promise(r => setTimeout(r, 1500));

@@ -476,6 +476,29 @@ async function acquireLock(pid) {
     await fs.writeFile(_lockPath, content, { flag: 'wx', mode: 0o600 });
   } catch (err) {
     if (err.code === 'EEXIST') {
+      let isStale = false;
+      try {
+        const raw = await fs.readFile(_lockPath, 'utf8');
+        const lockData = JSON.parse(raw);
+        if (lockData?.pid) {
+          try {
+            process.kill(lockData.pid, 0);
+          } catch {
+            isStale = true;
+          }
+        } else {
+          isStale = true;
+        }
+      } catch {
+        isStale = true;
+      }
+
+      if (isStale) {
+        logger.warn('ffmpeg.stale_lock_recovered', 'Recovered and overwritten stale ffmpeg.lock from dead process');
+        await fs.unlink(_lockPath).catch(() => {});
+        return await fs.writeFile(_lockPath, content, { flag: 'w', mode: 0o600 });
+      }
+
       throw Object.assign(new Error('Another FFmpeg process holds data/ffmpeg.lock'), {
         code: 'E_ALREADY_RUNNING',
       });
