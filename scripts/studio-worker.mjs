@@ -282,15 +282,16 @@ async function run() {
     let titleBox = null;
 
     const findTitleBox = async () => {
+      // Only match the TITLE box, not description
+      // aria-label contains 'title' ensures we get the right contenteditable
       return await page.$(
         'ytcp-video-metadata-editor >>> div#textbox[aria-label*="title" i], ' +
-        'ytcp-social-suggestions-textbox >>> div#textbox, ' +
-        'div#textbox[aria-label*="title" i], ' +
-        '[contenteditable="true"]#textbox'
+        'ytcp-social-suggestions-textbox >>> div#textbox[aria-label*="title" i], ' +
+        'ytcp-video-metadata-editor div#textbox[aria-label*="title" i]'
       );
     };
 
-    for (let attempt = 1; attempt <= 6; attempt++) {
+    for (let attempt = 1; attempt <= 8; attempt++) {
       // Check if title box is already accessible
       titleBox = await findTitleBox();
       if (titleBox) {
@@ -298,38 +299,61 @@ async function run() {
         break;
       }
 
-      // Try clicking Edit button via Puppeteer selector
-      const editBtn = await page.$(
-        'ytls-broadcast-metadata ytcp-button#edit-button, ' +
-        'ytls-broadcast-metadata ytcp-button#edit-button >>> button, ' +
-        'ytcp-button#edit-button, ' +
-        'ytls-broadcast-metadata button, ' +
-        'button[aria-label="Edit"]'
-      );
-
-      if (editBtn) {
-        await editBtn.click();
-        log('edit_button_clicked', `Clicked Edit button via handle on attempt ${attempt}`);
+      // Strategy 1: Puppeteer pierce shadow DOM with >>> selector (confirmed working in test)
+      let editBtn = await page.$('ytcp-button#edit-button >>> button');
+      if (!editBtn) {
+        // Strategy 2: Fallback to direct element (non-shadow pierce)
+        editBtn = await page.$('ytcp-button#edit-button');
       }
 
-      // Also dispatch DOM click on host and inner button
-      await page.evaluate(() => {
-        const cardBtn = document.querySelector('ytls-broadcast-metadata ytcp-button#edit-button, ytcp-button#edit-button');
-        if (cardBtn) {
-          cardBtn.click();
-          const inner = cardBtn.querySelector('button') || cardBtn.shadowRoot?.querySelector('button');
-          if (inner) inner.click();
-          return true;
+      if (editBtn) {
+        try {
+          await editBtn.click({ delay: 50 });
+          log('edit_button_clicked', `Clicked Edit button via puppeteer handle on attempt ${attempt}`);
+        } catch (e) {
+          log('edit_btn_click_error', `Handle click failed on attempt ${attempt}: ${e.message}`);
         }
-        const all = Array.from(document.querySelectorAll('button, ytcp-button')).filter(b => (b.innerText || '').trim().toLowerCase() === 'edit');
-        for (const b of all) {
-          b.click();
-          const inner = b.querySelector('button');
-          if (inner) inner.click();
-          return true;
+      } else {
+        log('edit_btn_not_found', `Puppeteer could not find edit button on attempt ${attempt}; trying evaluate fallback`);
+      }
+
+      // Strategy 3: evaluate fallback — walk shadow roots
+      const evalResult = await page.evaluate(() => {
+        // Try direct querySelector first
+        const hostDirect = document.querySelector('ytcp-button#edit-button');
+        if (hostDirect) {
+          const inner = hostDirect.shadowRoot ? hostDirect.shadowRoot.querySelector('button') : hostDirect.querySelector('button');
+          if (inner) { inner.click(); return 'shadow_inner_clicked'; }
+          hostDirect.click();
+          return 'host_clicked';
         }
-        return false;
+
+        // Walk all custom elements looking for edit button
+        const allCustom = Array.from(document.querySelectorAll('*'));
+        for (const el of allCustom) {
+          if (el.shadowRoot) {
+            const eb = el.shadowRoot.querySelector('ytcp-button#edit-button, button#edit-button');
+            if (eb) {
+              const inner = eb.shadowRoot ? eb.shadowRoot.querySelector('button') : eb.querySelector('button');
+              if (inner) { inner.click(); return 'deep_shadow_inner_clicked'; }
+              eb.click();
+              return 'deep_shadow_host_clicked';
+            }
+            // Look for any button with text 'Edit' in shadow roots
+            const btns = Array.from(el.shadowRoot.querySelectorAll('button, ytcp-button'));
+            for (const b of btns) {
+              if ((b.innerText || b.textContent || '').trim().toLowerCase() === 'edit') {
+                b.click();
+                const inner = b.querySelector('button');
+                if (inner) inner.click();
+                return 'text_match_clicked';
+              }
+            }
+          }
+        }
+        return 'not_found';
       });
+      log('edit_evaluate_result', `Evaluate fallback result on attempt ${attempt}: ${evalResult}`);
 
       // Wait up to 3 seconds for modal to appear
       for (let w = 0; w < 6; w++) {
@@ -338,6 +362,9 @@ async function run() {
         if (titleBox) break;
       }
       if (titleBox) break;
+
+      // Small pause before next attempt
+      await new Promise(r => setTimeout(r, 500));
     }
 
     if (!titleBox) {
