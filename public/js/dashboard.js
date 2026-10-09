@@ -309,6 +309,7 @@ function updateRecycleHint(mins) {
 
 if (schedRecycleMinutes) {
   schedRecycleMinutes.addEventListener('input', () => {
+    _schedRecycleDirty = true;
     updateRecycleHint(schedRecycleMinutes.value);
   });
 }
@@ -884,6 +885,10 @@ function updateBandwidthInfographic(data, usedBytes, pctSafety) {
 
 let _currentScheduler = null;
 let _schedSelectedMode = 'continuous';
+let _schedSlotsInitialized = false;
+let _schedSlotsDirty = false;
+let _schedModeDirty = false;
+let _schedRecycleDirty = false;
 
 async function fetchScheduler() {
   try {
@@ -896,34 +901,48 @@ async function fetchScheduler() {
   }
 }
 
-function renderScheduler(data) {
+function renderScheduler(data, options = {}) {
   if (!data) return;
+  const forceSlots = !!options.forceSlots;
+  const forceInputs = !!options.forceInputs;
 
-  // 1. Live IST Clock
+  // 1. Live IST Clock (always updated on every poll)
   if (schedIstClock && data.clockStr) {
     schedIstClock.textContent = data.clockStr;
   }
 
   // 2. Mode State & Toggle Buttons
-  _schedSelectedMode = data.mode === 'scheduled' ? 'scheduled' : 'continuous';
-  if (_schedSelectedMode === 'scheduled') {
-    btnModeScheduled?.classList.add('active');
-    btnModeContinuous?.classList.remove('active');
-    if (schedModeBadge) {
+  if (!_schedModeDirty || forceInputs) {
+    _schedSelectedMode = data.mode === 'scheduled' ? 'scheduled' : 'continuous';
+    if (_schedSelectedMode === 'scheduled') {
+      btnModeScheduled?.classList.add('active');
+      btnModeContinuous?.classList.remove('active');
+    } else {
+      btnModeContinuous?.classList.add('active');
+      btnModeScheduled?.classList.remove('active');
+    }
+  }
+
+  if (schedModeBadge) {
+    if (_schedModeDirty) {
+      schedModeBadge.textContent = _schedSelectedMode === 'scheduled' ? 'Scheduled (Unsaved)' : '24×7 (Unsaved)';
+      schedModeBadge.className = 'badge-tag warning';
+    } else if (data.mode === 'scheduled') {
       schedModeBadge.textContent = 'Scheduled (IST)';
       schedModeBadge.className = 'badge-tag warning';
-    }
-  } else {
-    btnModeContinuous?.classList.add('active');
-    btnModeScheduled?.classList.remove('active');
-    if (schedModeBadge) {
+    } else {
       schedModeBadge.textContent = '24×7 Continuous';
       schedModeBadge.className = 'badge-tag compatible';
     }
   }
 
   // 3. Daily Streaming Windows (Dynamic Slots in IST)
-  if (schedSlotsContainer) {
+  // CRITICAL FIX: Only rebuild slot elements on initial load or when forced (after user saves).
+  // Background polling (every 10s) must NOT wipe or recreate the slots, otherwise user-added slots
+  // and in-progress time edits get destroyed before they can click Save.
+  const shouldBuildSlots = !_schedSlotsInitialized || forceSlots;
+  const isEditingSlot = schedSlotsContainer && schedSlotsContainer.contains(document.activeElement);
+  if (schedSlotsContainer && shouldBuildSlots && !isEditingSlot) {
     schedSlotsContainer.innerHTML = '';
     const windows = Array.isArray(data.windows) ? data.windows : [];
     if (windows.length > 0) {
@@ -936,17 +955,24 @@ function renderScheduler(data) {
       schedSlotsContainer.appendChild(box);
     }
     renumberSlots();
+    _schedSlotsInitialized = true;
+    _schedSlotsDirty = false;
   }
 
   // 4. Auto-Recycle Settings (VOD Archive Protection)
   const ar = data.autoRecycle || {};
   const arStatus = data.autoRecycleStatus || {};
-  if (schedRecycleEnabled) schedRecycleEnabled.checked = !!ar.enabled;
   const recMins = ar.maxSessionMinutes || (ar.maxSessionHours ? Math.round(ar.maxSessionHours * 60) : 480);
-  if (schedRecycleMinutes) schedRecycleMinutes.value = recMins;
-  updateRecycleHint(recMins);
-  if (schedPauseMins) schedPauseMins.value = ar.pauseMinutes || 60;
-  if (schedResumeBookmark) schedResumeBookmark.checked = ar.resumeBookmark !== false;
+  const isEditingRecycle = schedRecycleCard && schedRecycleCard.contains(document.activeElement);
+
+  if ((!_schedRecycleDirty || forceInputs) && !isEditingRecycle) {
+    if (schedRecycleEnabled) schedRecycleEnabled.checked = !!ar.enabled;
+    if (schedRecycleMinutes) schedRecycleMinutes.value = recMins;
+    updateRecycleHint(recMins);
+    if (schedPauseMins) schedPauseMins.value = ar.pauseMinutes || 60;
+    if (schedResumeBookmark) schedResumeBookmark.checked = ar.resumeBookmark !== false;
+    _schedRecycleDirty = false;
+  }
 
   if (schedRecycleStatusBadge) {
     if (arStatus.isRecycling) {
@@ -1024,6 +1050,7 @@ function createSlotBox(slot = { start: '10:00', stop: '14:00', enabled: true }, 
   const chk = box.querySelector('.sched-slot-enabled');
   const badge = box.querySelector('.sched-slot-badge');
   chk?.addEventListener('change', () => {
+    _schedSlotsDirty = true;
     if (badge) {
       badge.textContent = chk.checked ? 'Active' : 'Disabled';
       badge.className = `badge-tag ${chk.checked ? 'compatible' : 'disabled'} sched-slot-badge`;
@@ -1031,8 +1058,14 @@ function createSlotBox(slot = { start: '10:00', stop: '14:00', enabled: true }, 
     updateSlotsCountTag();
   });
 
+  const startInput = box.querySelector('.sched-slot-start');
+  const stopInput = box.querySelector('.sched-slot-stop');
+  startInput?.addEventListener('input', () => { _schedSlotsDirty = true; });
+  stopInput?.addEventListener('input', () => { _schedSlotsDirty = true; });
+
   const btnDel = box.querySelector('.btn-remove-sched-slot');
   btnDel?.addEventListener('click', () => {
+    _schedSlotsDirty = true;
     const totalSlots = schedSlotsContainer ? schedSlotsContainer.querySelectorAll('.sched-slot-box').length : 0;
     if (totalSlots <= 1) {
       showToast('At least one slot must remain. You can uncheck it to disable.', 'info', 'Slot Required');
@@ -1064,6 +1097,8 @@ function renumberSlots() {
 }
 
 function addNewStreamingSlot(startVal = null, stopVal = null) {
+  _schedSlotsInitialized = true;
+  _schedSlotsDirty = true;
   if (!schedSlotsContainer) return;
   const boxes = schedSlotsContainer.querySelectorAll('.sched-slot-box');
   const nextIdx = boxes.length + 1;
@@ -1152,8 +1187,11 @@ async function saveSchedulerSettings() {
     };
 
     const res = await apiPut('/api/scheduler', payload);
+    _schedSlotsDirty = false;
+    _schedModeDirty = false;
+    _schedRecycleDirty = false;
     if (res?.scheduler) {
-      renderScheduler(res.scheduler);
+      renderScheduler(res.scheduler, { forceSlots: true, forceInputs: true });
     }
     showToast('Stream schedule and auto-recycle preferences applied!', 'success', 'Schedule Updated');
     await fetchStatus();
@@ -2971,6 +3009,7 @@ async function init() {
   if (btnModeContinuous) {
     btnModeContinuous.addEventListener('click', () => {
       _schedSelectedMode = 'continuous';
+      _schedModeDirty = true;
       btnModeContinuous.classList.add('active');
       btnModeScheduled?.classList.remove('active');
       if (schedModeBadge) {
@@ -2983,6 +3022,7 @@ async function init() {
   if (btnModeScheduled) {
     btnModeScheduled.addEventListener('click', () => {
       _schedSelectedMode = 'scheduled';
+      _schedModeDirty = true;
       btnModeScheduled.classList.add('active');
       btnModeContinuous?.classList.remove('active');
       if (schedModeBadge) {
@@ -3002,10 +3042,23 @@ async function init() {
 
   if (schedRecycleEnabled) {
     schedRecycleEnabled.addEventListener('change', () => {
+      _schedRecycleDirty = true;
       if (schedRecycleStatusBadge) {
         schedRecycleStatusBadge.textContent = schedRecycleEnabled.checked ? 'Protected' : 'Off';
         schedRecycleStatusBadge.className = `badge-tag ${schedRecycleEnabled.checked ? 'compatible' : 'disabled'}`;
       }
+    });
+  }
+
+  if (schedPauseMins) {
+    schedPauseMins.addEventListener('input', () => {
+      _schedRecycleDirty = true;
+    });
+  }
+
+  if (schedResumeBookmark) {
+    schedResumeBookmark.addEventListener('change', () => {
+      _schedRecycleDirty = true;
     });
   }
 
