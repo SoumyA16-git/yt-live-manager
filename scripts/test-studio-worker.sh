@@ -1,15 +1,21 @@
 #!/bin/bash
 # test-studio-worker.sh
 # Runs studio-worker.mjs standalone — only title update, NO stream start.
-# Run on VPS: bash /opt/yt-live-manager/scripts/test-studio-worker.sh
+# Run on VPS: bash ~/yt-live-manager/scripts/test-studio-worker.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKER="$SCRIPT_DIR/studio-worker.mjs"
 
+# App root where node_modules lives (the installed service location)
+APP_ROOT="/opt/yt-live-manager"
+
+# Export NODE_PATH so node can find puppeteer-core from the installed app
+export NODE_PATH="$APP_ROOT/node_modules"
+
 # Load settings from config
-SETTINGS="/opt/yt-live-manager/config/settings.json"
+SETTINGS="$APP_ROOT/config/settings.json"
 if [ -f "$SETTINGS" ]; then
   STUDIO_URL=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('url', d.get('youtube',{}).get('studioUrl','https://studio.youtube.com/video/xHUulPKBtJs/livestreaming')))" 2>/dev/null || echo "https://studio.youtube.com/video/xHUulPKBtJs/livestreaming")
   STUDIO_BASE_TITLE=$(python3 -c "import json,sys; d=json.load(open('$SETTINGS')); s=d.get('studioAutomation',{}); print(s.get('baseTitle', d.get('youtube',{}).get('title','')))" 2>/dev/null || echo "")
