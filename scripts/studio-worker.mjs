@@ -133,39 +133,45 @@ async function dismissAnyModals(page) {
 }
 
 async function retryControlRoomIfNeeded(page) {
-  const clicked = await page.evaluate(() => {
-    function findRetryButton(root) {
-      const candidates = Array.from(root.querySelectorAll?.('#error-retry-button, [id*="retry-button"], [aria-label*="retry" i], button, ytcp-button') || []);
-      for (const candidate of candidates) {
-        const label = `${candidate.id || ''} ${candidate.getAttribute('aria-label') || ''} ${candidate.innerText || candidate.textContent || ''}`.toLowerCase();
-        if (!label.includes('retry')) continue;
-        const rect = candidate.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) continue;
-        return candidate;
-      }
+  let clicked = false;
+  const selectors = [
+    'ytcp-button#error-retry-button >>> button',
+    '#error-retry-button >>> button',
+    'ytcp-button#error-retry-button',
+    '#error-retry-button',
+  ];
 
-      for (const element of Array.from(root.querySelectorAll?.('*') || [])) {
-        if (element.shadowRoot) {
-          const nested = findRetryButton(element.shadowRoot);
-          if (nested) return nested;
-        }
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    let retryButton = null;
+    let matchedSelector = '';
+    for (const selector of selectors) {
+      retryButton = await page.$(selector);
+      if (retryButton) {
+        matchedSelector = selector;
+        break;
       }
-      return null;
     }
 
-    const button = findRetryButton(document);
-    if (!button) return false;
-    const inner = button.shadowRoot?.querySelector('button') || button.querySelector('button');
-    (inner || button).click();
-    return true;
-  });
+    log('control_room_retry_check', 'Checked for YouTube Studio error retry control', {
+      attempt,
+      found: Boolean(retryButton),
+      selector: matchedSelector || null,
+    });
+    if (!retryButton) break;
 
-  if (clicked) {
-    log('control_room_retry', 'Clicked YouTube Studio retry control after detecting a page error');
+    try {
+      await retryButton.click({ timeout: 5000 });
+      clicked = true;
+      log('control_room_retry', 'Clicked YouTube Studio retry control after detecting a page error', { attempt });
+    } catch (err) {
+      log('control_room_retry_failed', `Could not click YouTube Studio retry control: ${err.message}`, { attempt });
+      break;
+    }
+
     await new Promise(r => setTimeout(r, 5000));
-    return true;
   }
-  return false;
+
+  return clicked;
 }
 
 async function run() {
