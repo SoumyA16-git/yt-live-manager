@@ -236,6 +236,7 @@ async function run() {
 
     const pages = await browser.pages();
     const page = pages.length > 0 ? pages[0] : await browser.newPage();
+    await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36');
     await page.setViewport({ width: 1920, height: 1080 });
     page.setDefaultTimeout(35000);
 
@@ -247,6 +248,20 @@ async function run() {
 
     log('page_loaded', 'YouTube Studio page loaded', { title: await page.title(), url: page.url() });
 
+    // Handle "Improve your experience" / unsupported browser banner if present
+    try {
+      await page.evaluate(() => {
+        const allEls = Array.from(document.querySelectorAll('a, button, [role="button"], span'));
+        for (const el of allEls) {
+          if ((el.innerText || '').trim().toLowerCase().includes('skip to youtube studio')) {
+            el.click();
+            break;
+          }
+        }
+      });
+      await new Promise(r => setTimeout(r, 2000));
+    } catch {}
+
     // Step 2: Dismiss any lingering popup modals
     log('check_dismiss', 'Checking for Stream Finished modal or overlays');
     for (let d = 0; d < 3; d++) {
@@ -254,8 +269,17 @@ async function run() {
       await new Promise(r => setTimeout(r, 1000));
     }
 
-    // Step 3: Wait for control panel to settle
-    await new Promise(r => setTimeout(r, 2000));
+    // Step 3: Wait for control panel to settle and title data to populate
+    log('settling', 'Waiting for YouTube Studio control room data to populate');
+    for (let w = 0; w < 10; w++) {
+      const settled = await page.evaluate(() => {
+        const titleEl = document.querySelector('#stream-title, ytcp-live-title, [class*="stream-title"], #title');
+        const txt = (titleEl?.innerText || titleEl?.textContent || '').trim();
+        return txt.length > 0 && txt !== '—';
+      });
+      if (settled) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
 
     // Step 4: Locate and Click the Edit button with robust retries
     log('edit_title_start', 'Looking for Edit button in Title section');
@@ -550,68 +574,111 @@ async function run() {
     log('ready_to_stream', 'Control panel ready; signalling to start live stream');
     emitEvent('ready_to_stream');
 
-    // Step 8: Wait for live video preview to appear in YouTube Studio
-    // Minimum 8s initial wait: FFmpeg needs time to connect to RTMPS before Studio shows preview.
-    log('waiting_for_preview', 'Waiting for encoder connection and preview video in Studio (min 8s)');
-    await new Promise(r => setTimeout(r, 8000));
+    // Step 8: Wait for real encoder preview video and trigger Go Live if needed
+    log('waiting_for_preview', 'Waiting for encoder connection, video preview and Go Live readiness in Studio');
 
     let previewDetected = false;
+    let liveConfirmed = false;
     const previewStartWait = Date.now();
-    const maxPreviewWaitMs = 52000; // total max ~60s including initial 8s wait
+    const maxPreviewWaitMs = 90000; // allow up to 90s for RTMP handshake and YouTube player ingestion
 
     while (Date.now() - previewStartWait < maxPreviewWaitMs) {
-      // Priority 1: parent process signalled FFmpeg is healthy — no need to wait further
-      if (_streamHealthySignalled) {
-        previewDetected = true;
-        log('preview_detected', 'Stream healthy signal received from stream-manager (FFmpeg RTMPS confirmed)');
-        break;
-      }
-
       try {
-        previewDetected = await page.evaluate(() => {
-          // 1. Actual video element playing (most reliable signal)
-          const video = document.querySelector('video');
-          if (video && (video.readyState >= 2 || video.currentTime > 0)) {
-            return true;
-          }
+        const status = await page.evaluate(() => {
+          // 1. Check if stream is ALREADY LIVE (End Stream button visible or LIVE badge)
+          const endBtn = document.querySelector('#end-stream-button, button.end-stream-button, ytcp-button#end-stream-button');
+          const isEndBtnVisible = endBtn && endBtn.getBoundingClientRect().width > 0;
 
-          // 2. Explicit stream health badges (Excellent / Good / Live)
           const badges = Array.from(document.querySelectorAll(
             '.badge, [class*="badge"], [class*="health"], ytcp-stream-health-badge, ' +
-            '[class*="stream-health"], ytcp-badge'
+            '[class*="stream-health"], ytcp-badge, ytls-stream-health, [class*="connection"]'
           ));
+          let isLiveBadge = false;
+          let isHealthyBadge = false;
           for (const b of badges) {
             const bTxt = (b.innerText || b.textContent || '').trim().toLowerCase();
-            if (bTxt.includes('excellent') || bTxt.includes('good') || bTxt === 'live') {
-              return true;
-            }
+            if (bTxt === 'live' || bTxt.includes('is live')) isLiveBadge = true;
+            if (bTxt.includes('excellent') || bTxt.includes('good')) isHealthyBadge = true;
           }
 
-          // 3. Studio shows encoder bitrate/fps stats (means stream is live)
-          const statsEls = Array.from(document.querySelectorAll(
-            '[class*="bitrate"], [class*="framerate"], [class*="encoder"]'
-          ));
-          for (const el of statsEls) {
-            const txt = (el.innerText || el.textContent || '').trim();
-            if (/\d+\s*(kbps|fps|Mbps)/i.test(txt)) return true;
+          if (isEndBtnVisible || isLiveBadge) {
+            return { state: 'live', isLive: true };
           }
 
-          // 4. After min 8s wait: if "Connect your encoder" NOT present, stream is active
-          const bodyText = document.body.innerText || '';
-          if (!bodyText.includes('Connect your encoder to go live') && !bodyText.includes('No data')) {
-            return true;
-          }
+          // 2. Check if "Go live" button is enabled
+          const goLiveBtn = document.querySelector('#start-stream-button, [aria-label*="Go live" i]');
+          const isGoLiveEnabled = goLiveBtn &&
+            !goLiveBtn.hasAttribute('disabled') &&
+            goLiveBtn.getAttribute('aria-disabled') !== 'true';
 
-          return false;
+          // 3. Check if video preview is active and playing
+          const video = document.querySelector('video');
+          const isVideoPlaying = video && (video.readyState >= 2 || video.currentTime > 0);
+
+          return {
+            state: isGoLiveEnabled ? 'go_live_ready' : (isVideoPlaying || isHealthyBadge ? 'preview_active' : 'waiting'),
+            isGoLiveEnabled: !!isGoLiveEnabled,
+            isVideoPlaying: !!isVideoPlaying,
+            isHealthyBadge: !!isHealthyBadge,
+          };
         });
 
-        if (previewDetected) {
-          log('preview_detected', 'Live video preview detected in YouTube Studio!');
+        if (status.state === 'live') {
+          previewDetected = true;
+          liveConfirmed = true;
+          log('stream_live_confirmed', 'Stream is confirmed LIVE in YouTube Studio!');
           break;
         }
-      } catch {}
+
+        if (status.state === 'go_live_ready') {
+          previewDetected = true;
+          log('go_live_enabled', 'Encoder preview connected! "Go live" button is now enabled. Clicking "Go live"...');
+
+          // Click Go Live
+          const clicked = await page.evaluate(() => {
+            const btn = document.querySelector('#start-stream-button, [aria-label*="Go live" i]');
+            if (btn) {
+              const inner = btn.querySelector('button') || btn;
+              inner.click();
+              btn.click();
+              return true;
+            }
+            return false;
+          });
+
+          if (clicked) {
+            log('go_live_clicked', 'Clicked "Go live" button in YouTube Studio header');
+            // Check for confirmation dialog (e.g. "Are you sure you want to go live?")
+            await new Promise(r => setTimeout(r, 2000));
+            await page.evaluate(() => {
+              const conf = document.querySelector('ytcp-confirmation-dialog #confirm-button, #confirm-button, [aria-label="Go live"]');
+              if (conf) {
+                const inner = conf.querySelector('button') || conf;
+                inner.click();
+                conf.click();
+              }
+            });
+            await new Promise(r => setTimeout(r, 4000));
+          }
+        } else if (status.state === 'preview_active') {
+          if (!previewDetected) {
+            previewDetected = true;
+            log('preview_detected', 'Live video preview detected playing in YouTube Studio player', status);
+          }
+        }
+      } catch (err) {
+        log('preview_poll_error', `Non-fatal poll error: ${err.message}`);
+      }
+
       await new Promise(r => setTimeout(r, 2000));
     }
+
+    // Capture visual confirmation screenshot on the VPS
+    try {
+      const confirmationScreenshotPath = '/opt/yt-live-manager/logs/studio_live_confirmed.png';
+      await page.screenshot({ path: confirmationScreenshotPath });
+      log('screenshot_saved', `Saved confirmation screenshot to ${confirmationScreenshotPath}`);
+    } catch {}
 
     if (!previewDetected) {
       log('preview_timeout', 'Preview wait reached limit; proceeding with shutdown');
