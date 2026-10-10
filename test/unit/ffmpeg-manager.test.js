@@ -86,12 +86,12 @@ describe('ffmpeg-manager — buildFfmpegArgs', () => {
     assert.equal(args[args.length - 1], secretTarget);
   });
 
-  test('Transcode Mode adapts to source video bitrate and caps at ceiling', () => {
-    // 1. Source with 1.5 Mbps bitrate preserves 1500k target
+  test('Transcode Mode uses the configured output target and respects its ceiling', () => {
+    // A low-rate source should still be encoded to the configured target.
     const lowMeta = { ...dummyMeta, videoBitrate: 1_500_000 };
     const lowArgs = buildFfmpegArgs({ stream: { videoBitrateMbps: 4 } }, lowMeta, secretTarget, 'transcode');
     const lowBIndex = lowArgs.indexOf('-b:v');
-    assert.equal(lowArgs[lowBIndex + 1], '1500k');
+    assert.equal(lowArgs[lowBIndex + 1], '4000k');
 
     // 2. Source with 10 Mbps bitrate caps at 4000k
     const highMeta = { ...dummyMeta, videoBitrate: 10_000_000 };

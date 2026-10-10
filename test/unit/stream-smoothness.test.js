@@ -51,6 +51,32 @@ describe('Stream Smoothness & Low Latency Pacing Configuration', () => {
     assert.ok(!args.includes('libx264'), 'Must not transcode to libx264');
   });
 
+  test('buildFeederArgs keeps low-bitrate compatible H.264 on the zero-CPU copy path', () => {
+    const settings = {
+      stream: {
+        videoBitrateMbps: 4,
+        keyframeMaxSeconds: 8.5,
+        allowTranscode: true,
+      },
+    };
+    const videoMeta = {
+      filePath: '/videos/low-rate-source.mp4',
+      hasAudio: true,
+      probe: {
+        videoCodec: 'h264',
+        pixFmt: 'yuv420p',
+        maxKeyframeIntervalSec: 2,
+        videoBitrate: 900_000,
+        audioCodec: 'aac',
+      },
+    };
+
+    const args = buildFeederArgs(settings, videoMeta, 'copy');
+    const cvIdx = args.indexOf('-c:v');
+    assert.equal(args[cvIdx + 1], 'copy');
+    assert.ok(!args.includes('libx264'), 'Low bitrate alone must not force a live transcode');
+  });
+
   test('buildFeederArgs includes low muxdelay and muxpreload to prevent pipe burstiness', () => {
     const settings = { stream: {} };
     const videoMeta = {
@@ -75,6 +101,7 @@ describe('Stream Smoothness & Low Latency Pacing Configuration', () => {
     const videoMeta = {
       filePath: '/videos/test.mp4',
       hasAudio: true,
+      videoBitrate: 900_000,
       probe: {
         videoCodec: 'hevc', // non-h264 forces transcode
         pixFmt: 'yuv420p',
@@ -87,5 +114,7 @@ describe('Stream Smoothness & Low Latency Pacing Configuration', () => {
     const tuneIdx = args.indexOf('-tune');
     assert.strictEqual(args[tuneIdx + 1], 'zerolatency', 'Must use zerolatency tuning');
     assert.ok(args.includes('-r'), 'Must specify -r for CFR');
+    const bitrateIdx = args.indexOf('-b:v');
+    assert.equal(args[bitrateIdx + 1], '4000k', 'Transcode output should use the configured target bitrate');
   });
 });
