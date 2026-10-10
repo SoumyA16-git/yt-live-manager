@@ -659,11 +659,14 @@ async function _executeDiskSync() {
           const targetOrient = (probe && probe.width > probe.height) ? 'horizontal' : 'vertical';
           const compatibility = evaluateCompatibility(probe, settings, targetOrient);
           const originalName = filename;
-          const cleanLabel = baseName.replace(/^vid_[0-9a-f]{8}_?/i, '').trim() || originalName.replace(/\.[^/.]+$/, '');
+          const isCanonicalStorageName = /^vid_[0-9a-f]{8}$/i.test(baseName);
+          const cleanLabel = baseName.replace(/^vid_[0-9a-f]{8}_?/i, '').trim() ||
+            (isCanonicalStorageName ? '' : originalName.replace(/\.[^/.]+$/, ''));
 
           const newMeta = {
             id: videoId,
-            label: cleanLabel || `Video_${videoId}`,
+            label: cleanLabel || 'Title unavailable',
+            sourceTitle: cleanLabel || null,
             originalName,
             filename: path.basename(targetPath),
             sizeBytes: stat.size,
@@ -981,6 +984,7 @@ export async function processUpload(fileStream, fileInfo) {
   const videoMeta = {
     id,
     label: originalName.replace(/\.[^/.]+$/, ''),
+    sourceTitle: originalName.replace(/\.[^/.]+$/, ''),
     originalName,
     filename: path.basename(targetPath),
     sizeBytes,
@@ -1092,6 +1096,7 @@ export async function importConvertedVideo(tempPath, originalName, {
   const videoMeta = {
     id,
     label: cleanLabel,
+    sourceTitle: cleanLabel,
     originalName,
     filename: path.basename(targetPath),
     sizeBytes,

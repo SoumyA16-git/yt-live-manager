@@ -1548,6 +1548,63 @@ function formatVideoBitrate(v) {
   return `${Math.round(bps / 1000)} kbps`;
 }
 
+function getVideoDisplayName(video, fallbackId = '') {
+  const videoId = String(video?.id || fallbackId || '').trim();
+  const candidates = [
+    video?.sourceTitle,
+    video?.videoTitle,
+    video?.title,
+    video?.label,
+    video?.originalName,
+    video?.filename,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string' || !candidate.trim()) continue;
+    const fileName = candidate.trim().split(/[\\/]/).pop();
+    const displayName = fileName.replace(/\.(mp4|mkv|mov|m4v|webm)$/i, '').trim();
+    if (!displayName) continue;
+    if (displayName === videoId || /^vid_[0-9a-f]{8}$/i.test(displayName)) continue;
+    if (/^video[ _-]?[0-9a-f]{8}$/i.test(displayName)) continue;
+    return displayName;
+  }
+
+  return 'Title unavailable';
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  })[char]);
+}
+
+function parseVideoTimestamp(value) {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
+  if (typeof value !== 'string' || !value.trim()) return 0;
+
+  // Older catalog versions used DD-MM-YYYY HH:mm:ss instead of ISO timestamps.
+  const legacy = value.trim().match(/^(\d{1,2})-(\d{1,2})-(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+  if (legacy) {
+    const [, day, month, year, hour = '0', minute = '0', second = '0'] = legacy;
+    return new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime() || 0;
+  }
+
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getVideoTimestamp(video) {
+  for (const value of [video?.uploadedAt, video?.createdAt, video?.mtimeMs]) {
+    const timestamp = parseVideoTimestamp(value);
+    if (timestamp > 0) return timestamp;
+  }
+  return 0;
+}
+
 function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_currentTabMode] || []), playbackOrder = _currentPlaybackOrder) {
   videosList.innerHTML = '';
   const currentVideoId = activeIdFromApi || _currentActiveVideoId || _currentSettings?.stream?.videoId;
@@ -1556,7 +1613,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
   const tabVideos = videos.filter(v => {
     const isHoriz = (v.probe?.width || 0) >= (v.probe?.height || 0);
     return _currentTabMode === 'horizontal' ? isHoriz : !isHoriz;
-  });
+  }).sort((a, b) => getVideoTimestamp(b) - getVideoTimestamp(a));
 
   if (videoCountBadge) {
     videoCountBadge.textContent = `${tabVideos.length} ${_currentTabMode === 'horizontal' ? '16:9' : '9:16'} Videos`;
@@ -1617,13 +1674,15 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
     activeVideoName.textContent = 'Active: None';
   } else if (playlist.length === 1) {
     const single = tabVideos.find(v => v.id === playlist[0]) || videos.find(v => v.id === playlist[0]);
-    const label = single ? (single.label || single.originalName) : playlist[0];
+    const label = single ? getVideoDisplayName(single) : playlist[0];
     activeVideoName.textContent = `Looping 1: ${label}`;
   } else {
     activeVideoName.textContent = `Looping ${playlist.length} Videos (${playbackOrder === 'shuffle' ? 'Shuffle' : 'Sequential'}) [${_currentTabMode.toUpperCase()}]`;
   }
 
   tabVideos.forEach(v => {
+    const displayName = getVideoDisplayName(v);
+    const safeDisplayName = escapeHtml(displayName);
     const isSelected = playlist.includes(v.id);
     const orderIndex = playlist.indexOf(v.id);
     const isPlaying = (v.id === currentVideoId) && (_activeStreamMode === _currentTabMode);
@@ -1658,7 +1717,7 @@ function renderVideos(videos, activeIdFromApi = null, playlist = (_playlists[_cu
         <div class="video-item-leading">
           ${chkAreaHtml}
         </div>
-        <div class="video-name clickable-preview" data-id="${v.id}" title="Click to preview video: ${v.label || v.originalName}">${v.label || v.originalName}</div>
+        <div class="video-name clickable-preview" data-id="${v.id}" title="Click to preview video: ${safeDisplayName}">${safeDisplayName}</div>
       </div>
       <div class="video-meta">
         <span class="badge-tag">${isHorizontal ? '16:9' : '9:16'}</span>
@@ -1750,7 +1809,7 @@ function openVideoPreview(id, video) {
 
   if (!modal || !player) return;
 
-  const label = video?.label || video?.originalName || id;
+  const label = getVideoDisplayName(video, id);
   const isHoriz = (video?.probe?.width || 0) >= (video?.probe?.height || 0);
   const res = video?.probe?.width && video?.probe?.height ? `${video.probe.width}×${video.probe.height}` : '';
   const fps = video?.probe?.fps ? `${video.probe.fps}fps` : '';
@@ -2412,7 +2471,7 @@ function setupYouTubeDownload() {
     const statusEl = document.getElementById('dup-video-status');
 
     if (titleEl) {
-      titleEl.textContent = existingVideo?.label || existingVideo?.originalName || 'Existing YouTube Video';
+      titleEl.textContent = getVideoDisplayName(existingVideo) || 'Existing YouTube Video';
     }
     const isHoriz = (existingVideo?.probe?.width || 0) >= (existingVideo?.probe?.height || 0);
     if (aspectEl) aspectEl.textContent = isHoriz ? '16:9' : '9:16';
