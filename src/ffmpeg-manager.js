@@ -107,10 +107,9 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
     const width = parseInt(w, 10) || (isHoriz ? 1920 : 1080);
     const height = parseInt(h, 10) || (isHoriz ? 1080 : 1920);
 
-    const configuredMbps = Number(streamCfg.videoBitrateMbps);
-    const videoKbps = Number.isFinite(configuredMbps) && configuredMbps > 0
-      ? Math.round(configuredMbps * 1000)
-      : 4000;
+    const maxKbps = (streamCfg.videoBitrateMbps ?? 4) * 1000;
+    const sourceKbps = videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0;
+    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, maxKbps) : maxKbps;
     const bufSizeKbps = videoKbps * 2;
     const preset = streamCfg.x264Preset || 'ultrafast';
 
@@ -390,10 +389,10 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     const gop = Math.round(fps * keyframeSec);
 
     const configuredTargetKbps = isCapActive ? Math.round(targetMbps * 1000) : 4000;
-    // Use the configured output target even when the source bitrate is low.
-    // Keeping the source's low bitrate here leaves YouTube with the same low-rate
-    // input after transcoding. Compatible sources still take the copy path above.
-    const videoKbps = configuredTargetKbps;
+    const sourceKbps = sourceBitrate > 0
+      ? Math.round(sourceBitrate / 1000)
+      : (videoMeta?.videoBitrate > 0 ? Math.round(videoMeta.videoBitrate / 1000) : 0);
+    const videoKbps = sourceKbps > 0 ? Math.min(sourceKbps, configuredTargetKbps) : configuredTargetKbps;
     const bufSizeKbps = videoKbps * 2;
     const preset = streamCfg.x264Preset || 'ultrafast';
     const maxrateKbps = Math.round(videoKbps * 1.25);
