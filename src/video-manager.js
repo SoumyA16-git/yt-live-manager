@@ -15,7 +15,7 @@ import fsSync from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
-import { readJSON, writeJSON } from './lib/atomic-json.js';
+import { readJSON, writeJSON, writeBackup, listBackups } from './lib/atomic-json.js';
 import { validateVideoId } from './lib/validate.js';
 import { probeMedia, evaluateCompatibility } from './ffprobe-manager.js';
 import { getSettings, saveSettings, isDualStreamEnabled, getHorizontalStreamKey } from './config-manager.js';
@@ -543,7 +543,40 @@ export async function finalizePairIfComplete(videoId) {
 let _videosIndex = PATHS.videosIndex;
 let _videosDir   = PATHS.videos;
 let _incomingDir = PATHS.videosIncoming;
+let _videosBackupDir = PATHS.backups;
 let _syncPromise = null;
+
+function isValidVideosIndex(data) {
+  return Boolean(data && typeof data === 'object' && !Array.isArray(data) && Array.isArray(data.videos));
+}
+
+/**
+ * Read the metadata catalog without ever treating a damaged index as an empty one.
+ * Missing files are valid on first install; damaged files must recover from a
+ * valid backup or fail closed so disk discovery cannot replace human titles.
+ */
+async function readVideosIndex() {
+  const primary = await readJSON(_videosIndex, [], null);
+  if (isValidVideosIndex(primary.data)) return primary;
+
+  const backupPaths = await listBackups(_videosBackupDir, 'videos');
+  for (const backupPath of backupPaths) {
+    const backup = await readJSON(backupPath, [], null);
+    if (!isValidVideosIndex(backup.data)) continue;
+
+    await writeJSON(_videosIndex, backup.data, { mode: 0o600 });
+    logger.warn('video.index.restored_from_backup', `Video catalog restored from ${path.basename(backupPath)}`);
+    return { data: backup.data, source: 'backup', backupPath };
+  }
+
+  if (primary.source === 'default' && primary.error?.code === 'ENOENT') {
+    return { data: { schemaVersion: SCHEMA_VERSION, videos: [] }, source: 'default' };
+  }
+
+  const err = primary.error || new Error('Video catalog has an invalid structure and no valid backup was found');
+  err.code = err.code || 'E_VIDEO_INDEX_CORRUPT';
+  throw err;
+}
 
 // ─── Metadata Library Index ──────────────────────────────────────────────────
 
@@ -569,7 +602,7 @@ export async function syncDiskVideos() {
 }
 
 async function _executeDiskSync() {
-  const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+  const { data } = await readVideosIndex();
   let videos = Array.isArray(data?.videos) ? [...data.videos] : [];
   let changed = false;
 
@@ -750,7 +783,7 @@ async function _executeDiskSync() {
  * @returns {Promise<Array<object>>}
  */
 export async function listVideos({ forceSync = false } = {}) {
-  const { data, source } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+  const { data, source } = await readVideosIndex();
   let videos = data?.videos ?? [];
   let changed = false;
 
@@ -830,7 +863,7 @@ export async function listVideos({ forceSync = false } = {}) {
  * @returns {Promise<object|null>}
  */
 export async function getVideo(id) {
-  const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+  const { data } = await readVideosIndex();
   if (Array.isArray(data?.videos)) {
     const found = data.videos.find(v => v.id === id);
     if (found) return found;
@@ -843,11 +876,17 @@ export async function getVideo(id) {
  * Save updated videos array to data/videos.json.
  */
 async function saveVideosIndex(videos) {
-  await writeJSON(_videosIndex, {
+  const data = {
     schemaVersion: SCHEMA_VERSION,
     updatedAt: new Date().toISOString(),
     videos,
-  }, { mode: 0o600 });
+  };
+  await writeJSON(_videosIndex, data, {
+    mode: 0o600,
+    backupFn: async (filePath, savedData) => {
+      await writeBackup(filePath, _videosBackupDir, savedData, { keep: 20 });
+    },
+  });
 }
 
 // ─── Disk Space Pre-check (PRD §13.3) ────────────────────────────────────────
@@ -1406,7 +1445,7 @@ export async function migratePlaylistsByOrientation(providedVideos = null) {
 
     let videos = providedVideos;
     if (!videos) {
-      const { data } = await readJSON(_videosIndex, [], { schemaVersion: SCHEMA_VERSION, videos: [] });
+      const { data } = await readVideosIndex();
       videos = data?.videos ?? [];
     }
 
@@ -1536,9 +1575,10 @@ export async function cleanOrphanIncoming(maxAgeMs = 3600 * 1000) {
 
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
-export function _setPathsForTest(videosDir, incomingDir, videosIndex) {
+export function _setPathsForTest(videosDir, incomingDir, videosIndex, backupDir = null) {
   _videosDir   = videosDir;
   _incomingDir = incomingDir;
   _videosIndex = videosIndex;
+  _videosBackupDir = backupDir || path.join(path.dirname(videosIndex), 'backups');
   _syncPromise = null;
 }

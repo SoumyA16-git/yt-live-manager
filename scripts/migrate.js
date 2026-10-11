@@ -7,9 +7,8 @@
  *   node scripts/migrate.js --dry-run
  */
 
-import fs from 'node:fs/promises';
-import { readJSON, writeJSON } from '../src/lib/atomic-json.js';
-import { evaluateCompatibility } from '../src/ffprobe-manager.js';
+import path from 'node:path';
+import { readJSON, writeJSON, listBackups } from '../src/lib/atomic-json.js';
 import { syncDiskVideos } from '../src/video-manager.js';
 import { migrateSettings, SCHEMA_VERSION } from '../src/config-manager.js';
 import PATHS from '../src/lib/paths.js';
@@ -18,10 +17,19 @@ const dryRun = process.argv.includes('--dry-run');
 
 async function checkAndMigrate(filePath, name, targetVersion, migrateFn = null) {
   try {
-    const { data } = await readJSON(filePath, [], null);
+    const backupPaths = await listBackups(PATHS.backups, path.basename(filePath, '.json'));
+    const { data, source, error } = await readJSON(filePath, backupPaths, null);
     if (!data) {
-      console.log(`[PASS] ${name}: File does not exist yet (clean state).`);
-      return;
+      if (source === 'default' && error?.code === 'ENOENT') {
+        console.log(`[PASS] ${name}: File does not exist yet (clean state).`);
+        return;
+      }
+      throw error || new Error('File is unreadable and no valid backup was found');
+    }
+
+    if (source === 'backup' && !dryRun) {
+      await writeJSON(filePath, data, { mode: 0o600 });
+      console.log(`[RESTORE] ${name}: Restored from a valid application backup.`);
     }
 
     const currentVersion = data.schemaVersion ?? 0;
@@ -40,6 +48,7 @@ async function checkAndMigrate(filePath, name, targetVersion, migrateFn = null) 
     }
   } catch (err) {
     console.error(`[ERROR] ${name}: Migration check failed:`, err.message);
+    throw err;
   }
 }
 
@@ -51,44 +60,6 @@ async function main() {
   await checkAndMigrate(PATHS.bandwidthUsage, 'data/bandwidth-usage.json', 1);
   await checkAndMigrate(PATHS.videosIndex, 'data/videos.json', 1);
 
-  // Auto-heal legacy settings: ensure allowTranscode is enabled and default modePreference is auto
-  try {
-    const { data } = await readJSON(PATHS.settings, [], null);
-    if (data && data.stream) {
-      let healed = false;
-      if (data.stream.allowTranscode === undefined || data.stream.allowTranscode === false) {
-        data.stream.allowTranscode = true;
-        healed = true;
-      }
-      if (data.stream.modePreference === 'copy') {
-        data.stream.modePreference = 'auto';
-        healed = true;
-      }
-      if (data.stream.copyMinMbps === undefined || data.stream.copyMinMbps > 0.1) {
-        data.stream.copyMinMbps = 0.1;
-        healed = true;
-      }
-      if (data.stream.copyMaxMbps === undefined || data.stream.copyMaxMbps > 4.0) {
-        data.stream.copyMaxMbps = 4.0;
-        healed = true;
-      }
-      if (data.stream.keyframeMaxSeconds === undefined || data.stream.keyframeMaxSeconds < 8.0) {
-        data.stream.keyframeMaxSeconds = 8.0;
-        healed = true;
-      }
-      if (healed) {
-        if (!dryRun) {
-          await writeJSON(PATHS.settings, data);
-          console.log('[MIGRATE] config/settings.json: Auto-migrated to modePreference="auto" & allowTranscode=true.');
-        } else {
-          console.log('[DRY-RUN] config/settings.json: Would migrate to modePreference="auto" & allowTranscode=true.');
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[WARN] Failed to auto-migrate settings flags:', err.message);
-  }
-
   // Auto-sync and discover video files on disk into data/videos.json
   try {
     if (!dryRun) {
@@ -99,6 +70,7 @@ async function main() {
     }
   } catch (err) {
     console.error('[WARN] Failed to auto-sync videos from disk:', err.message);
+    throw err;
   }
 
   // Clear any stale pre-flight errors or reconnecting loops in stream-state.json
@@ -134,4 +106,7 @@ async function main() {
   console.log('\nMigration check complete.');
 }
 
-main();
+main().catch(err => {
+  console.error('[FATAL] Migration aborted:', err.message);
+  process.exitCode = 1;
+});

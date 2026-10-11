@@ -116,6 +116,10 @@ curl -X PUT http://127.0.0.1:3000/api/settings \
 cd ~/yt-live-manager && git pull origin main && sudo bash update.sh
 ```
 
+`/home/ubuntu/yt-live-manager` is the Git source checkout used by this command. The running service uses `/opt/yt-live-manager`; `update.sh` copies the checked-out code there. Pulling inside `/opt/yt-live-manager` is not the update workflow, and the updater now refuses to run from that live install directory.
+
+Before starting the updated service, the updater reconciles `config/settings.json` and `data/videos.json` against the pre-update archive. Migrations preserve explicit stream settings and video display names. If the video catalog is unreadable and no valid catalog backup exists, migration fails and the updater rolls back instead of rebuilding the index from canonical server filenames.
+
 ### 8. Reclaim ~250 MB+ RAM (Run on VPS)
 ```bash
 # Trim heavy idle background daemons (snapd, journald buffers, caches):

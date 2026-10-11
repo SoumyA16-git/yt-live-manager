@@ -190,6 +190,8 @@ export async function loadSettings() {
   const { data, source } = await readJSON(_settingsPath, backups, {});
 
   if (source === 'backup') {
+    const restored = migrateSettings(data && typeof data === 'object' && !Array.isArray(data) ? data : {});
+    await writeJSON(_settingsPath, restored, { mode: 0o600 });
     logger.warn('config.restored_from_backup',
       'Settings file was corrupt and has been restored from backup');
   } else if (source === 'default') {
@@ -217,15 +219,6 @@ export async function loadSettings() {
     }
     if (!_settings.stream.playbackOrder || !['sequential', 'shuffle', 'serial'].includes(_settings.stream.playbackOrder)) {
       _settings.stream.playbackOrder = 'serial';
-    }
-    if (_settings.stream.copyMinMbps === undefined || _settings.stream.copyMinMbps > 0.1) {
-      _settings.stream.copyMinMbps = 0.1;
-    }
-    if (_settings.stream.copyMaxMbps === undefined || _settings.stream.copyMaxMbps > 4.0) {
-      _settings.stream.copyMaxMbps = 4.0;
-    }
-    if (_settings.stream.keyframeMaxSeconds === undefined || _settings.stream.keyframeMaxSeconds > 4.0) {
-      _settings.stream.keyframeMaxSeconds = 4.0;
     }
   }
 
