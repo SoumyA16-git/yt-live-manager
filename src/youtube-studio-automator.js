@@ -236,7 +236,7 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
               error: workerFailure?.message || null,
             });
           }
-          logger.info('studio_auto.worker_exited_after_live', 'Studio title, RTMPS output, preview, and LIVE state were verified', exitInfo);
+          logger.info('studio_auto.worker_exited_after_live', 'Studio title and LIVE state were verified with healthy RTMPS output', exitInfo);
           settle(null, { ...launchResult, studioVerified: true });
           return;
         }

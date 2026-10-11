@@ -18,7 +18,7 @@
  * 11. Reload page → re-open editor → VERIFY saved title matches (retry once if mismatch)
  * 12. Emit ready_to_stream only after persisted-title read-back succeeds
  * 13. Wait for parent confirmation that RTMPS output is healthy
- * 14. Require preview and verify Studio's LIVE state
+ * 14. Use the decoded preview or enabled Studio Go Live control, then verify LIVE
  * 15. Report success only after every gate passes
  */
 
@@ -455,16 +455,25 @@ async function readStudioBroadcastStatus(page) {
     const videos = statusElements.filter(el => el.tagName === 'VIDEO');
     const videoPreview = videos
       .some(video => visible(video) && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0);
-    const goLiveButton = statusElements.find(el =>
-      (el.id === 'start-stream-button' || /go live/i.test(`${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''}`)) && visible(el)
-    );
+    const controls = queryDeep('button, [role="button"], ytcp-button, #start-stream-button');
+    const goLiveButton = controls.find(el => {
+      if (!visible(el)) return false;
+      const labels = [el.innerText, el.textContent, el.getAttribute('aria-label'), el.getAttribute('title')]
+        .map(value => String(value || '').replace(/\s+/g, ' ').trim());
+      return el.id === 'start-stream-button' || labels.some(label =>
+        /^(go live(?: now)?|start live(?: streaming)?|start stream)$/i.test(label) ||
+        /\bgo live(?: now)?\b/i.test(label)
+      );
+    });
     let goLive = null;
     if (goLiveButton) {
       const rect = goLiveButton.getBoundingClientRect();
       const inner = goLiveButton.matches('button') ? goLiveButton : goLiveButton.querySelector('button');
       const disabled = goLiveButton.hasAttribute('disabled') || goLiveButton.getAttribute('aria-disabled') === 'true' ||
         goLiveButton.classList.contains('disabled') || (inner && (inner.disabled || inner.getAttribute('aria-disabled') === 'true'));
-      goLive = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, disabled };
+      const label = [goLiveButton.innerText, goLiveButton.textContent, goLiveButton.getAttribute('aria-label'), goLiveButton.getAttribute('title')]
+        .map(value => String(value || '').replace(/\s+/g, ' ').trim()).find(Boolean) || 'Go Live';
+      goLive = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, disabled, label };
     }
     const previewVideos = videos.slice(0, 8).map(video => ({
       visible: visible(video),
@@ -495,12 +504,28 @@ async function clickConfirmationIfPresent(page) {
       const style = window.getComputedStyle(el);
       return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
     };
-    const dialog = Array.from(document.querySelectorAll('ytcp-confirmation-dialog, ytcp-dialog[open], [role="dialog"]')).find(visible);
+    const queryDeep = (root, selector) => {
+      const matches = [];
+      const visited = new Set();
+      const visit = current => {
+        if (!current || visited.has(current)) return;
+        visited.add(current);
+        matches.push(...current.querySelectorAll(selector));
+        for (const host of current.querySelectorAll('*')) {
+          if (host.shadowRoot) visit(host.shadowRoot);
+        }
+      };
+      visit(root);
+      return matches;
+    };
+    const dialog = queryDeep(document, 'ytcp-confirmation-dialog, ytcp-dialog[open], [role="dialog"]').find(visible);
     if (!dialog) return { present: false };
-    if (!/go live|start stream/i.test(dialog.innerText || '')) return { present: false };
-    const button = Array.from(dialog.querySelectorAll(
-      '#confirm-button, button[aria-label*="Go live" i], ytcp-button[aria-label*="Go live" i], button'
-    )).find(el => visible(el) && !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true');
+    const dialogText = [dialog.innerText, dialog.textContent,
+      ...queryDeep(dialog, '*').map(el => el.innerText || el.textContent || '')].join(' ');
+    if (!/go live|start stream/i.test(dialogText)) return { present: false };
+    const button = queryDeep(dialog,
+      '#confirm-button, button[aria-label*="Go live" i], ytcp-button[aria-label*="Go live" i], button, [role="button"]'
+    ).find(el => visible(el) && !el.hasAttribute('disabled') && el.getAttribute('aria-disabled') !== 'true');
     if (!button) return { present: true, buttonFound: false };
     const rect = button.getBoundingClientRect();
     return { present: true, buttonFound: true, x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
@@ -1081,23 +1106,25 @@ async function run() {
     log('step12_stream_healthy', 'Stream manager confirmed healthy RTMPS output', { pid: streamAck.pid });
 
     // -----------------------------------------------------------------------
-    // STEP 13: Require a real preview, issue Go Live if needed, then verify LIVE
+    // STEP 13: Wait for a decoded preview or an enabled Studio Go Live control
     // -----------------------------------------------------------------------
-    log('step13_preview_wait', 'Waiting for a decoded encoder preview in Studio');
+    log('step13_preview_wait', 'Waiting for a decoded encoder preview or enabled Go Live control in Studio');
     const previewDeadline = Date.now() + 60000;
     let status = null;
     while (Date.now() < previewDeadline) {
       status = await readStudioBroadcastStatus(page);
-      if (status.preview) break;
+      if (status.preview || status.live || (status.goLive && !status.goLive.disabled)) break;
       await sleep(1500);
     }
-    if (!status?.preview) {
-      throw new Error(`FATAL: Studio did not show a decoded encoder preview within 60 seconds; last status: ${JSON.stringify(status)}`);
+    if (!status?.preview && !status?.live && !(status?.goLive && !status.goLive.disabled)) {
+      throw new Error(`FATAL: Studio showed neither a decoded encoder preview nor an enabled Go Live control within 60 seconds; last status: ${JSON.stringify(status)}`);
     }
-    log('step13_preview_ok', 'Studio decoded encoder preview verified', status);
+    if (status.preview) log('step13_preview_ok', 'Studio decoded encoder preview verified', status);
 
     if (!status.live && status.goLive && !status.goLive.disabled) {
-      log('step14_go_live', 'Preview is ready; clicking enabled Go Live control');
+      log('step14_go_live', status.preview
+        ? 'Preview is ready; clicking enabled Go Live control'
+        : 'Studio exposed an enabled Go Live control before decoding the preview; clicking it to activate the broadcast');
       await page.mouse.click(status.goLive.x, status.goLive.y);
       const confirmationDeadline = Date.now() + 5000;
       while (Date.now() < confirmationDeadline) {
@@ -1139,7 +1166,7 @@ async function run() {
     emitEvent('live_verified', { titleVerified: true, liveVerified: true, title: newTitle });
 
     // -----------------------------------------------------------------------
-    // STEP 16: Report success only after title, RTMPS health, preview, and LIVE checks pass
+    // STEP 16: Report success only after title, RTMPS health, and Studio LIVE checks pass
     // -----------------------------------------------------------------------
     log('step16_post_wait', `Waiting ${previewWaitSec}s after verified LIVE before closing Chrome`);
     await sleep(previewWaitSec * 1000);

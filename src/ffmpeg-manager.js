@@ -637,7 +637,7 @@ async function killRogueFfmpegProcesses() {
  * @param {object} params.settings
  * @param {Function} params.onProgress Called on progress updates: (parsedProgress) => void
  * @param {Function} params.onExit     Called when process exits: ({ code, signal, expected, lastError }) => void
- * @param {Function} params.onHealthy  Called once the process becomes healthy (total_size > 0, speed >= min)
+ * @param {Function} params.onHealthy  Called once RTMPS is transmitting at least one video frame at the minimum speed
  * @returns {Promise<{ pid: number }>}
  */
 export async function spawnFfmpeg({
@@ -752,10 +752,10 @@ export async function spawnFfmpeg({
     }
   }
 
-  // 1. Startup Watchdog: must emit valid progress within startupTimeoutSeconds
+  // 1. Startup Watchdog: must emit valid video output within startupTimeoutSeconds
   _startupTimer = setTimeout(() => {
     if (!becameHealthy) {
-      logger.error('ffmpeg.startup_timeout', `FFmpeg failed to produce healthy output within ${startupTimeoutMs / 1000}s`);
+      logger.error('ffmpeg.startup_timeout', `FFmpeg failed to transmit healthy video output within ${startupTimeoutMs / 1000}s (requires at least one video frame)`);
       stopFfmpeg({ force: true, reason: 'startup_timeout', expected: false });
     }
   }, startupTimeoutMs);
@@ -871,12 +871,13 @@ export async function spawnFfmpeg({
 
       _latestProgress = progressData;
 
-      // Healthy trigger: active output transmitting
-      if (totalSize > 0 && speed >= minSpeed && _outputDestinations[_streamMode].status !== 'FAILED') {
+      // RTMPS bytes can advance from headers/audio before any picture is sent.
+      // Do not report the stream healthy to Studio until FFmpeg has muxed a video frame.
+      if (totalSize > 0 && frame > 0 && speed >= minSpeed && _outputDestinations[_streamMode].status !== 'FAILED') {
         if (_outputDestinations[_streamMode].status !== 'CONNECTED') {
           _outputDestinations[_streamMode].status = 'CONNECTED';
           _outputDestinations[_streamMode].connectedAt = new Date().toISOString();
-          logger.info(`ffmpeg.rtmps_${_streamMode}`, `RTMPS ${_streamMode} output: CONNECTED (outbound socket active, data transmitting)`);
+          logger.info(`ffmpeg.rtmps_${_streamMode}`, `RTMPS ${_streamMode} output: CONNECTED (video frames=${frame}, bytes=${totalSize}, speed=${speed}x)`);
         }
         checkHealth(progressData);
       }
