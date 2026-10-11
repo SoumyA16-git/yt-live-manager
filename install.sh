@@ -212,6 +212,9 @@ SESSION_SECRET=${SESSION_SECRET}
 SMTP_USER=
 SMTP_PASS=
 STREAM_ALERT_EMAIL_TO=
+# Optional Gemini key for per-stream SEO title generation; keep this in the service env only.
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.5-flash-lite
 EOF
 fi
 

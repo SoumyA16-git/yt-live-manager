@@ -41,6 +41,7 @@ import { logger } from './logger.js';
 import { sendLiveFailureEmail, sendLiveStartedEmail } from './email-alerts.js';
 import { isInsideWindow } from './scheduler.js';
 import { prepareYouTubeStudioStream } from './youtube-studio-automator.js';
+import { generateSeoYouTubeTitle, getHumanVideoFilename } from './gemini-title-generator.js';
 import PATHS from './lib/paths.js';
 
 export const streamEvents = new EventEmitter();
@@ -942,9 +943,26 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
         logger.info('stream.studio_auto_invoked', `Starting strict YouTube Studio gates (reason: ${reason})`);
         try {
+          const sourceFilename = getHumanVideoFilename(initialPrimary);
+          const generatedTitle = sourceFilename
+            ? await generateSeoYouTubeTitle(sourceFilename)
+            : null;
+          if (generatedTitle) {
+            logger.info('studio.title_generated', 'Generated the Studio title from the actual playlist #1 video name', {
+              videoId: initialPrimary.id,
+              sourceFilename,
+              title: generatedTitle,
+            });
+          } else if (!sourceFilename) {
+            logger.warn('studio.title_generation_unavailable', 'Playlist #1 has no human-readable filename; retaining the configured Studio title', {
+              videoId: initialPrimary.id,
+            });
+          }
+
           const startupTimeoutMs = ((settings.stream?.startupTimeoutSeconds ?? 30) * 1000) + 5000;
           const verifiedLaunch = await prepareYouTubeStudioStream({
             settings,
+            baseTitleOverride: generatedTitle,
             onReadyToStream: async () => {
               const result = await doLaunch();
               if (!result?.started) {

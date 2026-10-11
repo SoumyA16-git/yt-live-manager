@@ -16,7 +16,7 @@ function asError(message, code = 'E_STUDIO_AUTOMATION') {
   return Object.assign(new Error(message), { code });
 }
 
-export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) {
+export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, onReadyToStream }) {
   const autoCfg = settings.studioAutomation || {};
   if (autoCfg.enabled === false) {
     throw asError('Studio automation was called while disabled; direct-start is not an automation fallback');
@@ -25,9 +25,16 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
     throw asError(`Studio automation requires Linux, current platform is ${process.platform}`);
   }
 
-  const baseTitle = autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== ''
+  // Previous static-title selection is kept here for reference and fallback:
+  // const baseTitle = autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== ''
+  //   ? autoCfg.baseTitle
+  //   : (settings.youtube?.title || '');
+  const configuredBaseTitle = autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== ''
     ? autoCfg.baseTitle
     : (settings.youtube?.title || '');
+  const baseTitle = typeof baseTitleOverride === 'string' && baseTitleOverride.trim()
+    ? baseTitleOverride.trim()
+    : configuredBaseTitle;
   const timeZone = autoCfg.timezone || settings.scheduler?.timezone || 'Asia/Kolkata';
   const display = autoCfg.display || process.env.DISPLAY || ':10';
   const chromePath = autoCfg.chromePath || process.env.CHROME_BIN || '/usr/bin/google-chrome';
@@ -70,6 +77,9 @@ export async function prepareYouTubeStudioStream({ settings, onReadyToStream }) 
       CHROME_USER_DATA_DIR: userDataDir,
       DISPLAY: display,
     };
+    // Gemini credentials are used only by the manager, never by the Studio worker.
+    delete workerEnv.GEMINI_API_KEY;
+    delete workerEnv.GEMINI_MODEL;
 
     let child;
     let hardTimeout;

@@ -140,10 +140,14 @@ The example file does not contain every default. On load, the current code also 
 | DISPLAY, CHROME_BIN, CHROME_USER_DATA_DIR | Studio browser/display overrides |
 | SMTP_USER, SMTP_PASS, STREAM_ALERT_EMAIL_TO | SMTP login, password, and alert recipient; required to enable stream start/failure emails |
 | SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_FROM | Optional SMTP overrides; defaults use Maileroo SSL/TLS on port 465, and the sender defaults to SMTP_USER |
+| GEMINI_API_KEY | Optional Gemini API key for generating an SEO-friendly title from the actual playlist #1 video name before Studio automation |
+| GEMINI_MODEL | Optional Gemini model override; defaults to `gemini-3.5-flash-lite` |
 | AUTO_NORMALIZE_GOP=true | Optional download-time GOP normalization; this invokes an encode and is off by default |
 | ALLOW_PLAIN_RTMP_FOR_TESTS=1 | Test-only relaxation in FFmpeg argument validation; do not set in production |
 
 The installer creates `/etc/yt-live-manager/env` with empty `SMTP_USER`, `SMTP_PASS`, and `STREAM_ALERT_EMAIL_TO` values. Fill those three values to enable alerts; set `SMTP_FROM` only if the sender should differ from the SMTP login. For an existing installation, add the values to that same service environment file. Keep the password there, never in app settings or Git. Apply environment changes with a service restart during planned stream downtime because restarting the manager interrupts its publisher. The successful-start email is sent after the Studio startup gate confirms the broadcast live (or after healthy RTMPS output when Studio automation is disabled). Failed startup gates send failure emails, except expected schedule, admin-disabled, and maintenance blocks. Unexpected stream-process exits also send a failure email. Repeated failures are throttled for 15 minutes. SMTP delivery is best-effort and does not block stream startup or recovery. Port 465 uses SSL/TLS; ports 587 and 2525 use STARTTLS.
+
+For Gemini title generation, set `GEMINI_API_KEY` in `/etc/yt-live-manager/env` on existing installations; never put the key in Git or app settings. The installer includes a blank key and defaults `GEMINI_MODEL` to `gemini-3.5-flash-lite`. One short Gemini request runs after playlist #1 is selected and before the unchanged Studio title/save/live checks. If the key is missing or Gemini fails, startup continues with the configured `studioAutomation.baseTitle` / `youtube.title` behavior.
 
 The YouTube stream key is stored in config/settings.json as ordinary JSON (the installed file is permission-restricted, but it is **not encrypted at rest**). It is masked in normal settings API responses and redacted from logs; the reveal endpoint requires the admin password and is rate-limited. The admin password is stored as a scrypt hash in the service environment. Login sessions are memory-only and are invalidated when the process restarts.
 
