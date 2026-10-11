@@ -1124,6 +1124,20 @@ async function run() {
     }
     log('step15_live_verified', 'Studio confirms broadcast is LIVE');
 
+    // Once Studio and RTMPS have both verified LIVE, the startup gate has
+    // succeeded. Do not let the startup watchdog terminate the publisher
+    // during the short browser-cleanup phase.
+    clearTimeout(watchdog);
+    watchdog = setTimeout(async () => {
+      log('post_live_cleanup_timeout', 'LIVE was already verified; forcing owned Chrome cleanup without failing the stream');
+      try {
+        await Promise.race([browser?.close() || Promise.resolve(), sleep(2000)]);
+      } catch {}
+      try { chromeProcess?.kill('SIGTERM'); } catch {}
+      process.exit(0);
+    }, 30000);
+    emitEvent('live_verified', { titleVerified: true, liveVerified: true, title: newTitle });
+
     // -----------------------------------------------------------------------
     // STEP 16: Report success only after title, RTMPS health, preview, and LIVE checks pass
     // -----------------------------------------------------------------------

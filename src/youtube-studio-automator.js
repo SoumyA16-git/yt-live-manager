@@ -60,6 +60,7 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
   return new Promise((resolve, reject) => {
     let settled = false;
     let readySeen = false;
+    let liveVerified = false;
     let launchResult = null;
     let finishedPayload = null;
     let workerFailure = null;
@@ -100,6 +101,13 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
     };
 
     const failAndTerminate = err => {
+      if (liveVerified && launchResult?.started) {
+        logger.warn('studio_auto.post_live_worker_cleanup_error', 'Studio LIVE was already verified; terminating the worker cleanup without failing the stream', {
+          error: err?.message || String(err),
+        });
+        terminateWorker();
+        return;
+      }
       workerFailure ||= err instanceof Error ? err : new Error(String(err));
       terminateWorker();
       settle(workerFailure);
@@ -171,6 +179,20 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
         return;
       }
 
+      if (payload.event === 'live_verified') {
+        if (liveVerified) throw asError('Studio worker sent duplicate live_verified events');
+        if (payload.titleVerified !== true || payload.liveVerified !== true || !launchResult?.started) {
+          throw asError('Studio worker reported LIVE without verified title and healthy RTMPS output');
+        }
+        liveVerified = true;
+        clearTimeout(hardTimeout);
+        hardTimeout = null;
+        logger.info('studio_auto.live_verified', 'Studio confirmed LIVE after title and RTMPS verification; startup timeout disarmed for browser cleanup', {
+          pid: launchResult.pid,
+        });
+        return;
+      }
+
       if (payload.event === 'finished') {
         finishedPayload = payload;
         if (!payload.success) workerFailure = asError(payload.error || 'Studio worker reported a failed stage');
@@ -206,6 +228,18 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
       if (_activeWorkerProcess === child) _activeWorkerProcess = null;
       outputQueue = outputQueue.then(() => {
         if (settled) return;
+        if (liveVerified && launchResult?.started) {
+          if (workerFailure || code !== 0 || signal) {
+            logger.warn('studio_auto.worker_cleanup_after_live', 'Studio LIVE was verified; worker cleanup ended abnormally, keeping the healthy stream startup successful', {
+              code,
+              signal,
+              error: workerFailure?.message || null,
+            });
+          }
+          logger.info('studio_auto.worker_exited_after_live', 'Studio title, RTMPS output, preview, and LIVE state were verified', exitInfo);
+          settle(null, { ...launchResult, studioVerified: true });
+          return;
+        }
         if (workerFailure) {
           settle(workerFailure);
           return;
