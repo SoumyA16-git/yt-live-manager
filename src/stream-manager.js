@@ -39,6 +39,7 @@ import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage, resetProcessBaseline } from './usage-manager.js';
 import { logger } from './logger.js';
 import { sendLiveFailureEmail, sendLiveStartedEmail } from './email-alerts.js';
+import { sendLiveFailureTelegram, sendLiveStartedTelegram } from './telegram-alerts.js';
 import { isInsideWindow } from './scheduler.js';
 import { prepareYouTubeStudioStream } from './youtube-studio-automator.js';
 import { generateSeoYouTubeTitle, getHumanVideoFilename } from './gemini-title-generator.js';
@@ -62,6 +63,20 @@ let _startInProgress   = false; // re-entrancy mutex for startStream
 let _stopInProgressPromise = null; // completion barrier for stopStream
 let _lastStreamStopTime = 0; // timestamp when stream was completely stopped
 let _lastProgressTimestamp = null;
+
+function sendLiveFailureNotifications(details) {
+  void sendLiveFailureEmail(details);
+  void sendLiveFailureTelegram(details).catch(() => {
+    logger.warn('stream.telegram_dispatch_failed', 'Could not queue Telegram failure alert; stream recovery will continue');
+  });
+}
+
+function sendLiveStartedNotifications(details) {
+  void sendLiveStartedEmail(details);
+  void sendLiveStartedTelegram(details).catch(() => {
+    logger.warn('stream.telegram_dispatch_failed', 'Could not queue Telegram start notification; stream lifecycle will continue');
+  });
+}
 
 export function getCurrentLifecyclePromise() {
   return null;
@@ -645,7 +660,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     if (!gate.allowed) {
       logger.warn('stream.start_blocked', `Stream start blocked: ${gate.reason} (${gate.code})`);
       if (!['E_SCHEDULED', 'E_DISABLED', 'E_MAINTENANCE'].includes(gate.code)) {
-        void sendLiveFailureEmail({
+        sendLiveFailureNotifications({
           mode: gate.streamMode || getSettings().stream?.mode,
           phase: 'preflight/start gate',
           code: gate.code,
@@ -678,7 +693,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
     if (checkCircuitBreaker()) {
       await transitionState('ERROR', 'Circuit breaker tripped');
-      void sendLiveFailureEmail({
+      sendLiveFailureNotifications({
         mode: getSettings().stream?.mode,
         phase: 'restart circuit breaker',
         code: 'E_CIRCUIT_BREAKER',
@@ -696,7 +711,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     const notifyLiveStarted = (verification, studioVerified) => {
       if (liveStartAlertSent) return;
       liveStartAlertSent = true;
-      void sendLiveStartedEmail({
+      sendLiveStartedNotifications({
         mode: streamMode,
         phase: verification,
         reason,
@@ -712,14 +727,14 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       logger.error('stream.key_empty', `${streamMode.toUpperCase()} YouTube stream key is empty at spawn time — aborting FFmpeg spawn`);
       await transitionState('ERROR', `${streamMode} YouTube stream key is empty`);
       await saveState({ lastError: { code: 'E_KEY_MISSING', message: `${streamMode} YouTube stream key is not configured`, at: new Date().toISOString() } });
-      void sendLiveFailureEmail({ mode: streamMode, phase: 'stream configuration gate', code: 'E_KEY_MISSING', reason: `${streamMode} YouTube stream key is not configured.` });
+      sendLiveFailureNotifications({ mode: streamMode, phase: 'stream configuration gate', code: 'E_KEY_MISSING', reason: `${streamMode} YouTube stream key is not configured.` });
       return { started: false, code: 'E_KEY_MISSING', message: `${streamMode} YouTube stream key is not configured` };
     }
     if (!rtmpsUrl || !rtmpsUrl.startsWith('rtmps://')) {
       logger.error('stream.url_invalid', `Invalid RTMPS URL at spawn time: ${rtmpsUrl}`);
       await transitionState('ERROR', 'RTMPS URL is missing or invalid');
       await saveState({ lastError: { code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://', at: new Date().toISOString() } });
-      void sendLiveFailureEmail({ mode: streamMode, phase: 'stream configuration gate', code: 'E_CONFIG_INVALID', reason: 'RTMPS URL is missing or invalid.' });
+      sendLiveFailureNotifications({ mode: streamMode, phase: 'stream configuration gate', code: 'E_CONFIG_INVALID', reason: 'RTMPS URL is missing or invalid.' });
       return { started: false, code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://' };
     }
 
@@ -1033,7 +1048,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         desiredState: 'stopped',
         lastError: { code: err.code || 'E_START_FAILED', message: err.message, at: new Date().toISOString() },
       });
-      void sendLiveFailureEmail({
+      sendLiveFailureNotifications({
         mode: streamMode,
         phase: studioGateEnabled ? 'YouTube Studio/startup gates' : 'stream startup',
         code: err.code || 'E_START_FAILED',
@@ -1239,7 +1254,7 @@ async function handleUnexpectedExit({ code, signal, lastError }) {
     },
   });
 
-  void sendLiveFailureEmail({
+  sendLiveFailureNotifications({
     mode: state.streamMode || settings.stream?.mode,
     phase: 'live stream process',
     code: 'E_PROCESS_EXIT',

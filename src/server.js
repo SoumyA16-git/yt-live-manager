@@ -20,6 +20,7 @@ import { getSystemSnapshot } from './system-monitor.js';
 import { startStream, stopStream, getCurrentSeekOffset, initAutoRecycleOnBoot } from './stream-manager.js';
 import { startScheduler, stopScheduler, getSchedulerStatus } from './scheduler.js';
 import { requireAuth, requireCsrf } from './auth.js';
+import { resumePendingTelegramFailureAlert } from './telegram-alerts.js';
 import { createAuthRouter } from './api/auth.routes.js';
 import { createStreamRouter } from './api/stream.routes.js';
 import { createSettingsRouter } from './api/settings.routes.js';
@@ -197,6 +198,11 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
     // 3. Clean up stale runtime locks & orphan uploads
     await cleanupStaleLockOnBoot();
     await cleanOrphanIncoming();
+    try {
+      await resumePendingTelegramFailureAlert();
+    } catch {
+      logger.warn('stream.telegram_resume_failed', 'Could not resume a pending Telegram failure alert; application startup will continue');
+    }
 
     // 4. Start HTTP Server
     const port = parseInt(process.env.PORT, 10) || 3000;

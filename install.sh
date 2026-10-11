@@ -212,6 +212,11 @@ SESSION_SECRET=${SESSION_SECRET}
 SMTP_USER=
 SMTP_PASS=
 STREAM_ALERT_EMAIL_TO=
+# Optional Telegram lifecycle alerts. Keep the bot token only in this service env file.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+# Optional callback authorization override; defaults to TELEGRAM_CHAT_ID for private chats.
+TELEGRAM_ACK_USER_ID=
 # Optional Gemini key for per-stream SEO title generation; keep this in the service env only.
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.5-flash-lite
