@@ -11,6 +11,7 @@ import path from 'node:path';
 import { readJSON, writeJSON, listBackups } from '../src/lib/atomic-json.js';
 import { syncDiskVideos } from '../src/video-manager.js';
 import { loadSettings, migrateSettings, SCHEMA_VERSION } from '../src/config-manager.js';
+import { loadState } from '../src/state-manager.js';
 import PATHS from '../src/lib/paths.js';
 
 const dryRun = process.argv.includes('--dry-run');
@@ -56,10 +57,11 @@ async function main() {
   console.log(`Running migration check (dryRun: ${dryRun})...\n`);
 
   await checkAndMigrate(PATHS.settings, 'config/settings.json', SCHEMA_VERSION, migrateSettings);
-  // Video synchronization reads the active stream configuration for compatibility
-  // checks and playlist activation. The migration CLI must initialize it too.
+  // Video synchronization reads active settings and stream state for compatibility
+  // checks and playlist activation. The migration CLI must initialize both too.
   await loadSettings();
   await checkAndMigrate(PATHS.streamState, 'data/stream-state.json', 1);
+  await loadState();
   await checkAndMigrate(PATHS.bandwidthUsage, 'data/bandwidth-usage.json', 1);
   await checkAndMigrate(PATHS.videosIndex, 'data/videos.json', 1);
 
