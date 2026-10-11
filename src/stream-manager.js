@@ -38,6 +38,7 @@ import {
 import { evaluateCompatibility } from './ffprobe-manager.js';
 import { recordProgressBytes, flushUsage, resetProcessBaseline } from './usage-manager.js';
 import { logger } from './logger.js';
+import { sendLiveFailureEmail, sendLiveStartedEmail } from './email-alerts.js';
 import { isInsideWindow } from './scheduler.js';
 import { prepareYouTubeStudioStream } from './youtube-studio-automator.js';
 import PATHS from './lib/paths.js';
@@ -642,6 +643,14 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     const gate = await evaluateStartGates({ reason });
     if (!gate.allowed) {
       logger.warn('stream.start_blocked', `Stream start blocked: ${gate.reason} (${gate.code})`);
+      if (!['E_SCHEDULED', 'E_DISABLED', 'E_MAINTENANCE'].includes(gate.code)) {
+        void sendLiveFailureEmail({
+          mode: gate.streamMode || getSettings().stream?.mode,
+          phase: 'preflight/start gate',
+          code: gate.code,
+          reason: gate.reason,
+        });
+      }
       if (gate.code === 'E_SCHEDULED') {
         await transitionState('SCHEDULED', gate.reason);
       } else if (gate.code === 'E_BW_LIMIT') {
@@ -668,6 +677,12 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
     if (checkCircuitBreaker()) {
       await transitionState('ERROR', 'Circuit breaker tripped');
+      void sendLiveFailureEmail({
+        mode: getSettings().stream?.mode,
+        phase: 'restart circuit breaker',
+        code: 'E_CIRCUIT_BREAKER',
+        reason: 'Too many stream starts were attempted in a short period.',
+      });
       return { started: false, code: 'E_CIRCUIT_BREAKER', message: 'Too many restarts in short period' };
     }
 
@@ -675,6 +690,18 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
 
     const settings = getSettings();
     const streamMode = (gate.streamMode || settings.stream?.mode || 'horizontal').toLowerCase();
+    const studioGateEnabled = settings.studioAutomation?.enabled !== false;
+    let liveStartAlertSent = false;
+    const notifyLiveStarted = (verification, studioVerified) => {
+      if (liveStartAlertSent) return;
+      liveStartAlertSent = true;
+      void sendLiveStartedEmail({
+        mode: streamMode,
+        phase: verification,
+        reason,
+        studioVerified,
+      });
+    };
     const primaryKey = gate.streamKey;
     const destUrl = gate.destUrl;
 
@@ -684,12 +711,14 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       logger.error('stream.key_empty', `${streamMode.toUpperCase()} YouTube stream key is empty at spawn time — aborting FFmpeg spawn`);
       await transitionState('ERROR', `${streamMode} YouTube stream key is empty`);
       await saveState({ lastError: { code: 'E_KEY_MISSING', message: `${streamMode} YouTube stream key is not configured`, at: new Date().toISOString() } });
+      void sendLiveFailureEmail({ mode: streamMode, phase: 'stream configuration gate', code: 'E_KEY_MISSING', reason: `${streamMode} YouTube stream key is not configured.` });
       return { started: false, code: 'E_KEY_MISSING', message: `${streamMode} YouTube stream key is not configured` };
     }
     if (!rtmpsUrl || !rtmpsUrl.startsWith('rtmps://')) {
       logger.error('stream.url_invalid', `Invalid RTMPS URL at spawn time: ${rtmpsUrl}`);
       await transitionState('ERROR', 'RTMPS URL is missing or invalid');
       await saveState({ lastError: { code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://', at: new Date().toISOString() } });
+      void sendLiveFailureEmail({ mode: streamMode, phase: 'stream configuration gate', code: 'E_CONFIG_INVALID', reason: 'RTMPS URL is missing or invalid.' });
       return { started: false, code: 'E_CONFIG_INVALID', message: 'RTMPS URL must start with rtmps://' };
     }
 
@@ -771,6 +800,9 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           _streamStartTime = Date.now();
           await transitionState('RUNNING', 'FFmpeg healthy output detected');
           logger.info('stream.stream_running', `Stream is now RUNNING with FFmpeg PID ${pid} (${streamMode})`);
+          if (!studioGateEnabled) {
+            notifyLiveStarted('RTMPS output is healthy; YouTube Studio startup automation is disabled.', false);
+          }
           armAutoRecycleTimer();
 
           await saveState({
@@ -901,7 +933,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
     };
 
     try {
-      if (settings.studioAutomation?.enabled !== false) {
+      if (studioGateEnabled) {
         if (process.platform !== 'linux') {
           throw Object.assign(new Error(`Studio automation is enabled but unsupported on ${process.platform}`), {
             code: 'E_STUDIO_PLATFORM',
@@ -951,6 +983,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
               code: 'E_STREAM_HEALTH_LOST',
             });
           }
+          notifyLiveStarted('YouTube Studio startup gates passed and the broadcast was verified live.', true);
         } catch (err) {
           // Disarm the regular recovery path before stopping a publisher whose
           // Studio gate failed, so failure cannot silently restart via fallback.
@@ -981,6 +1014,12 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
       await saveState({
         desiredState: 'stopped',
         lastError: { code: err.code || 'E_START_FAILED', message: err.message, at: new Date().toISOString() },
+      });
+      void sendLiveFailureEmail({
+        mode: streamMode,
+        phase: studioGateEnabled ? 'YouTube Studio/startup gates' : 'stream startup',
+        code: err.code || 'E_START_FAILED',
+        reason: err.message,
       });
       return { started: false, code: err.code || 'E_START_FAILED', message: err.message };
     }
@@ -1180,6 +1219,13 @@ async function handleUnexpectedExit({ code, signal, lastError }) {
       message: `Process exited with code ${code}, signal ${signal}: ${lastError || ''}`,
       at: new Date().toISOString(),
     },
+  });
+
+  void sendLiveFailureEmail({
+    mode: state.streamMode || settings.stream?.mode,
+    phase: 'live stream process',
+    code: 'E_PROCESS_EXIT',
+    reason: `The stream process exited unexpectedly (code ${code}, signal ${signal}). ${lastError || ''}`.trim(),
   });
 
   const recoveryCfg = settings.recovery || {};

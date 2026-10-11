@@ -138,8 +138,12 @@ The example file does not contain every default. On load, the current code also 
 | ADMIN_USERNAME, ADMIN_PASSWORD_HASH, SESSION_SECRET | Admin login and cookie signing; production values are supplied through the service environment file |
 | APP_ROOT | Override the application root used for runtime paths |
 | DISPLAY, CHROME_BIN, CHROME_USER_DATA_DIR | Studio browser/display overrides |
+| SMTP_USER, SMTP_PASS, STREAM_ALERT_EMAIL_TO | SMTP login, password, and alert recipient; required to enable stream start/failure emails |
+| SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_FROM | Optional SMTP overrides; defaults use Maileroo SSL/TLS on port 465, and the sender defaults to SMTP_USER |
 | AUTO_NORMALIZE_GOP=true | Optional download-time GOP normalization; this invokes an encode and is off by default |
 | ALLOW_PLAIN_RTMP_FOR_TESTS=1 | Test-only relaxation in FFmpeg argument validation; do not set in production |
+
+The installer creates `/etc/yt-live-manager/env` with empty `SMTP_USER`, `SMTP_PASS`, and `STREAM_ALERT_EMAIL_TO` values. Fill those three values to enable alerts; set `SMTP_FROM` only if the sender should differ from the SMTP login. For an existing installation, add the values to that same service environment file. Keep the password there, never in app settings or Git. Apply environment changes with a service restart during planned stream downtime because restarting the manager interrupts its publisher. The successful-start email is sent after the Studio startup gate confirms the broadcast live (or after healthy RTMPS output when Studio automation is disabled). Failed startup gates send failure emails, except expected schedule, admin-disabled, and maintenance blocks. Unexpected stream-process exits also send a failure email. Repeated failures are throttled for 15 minutes. SMTP delivery is best-effort and does not block stream startup or recovery. Port 465 uses SSL/TLS; ports 587 and 2525 use STARTTLS.
 
 The YouTube stream key is stored in config/settings.json as ordinary JSON (the installed file is permission-restricted, but it is **not encrypted at rest**). It is masked in normal settings API responses and redacted from logs; the reveal endpoint requires the admin password and is rate-limited. The admin password is stored as a scrypt hash in the service environment. Login sessions are memory-only and are invalidated when the process restarts.
 

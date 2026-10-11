@@ -208,6 +208,10 @@ PORT=${PORT}
 ADMIN_USERNAME=${ADMIN_USERNAME}
 ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
 SESSION_SECRET=${SESSION_SECRET}
+# Optional stream email alert credential. Set this after installation to enable alerts.
+SMTP_USER=
+SMTP_PASS=
+STREAM_ALERT_EMAIL_TO=
 EOF
 fi
 

@@ -35,6 +35,7 @@ preserves 24×7 stability, and record here.
 | D-028 | Video encoding workflow: User pre-encodes via editing software (Premiere, DaVinci, Handbrake) to 1080×1920 H.264/AAC (2s GOP) prior to uploading | User confirmed; zero server CPU overhead, guaranteed stream-copy mode compatibility on E2.1.Micro |
 | D-029 | Default `modePreference` is `auto` with `allowTranscode: true` | PRD §5.3 / §24 alignment; executes Zero-CPU stream copy for 1080p compatible sources while enabling smooth transcoding for 720p/non-copy sources with interactive prompt in dashboard |
 | D-030 | Default `videoBitrateMbps` set to 4 Mbps | User requested; reduces data consumption to ~49 GB/day (~1.47 TB/month), highly optimized for OCI Always Free bandwidth limits |
+| D-031 | Stream lifecycle email alerts use Node's built-in TLS/socket APIs and best-effort delivery | Avoids a runtime dependency; SMTP failures never block streaming, uses SSL/TLS or STARTTLS, and rate-limits repeated failure alerts |
 
 
 
