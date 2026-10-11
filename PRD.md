@@ -799,7 +799,7 @@ sudo journalctl -u yt-live-manager -f
 ```
 
 ### 21.3 `update.sh`
-Stop safely (set `maintenance` with `source:"update"`, graceful stream stop, `systemctl stop`) → backup `config/ data/` to `backups/update-<timestamp>.tar.gz` (`0600`) → pull/unpack new code **excluding** `config/`, `data/`, `videos/`, `logs/`, `backups/`, env file → `npm ci --omit=dev` → run migration check (`node scripts/migrate.js --dry-run`) → `systemctl start` → verify `systemctl is-active` and `GET /api/health` within 30 s → clear update-maintenance → if verification fails, **roll back** to the previous code directory and report. Never overwrite secrets or user configuration.
+Stop the service and FFmpeg → snapshot application code for rollback → copy `src/`, `public/`, `scripts/`, and package manifests → `npm ci --omit=dev` → start service → verify `systemctl is-active` and `GET /api/health` within 30 s → if verification fails, roll back application code only. The updater must not copy, restore, or migrate `config/`, `data/`, videos, logs, backups, environment files, systemd/Nginx configuration, or the installed `yt-dlp` binary. Normal application shutdown may persist runtime state. Settings recovery at application startup may load a valid backup in memory but must leave the settings file unchanged.
 
 ### 21.4 Nginx (`nginx/yt-live-manager.conf`, reference)
 ```nginx

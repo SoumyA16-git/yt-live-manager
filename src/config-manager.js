@@ -190,10 +190,10 @@ export async function loadSettings() {
   const { data, source } = await readJSON(_settingsPath, backups, {});
 
   if (source === 'backup') {
-    const restored = migrateSettings(data && typeof data === 'object' && !Array.isArray(data) ? data : {});
-    await writeJSON(_settingsPath, restored, { mode: 0o600 });
-    logger.warn('config.restored_from_backup',
-      'Settings file was corrupt and has been restored from backup');
+    // Use the last valid backup in memory, but never overwrite the settings
+    // file automatically during startup or an application-code update.
+    logger.warn('config.backup_loaded_in_memory',
+      'Settings file was unreadable; loaded the last valid backup in memory and left the file unchanged');
   } else if (source === 'default') {
     logger.info('config.using_defaults', 'No settings file found; using factory defaults');
   }

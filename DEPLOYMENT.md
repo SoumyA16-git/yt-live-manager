@@ -416,14 +416,13 @@ sudo bash update.sh
 ```
 
 **What `update.sh` automatically does:**
-- Creates an atomic `.tar.gz` backup of `/opt/yt-live-manager/config/` and `/opt/yt-live-manager/data/`.
-- Creates a full snapshot of the existing code.
-- Copies updated source and public assets to `/opt/yt-live-manager/` (preserving videos, logs, and config).
+- Stops the service and FFmpeg, then snapshots the existing application code for rollback.
+- Copies updated `src/`, `public/`, and `scripts/` plus `package.json` and `package-lock.json` to `/opt/yt-live-manager/`.
 - Updates production npm packages (`npm ci --omit=dev`).
-- Runs database schema migrations (`node scripts/migrate.js`).
+- Does not copy, migrate, restore, or explicitly clear files in `config/` or `data/`; it also leaves videos, logs, backups, the systemd unit, Nginx configuration, and installed `yt-dlp` binary out of deployment. The service's graceful shutdown can persist normal runtime state, including clearing its resume bookmark.
 - Restarts `yt-live-manager.service`.
 - Verifies HTTP `/api/health` within 30 seconds.
-- Automatically rolls back to the previous snapshot if health verification fails.
+- Automatically rolls back application code if health verification fails; rollback does not restore or rewrite user settings/data.
 
 ---
 
@@ -594,7 +593,7 @@ The dashboard includes a **"▶️ YouTube URL"** tab in the Video Library panel
 
 ### yt-dlp Requirement
 
-`yt-dlp` is installed automatically by `install.sh` and `update.sh`:
+`yt-dlp` is installed automatically by `install.sh` (updates leave the installed binary unchanged):
 ```bash
 # Verify installation:
 yt-dlp --version

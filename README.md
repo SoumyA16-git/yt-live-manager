@@ -243,7 +243,7 @@ sudo systemctl stop yt-live-manager
 sudo systemctl start yt-live-manager
 ~~~
 
-Stopping/restarting the service interrupts the RTMPS session. update.sh is especially disruptive: it stops the service, runs a broad pkill -9 -f ffmpeg, clears the saved resume bookmark, takes a config/data backup, copies code, migrates files, and restarts with a health check/rollback. Run it only when that interruption is acceptable and after reviewing its effects on the host.
+Stopping/restarting the service interrupts the RTMPS session. update.sh stops the service and FFmpeg, copies application code and installs locked npm dependencies, then restarts with a health check and code rollback on failure. It does not migrate or restore settings/data, update yt-dlp, or replace systemd/Nginx configuration. Graceful service shutdown may persist runtime state. If settings are corrupt at startup, the app can use the newest valid backup in memory without rewriting the settings file.
 
 ## Tests and verification
 
@@ -283,7 +283,7 @@ Specific current facts:
 1. **Single output:** stream-manager.js launches one publisher using the canonical youtube.streamKey and reports isDualStream: false. Legacy dual-stream settings/pairing helpers and an optional secondary FFmpeg argument interface remain, but the active stream path does not publish two simultaneous outputs.
 2. **Settings template drift:** the example omits some runtime defaults and sets a vertical resolution while the code default mode/resolution are horizontal. Runtime normalization can also change example copy/keyframe thresholds. Inspect effective settings before starting.
 3. **Installer identity drift:** align the ytlive ownership in install.sh with User=ubuntu in the systemd unit before deployment.
-4. **Update is not live-safe:** the current update script terminates FFmpeg and clears the resume bookmark before replacing code.
+4. **Update is not live-safe:** the updater stops the service/FFmpeg; the normal shutdown path can clear the resume bookmark. The updater itself does not migrate or restore user settings/data.
 5. **Credential hygiene:** stream keys are not encrypted in the JSON file. The repository also tracks key-like SSH artifacts and a machine-specific login helper; verify that no real credentials are present, rotate any that were exposed, and remove sensitive material from repository history before sharing.
 
 Use the implementation under src/, public/, and scripts/ for current behavior; use this README as its map. Tests provide regression evidence for code paths, not proof of external YouTube or VPS behavior.
