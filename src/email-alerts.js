@@ -262,6 +262,14 @@ async function deliverSmtp(config, message) {
     await session.command(`RCPT TO:<${config.to}>`, [250, 251], 'RCPT TO');
     await session.command('DATA', [354], 'DATA');
     await session.write(`${message.replace(/\r?\n/g, '\r\n')}.\r\n`);
+
+    // The server confirms that it queued the message after the DATA terminator.
+    // Consume that 250 before sending QUIT, otherwise it is mistaken for QUIT's
+    // 221 reply and a successfully delivered email is logged as a failure.
+    const dataReply = await session.readReply();
+    if (dataReply.code !== 250) {
+      throw new Error(`SMTP DATA failed with server status ${dataReply.code}`);
+    }
     await session.command('QUIT', [221], 'QUIT');
   } finally {
     session.close();
