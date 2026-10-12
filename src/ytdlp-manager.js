@@ -445,14 +445,15 @@ export function getYtDlpFormatAndSort(quality = '1080p') {
     case '480p':
     case '480':
       return {
-        format: 'bv*[height<=854][width<=854]+ba/b[height<=854][width<=854]/bv*+ba/b',
-        sort: 'res:480,vcodec:h264,vbr,fps,acodec:aac',
+        // Strictly prefer m4a (aac) audio to avoid opus-in-mp4 container mismatch (popping noise)
+        format: 'bv*[height<=854][width<=854][vcodec^=avc]+ba[ext=m4a]/bv*[height<=854]+ba[ext=m4a]/bv*[height<=854]+ba/b[height<=854]/bv*+ba/b',
+        sort: 'res:480,vcodec:h264,vbr,fps,+acodec:m4a',
       };
     case '720p':
     case '720':
       return {
-        format: 'bv*[height<=1280][width<=1280]+ba/b[height<=1280][width<=1280]/bv*+ba/b',
-        sort: 'res:720,vcodec:h264,vbr,fps,acodec:aac',
+        format: 'bv*[height<=1280][width<=1280][vcodec^=avc]+ba[ext=m4a]/bv*[height<=1280]+ba[ext=m4a]/bv*[height<=1280]+ba/b[height<=1280]/bv*+ba/b',
+        sort: 'res:720,vcodec:h264,vbr,fps,+acodec:m4a',
       };
     case '1080p':
     case '1080':
@@ -460,10 +461,10 @@ export function getYtDlpFormatAndSort(quality = '1080p') {
     case 'max':
     case 'highest':
     default:
-      // Default to 1080p high bitrate (vbr) for maximum visual clarity and non-pixelated streaming
+      // Default to 1080p — strictly prefer avc+m4a to avoid opus audio popping in mp4 container
       return {
-        format: 'bv*[height<=1920][width<=1920]+ba/b[height<=1920][width<=1920]/bv*+ba/b',
-        sort: 'res:1080,vcodec:h264,vbr,fps,acodec:aac',
+        format: 'bv*[height<=1920][width<=1920][vcodec^=avc]+ba[ext=m4a]/bv*[height<=1920]+ba[ext=m4a]/bv*[height<=1920]+ba/b[height<=1920]/bv*+ba/b',
+        sort: 'res:1080,vcodec:h264,vbr,fps,+acodec:m4a',
       };
   }
 }
@@ -1061,10 +1062,13 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       '--no-embed-subs',
       '--no-write-comments',
       '--no-add-metadata',
-      // Storage-optimized video and audio merged into MP4 container (default 720p, saves ~70% disk space)
+      // Prefer avc+m4a(aac) to avoid opus-in-mp4 popping noise. If non-aac audio is selected,
+      // ffmpeg re-encodes it to aac during merge (--postprocessor-args) to fix the container mismatch.
       '-f', extraFormat || qualityCfg.format,
       '-S', extraSort || qualityCfg.sort,
       '--merge-output-format', 'mp4',
+      // Re-encode non-aac audio to aac during yt-dlp merge to fix opus popping in mp4 container
+      '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 192k -ar 48000',
       '--no-part',                   // No .part temp files — cleaner on failure/cancel
       '--concurrent-fragments', '4', // Parallel chunk downloads — 2-4x faster on VPS
       '-o', outputPath,
