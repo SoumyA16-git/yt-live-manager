@@ -111,7 +111,8 @@ export function isValidYouTubeUrl(urlStr) {
 /**
  * Check if a YouTube video is already present in the local video library.
  * Checks stored youtubeVideoId, youtubeUrl, and filename/label matches.
- * Verifies that the physical file actually exists on disk.
+ * Returns duplicate info on metadata match alone — physical file existence
+ * is NOT checked. Use force=true in startYouTubeDownload to bypass.
  *
  * @param {string} rawUrl
  * @returns {Promise<object|null>} Existing video info if duplicate, or null
@@ -156,27 +157,15 @@ export async function checkDuplicateYouTubeVideo(rawUrl) {
     }
 
     if (match) {
-      // Verify physical file exists on disk
-      const ext = path.extname(v.filename || v.originalName || '.mp4');
-      let exists = false;
-      try {
-        const filePath = v.filePath || resolveVideoPath(v.id, ext);
-        exists = fsSync.existsSync(filePath);
-      } catch {
-        exists = false;
-      }
-
-      if (exists) {
-        return {
-          id: v.id,
-          label: v.label || v.originalName,
-          originalName: v.originalName,
-          probe: v.probe,
-          inPlaylist: allPlaylistIds.has(v.id),
-          orientation: v.orientation || (v.probe?.width >= v.probe?.height ? 'horizontal' : 'vertical'),
-          youtubeVideoId: v.youtubeVideoId || targetYtId,
-        };
-      }
+      return {
+        id: v.id,
+        label: v.label || v.originalName,
+        originalName: v.originalName,
+        probe: v.probe,
+        inPlaylist: allPlaylistIds.has(v.id),
+        orientation: v.orientation || (v.probe?.width >= v.probe?.height ? 'horizontal' : 'vertical'),
+        youtubeVideoId: v.youtubeVideoId || targetYtId,
+      };
     }
   }
 
