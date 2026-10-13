@@ -282,20 +282,20 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         'pipe:1'
       );
     } else {
-      const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
+      // Always re-encode audio to AAC (even if already AAC) to normalize PTS timestamps.
+      // Direct audio copy (-c:a copy) passes raw mp4 PTS into MPEG-TS causing discontinuities
+      // at loop boundaries and segment transitions → audible pop/click noise in stream.
+      // aresample=async=1000 fills tiny timestamp gaps with silence instead of popping.
       args.push(
         '-map', '0:v:0',
         '-map', '0:a:0?',
         '-c:v', 'copy',
-        '-c:a', isAacAudio ? 'copy' : 'aac'
+        '-c:a', 'aac',
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-ac', '2',
+        '-af', 'aresample=async=1000'
       );
-      if (!isAacAudio) {
-        args.push(
-          '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
-          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-          '-ac', '2'
-        );
-      }
       args.push(
         '-avoid_negative_ts', 'make_zero',
         '-muxdelay', '0.1',
@@ -308,19 +308,16 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   } else if (effectiveMode === 'hybrid') {
     args.push('-map', '0:v:0');
     if (videoMeta?.hasAudio) {
-      const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
+      // Always re-encode audio to AAC to normalize timestamps — see copy mode comment above
       args.push(
         '-map', '0:a:0?',
         '-c:v', 'copy',
-        '-c:a', isAacAudio ? 'copy' : 'aac'
+        '-c:a', 'aac',
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-ac', '2',
+        '-af', 'aresample=async=1000'
       );
-      if (!isAacAudio) {
-        args.push(
-          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-          '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
-          '-ac', '2'
-        );
-      }
     } else {
       args.push(
         '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
