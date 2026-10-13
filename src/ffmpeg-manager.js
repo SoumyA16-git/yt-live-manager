@@ -174,22 +174,29 @@ export function buildFfmpegArgs(settings, videoMeta, secretTarget, mode = 'copy'
  * @returns {string[]}
  */
 export function buildPublisherArgs(settings, secretTarget) {
+  const streamCfg = settings?.stream || {};
+  const audioRate = Number(streamCfg.audioSampleRate) || 48000;
+  const audioKbps = Number(streamCfg.audioBitrateKbps) || 128;
+
   return [
     '-hide_banner',
     '-nostdin',
     '-loglevel', 'warning',
     '-nostats',
     '-progress', 'pipe:1',
-    // +genpts removed: it was overwriting clean PTS from feeder causing audio drift.
-    // discardcorrupt removed: it was silently dropping audio packets causing gaps → pops.
-    '-fflags', '+igndts',
-    '-thread_queue_size', '8192',
+    '-fflags', '+genpts',
+    '-thread_queue_size', '4096',
     '-f', 'mpegts',
     '-analyzeduration', '2000000',
     '-probesize', '2000000',
     '-i', 'pipe:0',
-    '-c', 'copy',
-    '-max_muxing_queue_size', '8192',
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', `${audioKbps}k`,
+    '-ar', `${audioRate}`,
+    '-ac', '2',
+    '-af', 'aresample=async=1:first_pts=0',
+    '-max_muxing_queue_size', '4096',
     '-flvflags', 'no_duration_filesize',
     '-f', 'flv',
     secretTarget,
@@ -263,18 +270,18 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     args.push('-ss', String(Math.floor(videoMeta.seekOffset)));
   }
 
-  args.push('-fflags', '+genpts+discardcorrupt');
+  args.push('-fflags', '+genpts');
   args.push('-i', videoPath);
 
   if (effectiveMode === 'copy') {
     if (videoMeta && videoMeta.hasAudio === false) {
       args.push(
-        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
         '-map', '0:v:0',
         '-map', '1:a:0',
         '-c:v', 'copy',
         '-c:a', 'aac',
-        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
         '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
         '-ac', '2',
         '-shortest',
@@ -286,23 +293,24 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         'pipe:1'
       );
     } else {
-      // Always re-encode audio to AAC to get fresh, continuous timestamps in MPEG-TS.
-      // -c:a copy passes raw mp4 PTS into MPEG-TS causing discontinuities at loop/segment
-      // boundaries → audible pop. Re-encoding gives clean monotonic timestamps.
-      // 48000 Hz is YouTube Live's recommended sample rate (avoids fractional ms in FLV).
+      const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
       args.push(
         '-map', '0:v:0',
         '-map', '0:a:0?',
         '-c:v', 'copy',
-        '-c:a', 'aac',
-        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-        '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
-        '-ac', '2'
+        '-c:a', isAacAudio ? 'copy' : 'aac'
       );
+      if (!isAacAudio) {
+        args.push(
+          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+          '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
+          '-ac', '2'
+        );
+      }
       args.push(
         '-avoid_negative_ts', 'make_zero',
-        '-muxdelay', '0',
-        '-muxpreload', '0',
+        '-muxdelay', '0.1',
+        '-muxpreload', '0.1',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
         'pipe:1'
@@ -311,22 +319,27 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   } else if (effectiveMode === 'hybrid') {
     args.push('-map', '0:v:0');
     if (videoMeta?.hasAudio) {
+      const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
       args.push(
         '-map', '0:a:0?',
         '-c:v', 'copy',
-        '-c:a', 'aac',
-        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-        '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
-        '-ac', '2'
+        '-c:a', isAacAudio ? 'copy' : 'aac'
       );
+      if (!isAacAudio) {
+        args.push(
+          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+          '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
+          '-ac', '2'
+        );
+      }
     } else {
       args.push(
-        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
+        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
         '-map', '1:a:0',
         '-c:v', 'copy',
         '-c:a', 'aac',
         '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
+        '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
         '-ac', '2',
         '-shortest'
       );

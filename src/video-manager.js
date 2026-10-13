@@ -1576,9 +1576,9 @@ export async function cleanOrphanIncoming(maxAgeMs = 3600 * 1000) {
 // ─── Test Helpers ────────────────────────────────────────────────────────────
 
 export function _setPathsForTest(videosDir, incomingDir, videosIndex, backupDir = null) {
-  _videosDir   = videosDir;
-  _incomingDir = incomingDir;
-  _videosIndex = videosIndex;
-  _videosBackupDir = backupDir || path.join(path.dirname(videosIndex), 'backups');
+  _videosDir   = videosDir || PATHS.videos;
+  _incomingDir = incomingDir || PATHS.videosIncoming;
+  _videosIndex = videosIndex || PATHS.videosIndex;
+  _videosBackupDir = backupDir || (videosIndex ? path.join(path.dirname(videosIndex), 'backups') : PATHS.backups);
   _syncPromise = null;
 }
