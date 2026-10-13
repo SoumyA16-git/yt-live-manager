@@ -180,13 +180,16 @@ export function buildPublisherArgs(settings, secretTarget) {
     '-loglevel', 'warning',
     '-nostats',
     '-progress', 'pipe:1',
-    '-fflags', '+genpts+discardcorrupt',
+    // +genpts removed: it was overwriting clean PTS from feeder causing audio drift.
+    // discardcorrupt removed: it was silently dropping audio packets causing gaps → pops.
+    '-fflags', '+igndts',
+    '-thread_queue_size', '8192',
     '-f', 'mpegts',
-    '-analyzeduration', '1000000',
-    '-probesize', '1000000',
+    '-analyzeduration', '2000000',
+    '-probesize', '2000000',
     '-i', 'pipe:0',
     '-c', 'copy',
-    '-max_muxing_queue_size', '4096',
+    '-max_muxing_queue_size', '8192',
     '-flvflags', 'no_duration_filesize',
     '-f', 'flv',
     secretTarget,
@@ -260,6 +263,7 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
     args.push('-ss', String(Math.floor(videoMeta.seekOffset)));
   }
 
+  args.push('-fflags', '+genpts+discardcorrupt');
   args.push('-i', videoPath);
 
   if (effectiveMode === 'copy') {
@@ -282,24 +286,23 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
         'pipe:1'
       );
     } else {
-      // Always re-encode audio to AAC (even if already AAC) to normalize PTS timestamps.
-      // Direct audio copy (-c:a copy) passes raw mp4 PTS into MPEG-TS causing discontinuities
-      // at loop boundaries and segment transitions → audible pop/click noise in stream.
-      // aresample=async=1000 fills tiny timestamp gaps with silence instead of popping.
+      // Always re-encode audio to AAC to get fresh, continuous timestamps in MPEG-TS.
+      // -c:a copy passes raw mp4 PTS into MPEG-TS causing discontinuities at loop/segment
+      // boundaries → audible pop. Re-encoding gives clean monotonic timestamps.
+      // 48000 Hz is YouTube Live's recommended sample rate (avoids fractional ms in FLV).
       args.push(
         '-map', '0:v:0',
         '-map', '0:a:0?',
         '-c:v', 'copy',
         '-c:a', 'aac',
         '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
-        '-ac', '2',
-        '-af', 'aresample=async=1000'
+        '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
+        '-ac', '2'
       );
       args.push(
         '-avoid_negative_ts', 'make_zero',
-        '-muxdelay', '0.1',
-        '-muxpreload', '0.1',
+        '-muxdelay', '0',
+        '-muxpreload', '0',
         '-bsf:v', 'h264_mp4toannexb',
         '-f', 'mpegts',
         'pipe:1'
@@ -308,15 +311,13 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   } else if (effectiveMode === 'hybrid') {
     args.push('-map', '0:v:0');
     if (videoMeta?.hasAudio) {
-      // Always re-encode audio to AAC to normalize timestamps — see copy mode comment above
       args.push(
         '-map', '0:a:0?',
         '-c:v', 'copy',
         '-c:a', 'aac',
         '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
-        '-ar', `${streamCfg.audioSampleRate ?? 44100}`,
-        '-ac', '2',
-        '-af', 'aresample=async=1000'
+        '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
+        '-ac', '2'
       );
     } else {
       args.push(
