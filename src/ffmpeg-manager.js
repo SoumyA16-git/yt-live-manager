@@ -216,13 +216,11 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const streamCfg = settings.stream || {};
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
 
-  // Bandwidth Cap logic:
-  // - If videoBitrateMbps is 0 (or null/negative): Bandwidth cap is OFF -> No encoding! Pure direct copy (Zero CPU).
-  // - If videoBitrateMbps > 0:
-  //     If source video is H.264 + AAC and bitrate is within reasonable tolerance (<= capMbps * 1.25):
-  //       Direct copy! Zero CPU, flawless 30fps real-time speed, 0 stutter, 0 pixelation.
-  //     If source bitrate significantly exceeds cap (> capMbps * 1.25) or codec is incompatible:
-  //       Dynamically encode to capMbps with ultrafast preset & zerolatency tuning (CPU strictly ~30-40%).
+  // Live feeder bandwidth behavior:
+  // - With the app cap disabled, compatible video is copied unless its GOP exceeds 4 seconds.
+  // - With a cap enabled, copy only when the source average bitrate is within the cap;
+  //   otherwise live-encode under the lower of source bitrate and app target.
+  // - Incompatible codecs/pixel formats continue through the configured transcode path.
   const targetMbps = Number(streamCfg.videoBitrateMbps);
   const isCapActive = !isNaN(targetMbps) && targetMbps > 0;
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
@@ -238,17 +236,15 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const hasLongKeyframeInterval = maxKeyframe !== null && maxKeyframe !== undefined &&
     Number.isFinite(Number(maxKeyframe)) && Number(maxKeyframe) > 4;
   const isCompatibleCodec = isH264 && isStandardPixel;
+  const exceedsAppBitrateLimit = isCapActive && (sourceMbps <= 0 || sourceMbps > targetMbps);
 
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {
-    const copyMaxLimit = Number(streamCfg.copyMaxMbps ?? 8.5);
-    // Allow direct stream copy for compatible H.264 files up to the copy ceiling (up to 8.5 Mbps ceiling)
-    const maxCopyCeilingMbps = Math.max(copyMaxLimit * 1.15, isCapActive ? targetMbps * 1.25 : 8.5, 8.5);
     if (!isCompatibleCodec && streamCfg.allowTranscode !== false) {
       effectiveMode = 'transcode';
-    } else if (isCapActive && sourceMbps > maxCopyCeilingMbps && streamCfg.allowTranscode !== false) {
-      effectiveMode = 'transcode';
-    } else if (hasLongKeyframeInterval && streamCfg.allowTranscode !== false) {
+    } else if ((hasLongKeyframeInterval || exceedsAppBitrateLimit) && streamCfg.allowTranscode !== false) {
+      // Keep this as a live-only, no-resize encode. It repairs long GOPs and applies
+      // the app bitrate ceiling without letting high-bitrate sources bypass it.
       effectiveMode = 'gop';
     } else {
       effectiveMode = mode === 'hybrid' ? 'hybrid' : 'copy';
@@ -271,17 +267,25 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   }
 
   args.push('-fflags', '+genpts');
+  if (effectiveMode === 'gop') {
+    // Bound H.264 decoder worker creation as well as the one-thread encoder below.
+    args.push('-threads:v', '1');
+  }
   args.push('-i', videoPath);
 
   if (effectiveMode === 'gop') {
     // GOP-only live encode: preserve source dimensions and frame rate; retain the
-    // existing audio handling. CRF avoids a restrictive bitrate cap, while
-    // ultrafast + one thread minimizes CPU.
+    // existing audio handling. Use the lower of the source and app bitrate ceilings.
+    // Ultrafast with one decoder and encoder thread minimizes CPU pressure.
     const hasAudio = videoMeta && videoMeta.hasAudio !== false;
     const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
     const sourceFps = Number(videoMeta?.probe?.fps || streamCfg.fps || 30);
     const keyframeSeconds = Math.min(4, Math.max(0.5, Number(streamCfg.keyframeSeconds) || 2));
     const gop = Math.max(1, Math.round(sourceFps * keyframeSeconds));
+    const sourceVideoKbps = sourceBitrate > 0 ? Math.round(sourceBitrate / 1000) : 0;
+    const appVideoKbps = isCapActive ? Math.round(targetMbps * 1000) : 0;
+    const bitrateCeilings = [sourceVideoKbps, appVideoKbps].filter(kbps => kbps > 0);
+    const maxVideoKbps = bitrateCeilings.length ? Math.min(...bitrateCeilings) : 0;
 
     args.push(
       '-map', '0:v:0',
@@ -296,6 +300,12 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       '-sc_threshold', '0',
       '-force_key_frames', `expr:gte(t,n_forced*${keyframeSeconds})`
     );
+    if (maxVideoKbps > 0) {
+      args.push(
+        '-maxrate', `${maxVideoKbps}k`,
+        '-bufsize', `${maxVideoKbps * 2}k`
+      );
+    }
 
     if (!hasAudio) {
       args.push(
