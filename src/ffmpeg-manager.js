@@ -228,18 +228,16 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
   const sourceMbps = sourceBitrate > 0 ? (sourceBitrate / 1_000_000) : 0;
 
-  // Codec and GOP compatibility checks:
-  // YouTube Live strictly recommends keyframe interval <= 4.0s, but accepts up to 8.5s.
-  // When bandwidth cap is OFF or modePreference allows copy, permit direct stream copy up to 8.5s GOP
-  // so the video preserves 100% master sharpness without lossy real-time ultrafast re-encoding.
+  // Keep downloads and stored videos untouched. During live playback only, re-encode
+  // compatible H.264 video when its GOP exceeds YouTube's 4-second limit.
   const videoCodec = videoMeta?.probe?.videoCodec;
   const isH264 = !videoCodec || videoCodec === 'h264';
   const pixFmt = videoMeta?.probe?.pixFmt;
   const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
   const maxKeyframe = videoMeta?.probe?.maxKeyframeIntervalSec;
-  const keyframeMaxAllowed = Math.max(Number(streamCfg.keyframeMaxSeconds) || 8.5, 8.5);
-  const isKeyframeCompliant = maxKeyframe === null || maxKeyframe === undefined || maxKeyframe <= keyframeMaxAllowed;
-  const isCompatibleCodec = isH264 && isStandardPixel && isKeyframeCompliant;
+  const hasLongKeyframeInterval = maxKeyframe !== null && maxKeyframe !== undefined &&
+    Number.isFinite(Number(maxKeyframe)) && Number(maxKeyframe) > 4;
+  const isCompatibleCodec = isH264 && isStandardPixel;
 
   let effectiveMode = mode;
   if (effectiveMode !== 'transcode') {
@@ -250,6 +248,8 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
       effectiveMode = 'transcode';
     } else if (isCapActive && sourceMbps > maxCopyCeilingMbps && streamCfg.allowTranscode !== false) {
       effectiveMode = 'transcode';
+    } else if (hasLongKeyframeInterval && streamCfg.allowTranscode !== false) {
+      effectiveMode = 'gop';
     } else {
       effectiveMode = mode === 'hybrid' ? 'hybrid' : 'copy';
     }
@@ -273,7 +273,63 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   args.push('-fflags', '+genpts');
   args.push('-i', videoPath);
 
-  if (effectiveMode === 'copy') {
+  if (effectiveMode === 'gop') {
+    // GOP-only live encode: preserve source dimensions and frame rate; retain the
+    // existing audio handling. CRF avoids a restrictive bitrate cap, while
+    // ultrafast + one thread minimizes CPU.
+    const hasAudio = videoMeta && videoMeta.hasAudio !== false;
+    const isAacAudio = videoMeta?.probe?.audioCodec === 'aac';
+    const sourceFps = Number(videoMeta?.probe?.fps || streamCfg.fps || 30);
+    const keyframeSeconds = Math.min(4, Math.max(0.5, Number(streamCfg.keyframeSeconds) || 2));
+    const gop = Math.max(1, Math.round(sourceFps * keyframeSeconds));
+
+    args.push(
+      '-map', '0:v:0',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
+      '-threads:v', '1',
+      '-crf', '14',
+      '-pix_fmt', 'yuv420p',
+      '-g', String(gop),
+      '-keyint_min', String(gop),
+      '-sc_threshold', '0',
+      '-force_key_frames', `expr:gte(t,n_forced*${keyframeSeconds})`
+    );
+
+    if (!hasAudio) {
+      args.push(
+        '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
+        '-map', '1:a:0',
+        '-c:a', 'aac',
+        '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+        '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
+        '-ac', '2',
+        '-shortest'
+      );
+    } else {
+      args.push('-map', '0:a:0?');
+      if (isAacAudio) {
+        args.push('-c:a', 'copy');
+      } else {
+        args.push(
+          '-c:a', 'aac',
+          '-b:a', `${streamCfg.audioBitrateKbps ?? 128}k`,
+          '-ar', `${streamCfg.audioSampleRate ?? 48000}`,
+          '-ac', '2'
+        );
+      }
+    }
+
+    args.push(
+      '-avoid_negative_ts', 'make_zero',
+      '-muxdelay', '0.1',
+      '-muxpreload', '0.1',
+      '-bsf:v', 'h264_mp4toannexb',
+      '-f', 'mpegts',
+      'pipe:1'
+    );
+  } else if (effectiveMode === 'copy') {
     if (videoMeta && videoMeta.hasAudio === false) {
       args.push(
         '-f', 'lavfi', '-i', 'anullsrc=channel_layout=stereo:sample_rate=48000',
