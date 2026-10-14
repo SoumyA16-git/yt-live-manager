@@ -1,7 +1,7 @@
 /**
  * Generate a short YouTube live title from the actual playlist video's
  * user-facing filename. Gemini failures are best-effort and never block a
- * stream start; Studio automation can continue with its configured title.
+ * stream start; the selected video's filename is the fallback title.
  */
 
 import { logger } from './logger.js';
@@ -57,10 +57,19 @@ function cleanGeneratedTitle(value) {
   return title || null;
 }
 
+/** Prefer the generated title, but never reuse a stale title when a selected
+ * video's human-readable filename is available. */
+export function resolveStudioTitle(generatedTitle, sourceFilename) {
+  const generated = typeof generatedTitle === 'string' ? generatedTitle.trim() : '';
+  if (generated) return generated;
+  const fallback = typeof sourceFilename === 'string' ? sourceFilename.trim() : '';
+  return fallback || null;
+}
+
 /**
  * Generate an SEO-friendly title base. The Studio worker still appends its
  * existing date/time suffix and performs the same save/reload verification.
- * Returns null on any failure so the configured Studio title remains usable.
+ * Returns null on any failure so the caller can use the selected filename.
  */
 export async function generateSeoYouTubeTitle(filename, {
   env = process.env,
@@ -71,7 +80,7 @@ export async function generateSeoYouTubeTitle(filename, {
 
   const apiKey = String(env.GEMINI_API_KEY || '').trim();
   if (!apiKey) {
-    logger.warn('studio.title_generation_unavailable', 'GEMINI_API_KEY is not configured; retaining the configured Studio title');
+    logger.warn('studio.title_generation_unavailable', 'GEMINI_API_KEY is not configured; selected filename will be used as the title fallback');
     return null;
   }
 
@@ -82,7 +91,7 @@ export async function generateSeoYouTubeTitle(filename, {
 
   const model = String(env.GEMINI_MODEL || DEFAULT_MODEL).trim();
   if (!/^[a-zA-Z0-9.-]{1,80}$/.test(model)) {
-    logger.warn('studio.title_generation_failed', 'Gemini model name is invalid; retaining the configured Studio title');
+    logger.warn('studio.title_generation_failed', 'Gemini model name is invalid; selected filename will be used as the title fallback');
     return null;
   }
 
@@ -120,7 +129,7 @@ export async function generateSeoYouTubeTitle(filename, {
     );
 
     if (!response.ok) {
-      logger.warn('studio.title_generation_failed', `Gemini title request returned HTTP ${response.status}; retaining the configured Studio title`);
+      logger.warn('studio.title_generation_failed', `Gemini title request returned HTTP ${response.status}; selected filename will be used as the title fallback`);
       return null;
     }
 
@@ -130,7 +139,7 @@ export async function generateSeoYouTubeTitle(filename, {
       .join(' ');
     const title = cleanGeneratedTitle(generatedText);
     if (!title) {
-      logger.warn('studio.title_generation_failed', 'Gemini returned no usable title; retaining the configured Studio title');
+      logger.warn('studio.title_generation_failed', 'Gemini returned no usable title; selected filename will be used as the title fallback');
       return null;
     }
 
@@ -139,7 +148,7 @@ export async function generateSeoYouTubeTitle(filename, {
     const reason = err?.name === 'TimeoutError' || err?.name === 'AbortError'
       ? 'request timed out'
       : 'request failed';
-    logger.warn('studio.title_generation_failed', `Gemini title ${reason}; retaining the configured Studio title`);
+    logger.warn('studio.title_generation_failed', `Gemini title ${reason}; selected filename will be used as the title fallback`);
     return null;
   }
 }

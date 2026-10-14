@@ -9,6 +9,9 @@ import {
   isValidYouTubeUrl,
   parseYtDlpProgressLine,
   getYtDlpFormatAndSort,
+  getYtDlpAttemptArgs,
+  isDownloadJobActive,
+  shouldRetryYtDlpTransportFailure,
   checkDuplicateYouTubeVideo,
   stripVideoMetadata,
   normalizeVideoGop,
@@ -136,6 +139,38 @@ describe('ytdlp-manager — quality format selection', () => {
     const res = getYtDlpFormatAndSort('480p');
     assert.ok(res.format.includes('854'));
     assert.ok(res.sort.includes('res:480'));
+  });
+});
+
+describe('ytdlp-manager — resilient transfer policy', () => {
+  it('keeps the normal downloader at four concurrent fragments', () => {
+    assert.deepEqual(getYtDlpAttemptArgs(), ['--concurrent-fragments', '4']);
+  });
+
+  it('uses reduced concurrency and bounded backoff only on the transport retry', () => {
+    const args = getYtDlpAttemptArgs(true);
+    assert.deepEqual(args.slice(0, 2), ['--concurrent-fragments', '2']);
+    assert.ok(args.includes('--fragment-retries'));
+    assert.ok(args.includes('--file-access-retries'));
+    assert.equal(args.filter(arg => arg === '--retry-sleep').length, 3);
+  });
+
+  it('retries transient HTTP and fragment transfer errors once, not auth or permanent errors', () => {
+    assert.equal(shouldRetryYtDlpTransportFailure('HTTP Error 500: Internal Server Error'), true);
+    assert.equal(shouldRetryYtDlpTransportFailure('[download] Got error: 378052 bytes read. Giving up after 10 retries'), true);
+    assert.equal(shouldRetryYtDlpTransportFailure("Unable to download video: No such file or directory: 'ytdl_test.mp4-Frag588'"), true);
+    assert.equal(shouldRetryYtDlpTransportFailure('Sign in to confirm you are not a bot'), false);
+    assert.equal(shouldRetryYtDlpTransportFailure('HTTP Error 403: Forbidden'), false);
+    assert.equal(shouldRetryYtDlpTransportFailure('HTTP Error 500: Internal Server Error', 1), false);
+  });
+
+  it('keeps all pipeline processing stages active until a terminal state', () => {
+    for (const stage of ['probing', 'optimizing_keyframes', 'stripping_metadata', 'registering']) {
+      assert.equal(isDownloadJobActive(stage), true, `${stage} should remain active`);
+    }
+    for (const stage of ['completed', 'error', 'cancelled', 'idle']) {
+      assert.equal(isDownloadJobActive(stage), false, `${stage} should be terminal/inactive`);
+    }
   });
 });
 

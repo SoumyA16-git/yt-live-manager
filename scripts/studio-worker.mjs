@@ -32,7 +32,11 @@ import { createInterface } from 'node:readline';
 // Logging helpers
 // ---------------------------------------------------------------------------
 
+let lastLoggedStep = 'startup';
+let lastStudioStatus = null;
+
 function log(step, message, extra = {}) {
+  lastLoggedStep = step;
   console.log(`[STUDIO_WORKER] ${JSON.stringify({ time: new Date().toISOString(), step, message, ...extra })}`);
 }
 
@@ -921,7 +925,13 @@ async function run() {
     log('step1_ok', 'Chrome profile sync completed and destination verified');
 
     watchdog = setTimeout(async () => {
-      log('watchdog', 'Strict Studio workflow timed out — terminating owned Chrome and worker');
+      const failedStep = lastLoggedStep;
+      const error = `Studio workflow timed out during ${failedStep}; last status: ${JSON.stringify(lastStudioStatus)}`;
+      log('watchdog', 'Strict Studio workflow timed out — terminating owned Chrome and worker', {
+        failedStep,
+        lastStudioStatus,
+      });
+      emitEvent('finished', { success: false, error, failedStep, lastStudioStatus });
       try {
         await Promise.race([browser?.close() || Promise.resolve(), sleep(2000)]);
       } catch {}
@@ -1113,6 +1123,7 @@ async function run() {
     let status = null;
     while (Date.now() < previewDeadline) {
       status = await readStudioBroadcastStatus(page);
+      lastStudioStatus = status;
       if (status.preview || status.live || (status.goLive && !status.goLive.disabled)) break;
       await sleep(1500);
     }
@@ -1133,7 +1144,8 @@ async function run() {
           log('step14_confirmation', 'Confirmed Studio Go Live dialog');
           break;
         }
-        if ((await readStudioBroadcastStatus(page)).live) break;
+        lastStudioStatus = await readStudioBroadcastStatus(page);
+        if (lastStudioStatus.live) break;
         await sleep(300);
       }
     }
@@ -1143,6 +1155,7 @@ async function run() {
     let liveStatus = status;
     while (Date.now() < liveDeadline) {
       liveStatus = await readStudioBroadcastStatus(page);
+      lastStudioStatus = liveStatus;
       if (liveStatus.live) break;
       await sleep(1500);
     }

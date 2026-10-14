@@ -1,5 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { resolveStudioTitle } from '../../src/gemini-title-generator.js';
+import { getEffectiveStudioTimeoutMs } from '../../src/youtube-studio-automator.js';
 
 function getFormattedDateTime(timeZone = 'Asia/Kolkata', mockDate = new Date()) {
   const dFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -47,6 +49,18 @@ function constructFinalTitle(base, dateTimeFull) {
 }
 
 describe('YouTube Studio Title Cleaning and Formatting', () => {
+  test('uses the selected video filename instead of a stale configured title when generation fails', () => {
+    assert.equal(resolveStudioTitle(null, 'Traditional Chinese Stinky Tofu'), 'Traditional Chinese Stinky Tofu');
+    assert.equal(resolveStudioTitle('Fresh generated title', 'Current video filename'), 'Fresh generated title');
+    assert.equal(resolveStudioTitle(null, null), null);
+  });
+
+  test('keeps a four-minute Studio startup budget without changing larger configured timeouts', () => {
+    assert.equal(getEffectiveStudioTimeoutMs(120000), 240000);
+    assert.equal(getEffectiveStudioTimeoutMs(300000), 300000);
+    assert.equal(getEffectiveStudioTimeoutMs(0), null);
+  });
+
   test('strips single date and 12-hour AM/PM time with space', () => {
     const input = 'Chinese Street Food Live Streaming Mochi 09-10-2026 07:15 PM';
     assert.equal(cleanBaseTitle(input), 'Chinese Street Food Live Streaming Mochi');

@@ -16,6 +16,12 @@ function asError(message, code = 'E_STUDIO_AUTOMATION') {
   return Object.assign(new Error(message), { code });
 }
 
+export function getEffectiveStudioTimeoutMs(configuredTimeoutMs) {
+  const configured = Number(configuredTimeoutMs);
+  if (!Number.isFinite(configured) || configured <= 0) return null;
+  return Math.max(configured, 240_000);
+}
+
 export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, onReadyToStream }) {
   const autoCfg = settings.studioAutomation || {};
   if (autoCfg.enabled === false) {
@@ -25,10 +31,7 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
     throw asError(`Studio automation requires Linux, current platform is ${process.platform}`);
   }
 
-  // Previous static-title selection is kept here for reference and fallback:
-  // const baseTitle = autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== ''
-  //   ? autoCfg.baseTitle
-  //   : (settings.youtube?.title || '');
+  // Use the configured title only when no current-video title was supplied.
   const configuredBaseTitle = autoCfg.baseTitle !== undefined && autoCfg.baseTitle !== ''
     ? autoCfg.baseTitle
     : (settings.youtube?.title || '');
@@ -40,7 +43,8 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
   const chromePath = autoCfg.chromePath || process.env.CHROME_BIN || '/usr/bin/google-chrome';
   const userDataDir = autoCfg.userDataDir || process.env.CHROME_USER_DATA_DIR || '/home/ubuntu/.config/google-chrome';
   const previewWaitSec = Number(autoCfg.previewWaitSec ?? 10);
-  const timeoutMs = Number(autoCfg.timeoutMs ?? 180000);
+  const configuredTimeoutMs = Number(autoCfg.timeoutMs ?? 180000);
+  const timeoutMs = getEffectiveStudioTimeoutMs(configuredTimeoutMs);
   const workerScriptPath = path.join(PATHS.root, 'scripts', 'studio-worker.mjs');
 
   if (!fs.existsSync(chromePath)) throw asError(`Chrome executable was not found: ${chromePath}`, 'E_CHROME_MISSING');
@@ -54,6 +58,7 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
     display,
     chromePath,
     previewWaitSec,
+    configuredTimeoutMs,
     timeoutMs,
   });
 

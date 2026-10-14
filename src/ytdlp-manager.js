@@ -30,6 +30,60 @@ const VM_CHROME_USER_DATA_DIRS = [
 
 let _currentJob = null;
 
+const DOWNLOAD_ACTIVE_STAGES = new Set([
+  'fetching_info',
+  'downloading',
+  'merging',
+  'probing',
+  'optimizing_keyframes',
+  'stripping_metadata',
+  'registering',
+  'converting',
+]);
+
+export function isDownloadJobActive(stage) {
+  return DOWNLOAD_ACTIVE_STAGES.has(stage);
+}
+
+export function getYtDlpAttemptArgs(isTransportRetry = false) {
+  if (!isTransportRetry) return ['--concurrent-fragments', '4'];
+  return [
+    '--concurrent-fragments', '2',
+    '--retries', '12',
+    '--fragment-retries', '12',
+    '--file-access-retries', '5',
+    '--retry-sleep', 'http:exp=1:8',
+    '--retry-sleep', 'fragment:exp=1:8',
+    '--retry-sleep', 'file_access:exp=1:8',
+  ];
+}
+
+export function shouldRetryYtDlpTransportFailure(message, retryCount = 0) {
+  if (retryCount !== 0 || typeof message !== 'string') return false;
+  return /HTTP Error 5\d\d|(?:incomplete|partial|connection reset|connection aborted|remote disconnected|timed? ?out|temporary failure|name or service not known|bytes read\. giving up after \d+ retries)|(?:Frag\d+|fragment).*(?:no such file|not found|missing)|(?:no such file|not found|missing).*(?:Frag\d+|fragment)/i.test(message);
+}
+
+async function cleanupYtDlpAttemptFiles(outputPath) {
+  await fs.unlink(outputPath).catch(() => {});
+  const directory = path.dirname(outputPath);
+  const fragmentPrefix = `${path.basename(outputPath)}-Frag`;
+  let entries = [];
+  try { entries = await fs.readdir(directory, { withFileTypes: true }); } catch { return; }
+  await Promise.all(entries
+    .filter(entry => entry.isFile() && entry.name.startsWith(fragmentPrefix))
+    .map(entry => fs.unlink(path.join(directory, entry.name)).catch(() => {})));
+}
+
+async function cleanupJobTemporaryFiles(job) {
+  for (const filePath of job?.tempFiles || []) {
+    if (typeof filePath === 'string' && filePath.toLowerCase().endsWith('.mp4')) {
+      await cleanupYtDlpAttemptFiles(filePath);
+    } else if (typeof filePath === 'string') {
+      await fs.unlink(filePath).catch(() => {});
+    }
+  }
+}
+
 /**
  * Generate environment for yt-dlp child processes.
  * Overrides restrictive NODE_OPTIONS (e.g. server's --max-old-space-size=128)
@@ -370,7 +424,7 @@ export function getDownloadStatus() {
   }
 
   return {
-    active: ['fetching_info', 'downloading', 'merging', 'registering'].includes(_currentJob.stage),
+    active: isDownloadJobActive(_currentJob.stage),
     jobId: _currentJob.id,
     url: _currentJob.url,
     stage: _currentJob.stage,
@@ -396,7 +450,7 @@ export function getDownloadStatus() {
  * @returns {boolean} True if a job was cancelled
  */
 export async function cancelDownload() {
-  if (!_currentJob || !['fetching_info', 'downloading', 'merging', 'registering', 'converting'].includes(_currentJob.stage)) {
+  if (!_currentJob || !isDownloadJobActive(_currentJob.stage)) {
     return false;
   }
 
@@ -411,10 +465,8 @@ export async function cancelDownload() {
     _currentJob.proc = null;
   }
 
-  // Cleanup temp files
-  for (const f of _currentJob.tempFiles || []) {
-    try { await fs.unlink(f); } catch { /* ignore */ }
-  }
+  // Cleanup this job's output and any fragments it left behind.
+  await cleanupJobTemporaryFiles(_currentJob);
 
   return true;
 }
@@ -689,7 +741,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
     }
   }
 
-  if (_currentJob && ['fetching_info', 'downloading', 'merging', 'converting'].includes(_currentJob.stage)) {
+  if (_currentJob && isDownloadJobActive(_currentJob.stage)) {
     throw Object.assign(new Error('A video download/conversion job is already in progress. Please wait for it to finish or cancel it.'), {
       code: 'E_JOB_RUNNING',
     });
@@ -733,9 +785,10 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
   };
 
   // Run async pipeline in background
-  _executePipeline(jobId, url, autoSetActive, quality || '1080p').catch((err) => {
+  _executePipeline(jobId, url, autoSetActive, quality || '1080p').catch(async (err) => {
     logger.error('ytdlp.pipeline_error', `Pipeline failed for job ${jobId}: ${err.message}`, { error: err.message });
     if (_currentJob && _currentJob.id === jobId && _currentJob.stage !== 'cancelled') {
+      await cleanupJobTemporaryFiles(_currentJob);
       _currentJob.stage = 'error';
       _currentJob.error = err.message || 'Download/conversion failed';
       _currentJob.completedAt = new Date().toISOString();
@@ -835,6 +888,7 @@ async function _executePipeline(jobId, url, autoSetActive, quality = '1080p') {
   if (_currentJob.stage === 'cancelled') return;
 
   // ─── 3. Register Video Directly into Library (Stream-Ready) ──────────────
+  _currentJob.stage = 'registering';
   logger.info('ytdlp.register_video', `Registering native ${mode} video (${width}x${height}) into library`);
   const safeTitle = (_currentJob.videoTitle || 'YouTube_Video')
     .replace(/[/\\?%*:|"<>]/g, '_')
@@ -1021,7 +1075,13 @@ export function parseYtDlpProgressLine(line, job) {
  * Download raw video stream using yt-dlp with real-time title & progress parsing.
  * Single-pass: prints title before download and streams format simultaneously.
  */
-async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExtractorArgs = null, extraFormat = null, extraSort = null, quality = '1080p' } = {}) {
+async function _downloadVideo(url, outputPath, jobId, retryCount = 0, {
+  extraExtractorArgs = null,
+  extraFormat = null,
+  extraSort = null,
+  quality = '1080p',
+  transportRetryCount = 0,
+} = {}) {
   const baseArgs = await _buildYtDlpBaseArgs();
   const qualityCfg = getYtDlpFormatAndSort(quality);
 
@@ -1059,7 +1119,7 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       // Re-encode non-aac audio to aac during yt-dlp merge to fix opus popping in mp4 container
       '--postprocessor-args', 'ffmpeg:-c:a aac -b:a 192k -ar 48000',
       '--no-part',                   // No .part temp files — cleaner on failure/cancel
-      '--concurrent-fragments', '4', // Parallel chunk downloads — 2-4x faster on VPS
+      ...getYtDlpAttemptArgs(transportRetryCount > 0),
       '-o', outputPath,
       url,
     ];
@@ -1126,19 +1186,48 @@ async function _downloadVideo(url, outputPath, jobId, retryCount = 0, { extraExt
       if (retryCount === 0 && isFormatOrChallengeError) {
         logger.warn('ytdlp.retry_challenge', `yt-dlp encountered YouTube restriction: "${cleanErr}". Retrying with flexible format selector and fallback player client...`);
         try {
-          if (fsSync.existsSync(outputPath)) {
-            await fs.unlink(outputPath).catch(() => {});
-          }
+          await cleanupYtDlpAttemptFiles(outputPath);
           await syncChromeCookies().catch(() => {});
           await _downloadVideo(url, outputPath, jobId, retryCount + 1, {
             extraExtractorArgs: 'youtube:player_client=mweb,web_safari,web_embedded,-tv_downgraded',
             extraFormat: qualityCfg.format,
             extraSort: qualityCfg.sort,
             quality,
+            transportRetryCount,
           });
           return resolve();
         } catch (retryErr) {
           return reject(retryErr);
+        }
+      }
+
+      if (shouldRetryYtDlpTransportFailure(cleanErr || stderr, transportRetryCount)) {
+        const briefError = (cleanErr || stderr).slice(0, 700);
+        logger.warn('ytdlp.retry_transport', `Transient yt-dlp transfer failure; cleaning this job's partial files and retrying once with reduced fragment concurrency: ${briefError}`, {
+          jobId,
+          attempt: transportRetryCount + 2,
+          concurrentFragments: 2,
+        });
+        try {
+          await cleanupYtDlpAttemptFiles(outputPath);
+          if (_currentJob && _currentJob.id === jobId) {
+            _currentJob.stage = 'downloading';
+            _currentJob.percent = 0;
+            _currentJob.speed = '';
+            _currentJob.eta = '';
+            _currentJob.downloaded = '';
+            _currentJob.totalSize = '';
+          }
+          await _downloadVideo(url, outputPath, jobId, retryCount, {
+            extraExtractorArgs,
+            extraFormat,
+            extraSort,
+            quality,
+            transportRetryCount: transportRetryCount + 1,
+          });
+          return resolve();
+        } catch (retryErr) {
+          return reject(new Error(`yt-dlp transport retry failed after the initial transfer error (${briefError}): ${retryErr.message}`));
         }
       }
 

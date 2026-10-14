@@ -42,7 +42,7 @@ import { sendLiveFailureEmail, sendLiveStartedEmail } from './email-alerts.js';
 import { sendLiveFailureTelegram, sendLiveStartedTelegram } from './telegram-alerts.js';
 import { isInsideWindow } from './scheduler.js';
 import { prepareYouTubeStudioStream } from './youtube-studio-automator.js';
-import { generateSeoYouTubeTitle, getHumanVideoFilename } from './gemini-title-generator.js';
+import { generateSeoYouTubeTitle, getHumanVideoFilename, resolveStudioTitle } from './gemini-title-generator.js';
 import PATHS from './lib/paths.js';
 
 export const streamEvents = new EventEmitter();
@@ -962,11 +962,18 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           const generatedTitle = sourceFilename
             ? await generateSeoYouTubeTitle(sourceFilename)
             : null;
+          const studioTitle = resolveStudioTitle(generatedTitle, sourceFilename);
           if (generatedTitle) {
             logger.info('studio.title_generated', 'Generated the Studio title from the actual playlist #1 video name', {
               videoId: initialPrimary.id,
               sourceFilename,
               title: generatedTitle,
+            });
+          } else if (sourceFilename) {
+            logger.warn('studio.title_filename_fallback', 'Gemini title generation did not return a title; using the actual playlist #1 filename', {
+              videoId: initialPrimary.id,
+              sourceFilename,
+              title: studioTitle,
             });
           } else if (!sourceFilename) {
             logger.warn('studio.title_generation_unavailable', 'Playlist #1 has no human-readable filename; retaining the configured Studio title', {
@@ -977,7 +984,7 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
           const startupTimeoutMs = ((settings.stream?.startupTimeoutSeconds ?? 30) * 1000) + 5000;
           const verifiedLaunch = await prepareYouTubeStudioStream({
             settings,
-            baseTitleOverride: generatedTitle,
+            baseTitleOverride: studioTitle,
             onReadyToStream: async () => {
               const result = await doLaunch();
               if (!result?.started) {
