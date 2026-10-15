@@ -373,19 +373,33 @@ async function inspectMetadataEditor(page) {
 
 async function closeTitleEditor(page) {
   await page.keyboard.press('Escape');
-  const isControlRoomReady = async () => page.evaluate(() => {
-    const visible = el => {
-      const rect = el.getBoundingClientRect();
-      const style = window.getComputedStyle(el);
-      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
-    };
-    return Array.from(document.querySelectorAll('ytcp-stream-metadata-editor, #edit-button'))
-      .some(visible);
-  });
-  let closed = await waitFor(async () =>
-    (await readTitleField(page)) === null && await isControlRoomReady(), 2500, 200);
+  const inspectCloseState = async () => {
+    const pageState = await page.evaluate(() => {
+      const visible = el => {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+      };
+      const visibleEditors = Array.from(document.querySelectorAll('ytcp-video-metadata-editor, ytcp-live-metadata-editor'))
+        .filter(visible)
+        .map(el => ({ tag: el.tagName, id: el.id || '' }));
+      const url = new URL(window.location.href);
+      return {
+        url: url.href,
+        controlRoomRoute: url.hostname === 'studio.youtube.com' && /\/livestream/i.test(url.pathname),
+        documentReady: document.readyState !== 'loading',
+        visibleEditors,
+      };
+    });
+    return { ...pageState, titleFieldOpen: (await readTitleField(page)) !== null };
+  };
+  const isClosed = async () => {
+    const state = await inspectCloseState();
+    return state.controlRoomRoute && state.documentReady && !state.titleFieldOpen && state.visibleEditors.length === 0;
+  };
+  let closed = await waitFor(isClosed, 2500, 200);
   if (closed) {
-    log('editor_close_verified', 'Title textbox closed after Escape');
+    log('editor_close_verified', 'Title editor closed; Studio control-room route is ready', await inspectCloseState());
     return;
   }
 
@@ -395,13 +409,11 @@ async function closeTitleEditor(page) {
   log('editor_close_reload', 'Escape did not close Studio editor; reloading verified control room');
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
   await sleep(1500);
-  closed = await waitFor(async () =>
-    (await readTitleField(page)) === null && await isControlRoomReady(), 15000, 300);
+  closed = await waitFor(isClosed, 15000, 300);
   if (!closed) {
-    const remaining = await inspectMetadataEditor(page);
-    throw new Error(`FATAL: Studio title editor remained open after control-room reload: ${JSON.stringify(remaining)}`);
+    throw new Error(`FATAL: Could not verify the title editor closed after control-room reload: ${JSON.stringify(await inspectCloseState())}`);
   }
-  log('editor_close_verified', 'Verified Studio metadata editor closed after control-room reload');
+  log('editor_close_verified', 'Verified Studio metadata editor closed after control-room reload', await inspectCloseState());
 }
 
 async function readStudioBroadcastStatus(page) {
