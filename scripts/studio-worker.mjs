@@ -177,6 +177,46 @@ async function findStudioLiveAction(page, createOnly = false) {
   }, createOnly);
 }
 
+/** Find Studio's explicit skip link when its browser compatibility notice appears. */
+async function findSkipToStudioAction(page) {
+  return page.evaluate(() => {
+    const visible = el => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' &&
+        style.visibility !== 'hidden' && style.opacity !== '0';
+    };
+    const normalize = value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const selector = 'a, button, [role="button"], [aria-label], [title], ytcp-button';
+    const candidates = [];
+    const visited = new Set();
+    const visit = root => {
+      if (!root || visited.has(root)) return;
+      visited.add(root);
+      for (const el of root.querySelectorAll(selector)) candidates.push(el);
+      for (const host of root.querySelectorAll('*')) {
+        if (host.shadowRoot) visit(host.shadowRoot);
+      }
+    };
+    visit(document);
+    for (const el of candidates) {
+      if (!visible(el)) continue;
+      const labels = [el.innerText, el.textContent, el.getAttribute('aria-label'), el.getAttribute('title')]
+        .map(normalize);
+      if (!labels.includes('skip to youtube studio')) continue;
+      const rect = el.getBoundingClientRect();
+      return {
+        text: 'skip to youtube studio',
+        href: el.getAttribute('href') || '',
+        tag: el.tagName,
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      };
+    }
+    return null;
+  });
+}
+
 /** Start at Studio home and follow its own Live action to the current control room. */
 async function navigateToLiveControlRoom(browser, page) {
   const homeUrl = 'https://studio.youtube.com/';
@@ -198,6 +238,13 @@ async function navigateToLiveControlRoom(browser, page) {
   }
   if (new URL(homeInfo.url).hostname !== 'studio.youtube.com') {
     throw new Error(`FATAL: Studio home redirected away from YouTube Studio: ${homeInfo.url}`);
+  }
+
+  const skipToStudio = await findSkipToStudioAction(page);
+  if (skipToStudio) {
+    log('step4_browser_notice', 'Studio displayed its explicit Skip to YouTube Studio action; selecting it before locating Live', skipToStudio);
+    await page.mouse.click(skipToStudio.x, skipToStudio.y);
+    await sleep(1000);
   }
 
   let action = null;
