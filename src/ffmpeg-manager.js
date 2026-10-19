@@ -217,10 +217,10 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const videoPath = videoMeta?.filePath || videoMeta?.path || '';
 
   // Live feeder bandwidth behavior:
-  // - With the app cap disabled, compatible video is copied unless its GOP exceeds 4 seconds.
-  // - With a cap enabled, copy only when the source average bitrate is within the cap;
-  //   otherwise live-encode under the lower of source bitrate and app target.
-  // - Incompatible codecs/pixel formats continue through the configured transcode path.
+  // - With the app cap disabled, compatible video stays in stream-copy mode.
+  // - With a cap enabled, copy when the source is within the cap; otherwise live-encode
+  //   under the lower of source bitrate and app target.
+  // - Incompatible codecs/pixel formats and explicit transcode preference still transcode.
   const targetMbps = Number(streamCfg.videoBitrateMbps);
   const isCapActive = !isNaN(targetMbps) && targetMbps > 0;
   const sourceBitrate = Number(videoMeta?.probe?.videoBitrate || videoMeta?.videoBitrate || 0);
@@ -232,9 +232,6 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   const isH264 = !videoCodec || videoCodec === 'h264';
   const pixFmt = videoMeta?.probe?.pixFmt;
   const isStandardPixel = !pixFmt || pixFmt === 'yuv420p';
-  const maxKeyframe = videoMeta?.probe?.maxKeyframeIntervalSec;
-  const hasLongKeyframeInterval = maxKeyframe !== null && maxKeyframe !== undefined &&
-    Number.isFinite(Number(maxKeyframe)) && Number(maxKeyframe) > 4;
   const isCompatibleCodec = isH264 && isStandardPixel;
   const exceedsAppBitrateLimit = isCapActive && (sourceMbps <= 0 || sourceMbps > targetMbps);
 
@@ -242,9 +239,8 @@ export function buildFeederArgs(settings, videoMeta, mode = 'copy') {
   if (effectiveMode !== 'transcode') {
     if (!isCompatibleCodec && streamCfg.allowTranscode !== false) {
       effectiveMode = 'transcode';
-    } else if ((hasLongKeyframeInterval || exceedsAppBitrateLimit) && streamCfg.allowTranscode !== false) {
-      // Keep this as a live-only, no-resize encode. It repairs long GOPs and applies
-      // the app bitrate ceiling without letting high-bitrate sources bypass it.
+    } else if (exceedsAppBitrateLimit && streamCfg.allowTranscode !== false) {
+      // Keep this as a live-only, no-resize encode for sources that exceed an active cap.
       effectiveMode = 'gop';
     } else {
       effectiveMode = mode === 'hybrid' ? 'hybrid' : 'copy';
@@ -884,8 +880,9 @@ export async function spawnFfmpeg({
       if (!effectiveBitrate && _measuredBitrate > 0) {
         effectiveBitrate = `${_measuredBitrate}kbits/s`;
       }
-      if (!effectiveBitrate && becameHealthy) {
-        effectiveBitrate = `${Math.round((settings.stream?.videoBitrateMbps || 4.0) * 1000)}kbits/s`;
+      const fallbackBitrateKbps = Math.round((settings.stream?.videoBitrateMbps ?? 4.0) * 1000);
+      if (!effectiveBitrate && becameHealthy && fallbackBitrateKbps > 0) {
+        effectiveBitrate = `${fallbackBitrateKbps}kbits/s`;
       }
 
       // In copy mode, FFmpeg video encoder is not active so fps=0; fallback to target stream fps
@@ -924,7 +921,7 @@ export async function spawnFfmpeg({
         outputKbps = _measuredBitrate;
       }
       if (!outputKbps && becameHealthy) {
-        outputKbps = Math.round((settings.stream?.videoBitrateMbps || 4.0) * 1000);
+        outputKbps = fallbackBitrateKbps;
       }
       const outputMbps = Number((outputKbps / 1000).toFixed(2));
       const outputKBps = Math.round(outputKbps / 8);
@@ -932,7 +929,7 @@ export async function spawnFfmpeg({
       const progressData = {
         frame,
         fps: effectiveFps,
-        bitrate: effectiveBitrate || (becameHealthy ? '4000kbits/s' : '0kbits/s'),
+        bitrate: effectiveBitrate || (becameHealthy && fallbackBitrateKbps > 0 ? `${fallbackBitrateKbps}kbits/s` : '0kbits/s'),
         total_size: totalSize,
         outputBytes: totalSize,
         outputKbps,

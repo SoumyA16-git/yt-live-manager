@@ -448,7 +448,7 @@ function renderStatus(data) {
       ? p.speedStr
       : '1.00x';
     const bStr = (p && p.bitrate && p.bitrate !== 'N/A' && p.bitrate !== '0kbits/s') ? p.bitrate : '';
-    metricBitrate.textContent = bStr || `${Math.round((_currentSettings?.stream?.videoBitrateMbps || 4) * 1000)} kb/s`;
+    metricBitrate.textContent = bStr || `${Math.round((_currentSettings?.stream?.videoBitrateMbps ?? 4) * 1000)} kb/s`;
   } else {
     metricFps.textContent = 0;
     metricSpeed.textContent = '0.00x';
@@ -504,7 +504,7 @@ function renderBandwidthSpeedMeter(data) {
         }
       }
       if (!currentKbps || currentKbps <= 0) {
-        currentKbps = Math.round((_currentSettings?.stream?.videoBitrateMbps || 4.0) * 1000);
+        currentKbps = Math.round((_currentSettings?.stream?.videoBitrateMbps ?? 4.0) * 1000);
       }
       currentMbps = currentKbps / 1000;
       currentKBps = Math.round(currentKbps / 8);
@@ -556,7 +556,7 @@ function renderBandwidthSpeedMeter(data) {
 
   if (speedValTarget) {
     if (!isNaN(targetMbps) && targetMbps === 0) {
-      speedValTarget.textContent = '0.00 Mbps (No Cap / Zero CPU)';
+      speedValTarget.textContent = '0.00 Mbps (No cap; copy if compatible)';
     } else {
       speedValTarget.textContent = `${Number(!isNaN(targetMbps) ? targetMbps : 4.0).toFixed(2)} Mbps`;
     }
@@ -2004,7 +2004,7 @@ async function openSettings() {
     if (cfgAllowTranscode) {
       cfgAllowTranscode.checked = settings.stream?.allowTranscode !== false;
     }
-    cfgBitrate.value = settings.stream?.videoBitrateMbps || 4;
+    cfgBitrate.value = settings.stream?.videoBitrateMbps ?? 4;
     cfgSafetyLimit.value = settings.bandwidth?.safetyLimitTB || 9;
     cfgOverhead.value = settings.bandwidth?.overheadPercent || 10;
 
@@ -2016,7 +2016,8 @@ async function openSettings() {
 }
 
 function updateLiveBitratePreview() {
-  const videoMbps = parseFloat(cfgBitrate.value) || 4;
+  const parsedVideoMbps = parseFloat(cfgBitrate.value);
+  const videoMbps = Number.isFinite(parsedVideoMbps) ? parsedVideoMbps : 4;
   const overhead = parseFloat(cfgOverhead.value) || 10;
 
   const m = calculateBitrateMetrics({
