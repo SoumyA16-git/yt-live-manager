@@ -1020,22 +1020,13 @@ async function run() {
       '--no-default-browser-check',
       '--window-size=1920,1080',
     ];
-    let displayAvailable = true;
     try {
       execFileSync('xdpyinfo', ['-display', display], { stdio: 'ignore', timeout: 2000 });
-    } catch {
-      displayAvailable = false;
-      chromeArgs.push('--headless=new');
+    } catch (err) {
+      throw new Error(`Configured X display ${display} is unavailable; refusing to launch Studio Chrome without the desktop UI: ${err.message}`);
     }
-    const chromeEnv = { ...process.env };
-    if (displayAvailable) {
-      chromeEnv.DISPLAY = display;
-      log('step2_display_ready', 'Configured X display is reachable; launching Chrome in UI mode', { display });
-    } else {
-      delete chromeEnv.DISPLAY;
-      delete chromeEnv.WAYLAND_DISPLAY;
-      log('step2_headless_fallback', 'Configured X display is unavailable; launching Chrome in headless mode', { display });
-    }
+    const chromeEnv = { ...process.env, DISPLAY: display };
+    log('step2_display_ready', 'Configured X display is reachable; launching Chrome in visible desktop mode', { display });
     chromeProcess = spawn(chromePath, chromeArgs, {
       env: chromeEnv,
       stdio: ['ignore', 'ignore', 'pipe'],
