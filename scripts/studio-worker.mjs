@@ -973,10 +973,30 @@ async function run() {
       '--no-default-browser-check',
       '--window-size=1920,1080',
     ];
+    let displayAvailable = true;
+    try {
+      execFileSync('xdpyinfo', ['-display', display], { stdio: 'ignore', timeout: 2000 });
+    } catch {
+      displayAvailable = false;
+      chromeArgs.push('--headless=new');
+    }
+    const chromeEnv = { ...process.env };
+    if (displayAvailable) {
+      chromeEnv.DISPLAY = display;
+      log('step2_display_ready', 'Configured X display is reachable; launching Chrome in UI mode', { display });
+    } else {
+      delete chromeEnv.DISPLAY;
+      delete chromeEnv.WAYLAND_DISPLAY;
+      log('step2_headless_fallback', 'Configured X display is unavailable; launching Chrome in headless mode', { display });
+    }
     chromeProcess = spawn(chromePath, chromeArgs, {
-      env: { ...process.env, DISPLAY: display },
-      stdio: 'ignore',
+      env: chromeEnv,
+      stdio: ['ignore', 'ignore', 'pipe'],
       detached: false,
+    });
+    let chromeStderr = '';
+    chromeProcess.stderr.on('data', chunk => {
+      chromeStderr = `${chromeStderr}${chunk.toString('utf8')}`.slice(-8000);
     });
     let chromeLaunchError = null;
     chromeProcess.once('error', err => { chromeLaunchError = err; });
@@ -985,7 +1005,8 @@ async function run() {
     const portReady = await waitFor(async () => {
       if (chromeLaunchError) throw new Error(`Chrome failed to launch: ${chromeLaunchError.message}`);
       if (chromeProcess.exitCode !== null || chromeProcess.signalCode !== null) {
-        throw new Error(`Chrome exited before its debug endpoint was ready (code=${chromeProcess.exitCode}, signal=${chromeProcess.signalCode})`);
+        const diagnostic = chromeStderr.trim().slice(-3000) || 'Chrome produced no stderr output';
+        throw new Error(`Chrome exited before its debug endpoint was ready (code=${chromeProcess.exitCode}, signal=${chromeProcess.signalCode}); stderr: ${diagnostic}`);
       }
       try {
         const res = await fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(1500) });
