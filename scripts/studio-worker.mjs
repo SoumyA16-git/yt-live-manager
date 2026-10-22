@@ -803,6 +803,174 @@ async function typeTitle(page, newTitle) {
   throw new Error(`FATAL: Could not type correct title after 5 attempts — last attempt did not match`);
 }
 
+function normalizeDescriptionText(value) {
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/** Read only a visible field positively identified as the description field. */
+async function inspectDescriptionField(page) {
+  return page.evaluate(() => {
+    const visible = el => {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden';
+    };
+    const editors = Array.from(document.querySelectorAll('ytcp-video-metadata-editor, ytcp-live-metadata-editor')).filter(visible);
+    const selector = 'textarea, [role="textbox"], [contenteditable="true"], #textbox';
+
+    for (const editor of editors) {
+      const fields = [];
+      const visited = new Set();
+      const visit = root => {
+        if (!root || visited.has(root)) return;
+        visited.add(root);
+        for (const field of root.querySelectorAll(selector)) fields.push(field);
+        for (const host of root.querySelectorAll('*')) {
+          if (host.shadowRoot) visit(host.shadowRoot);
+        }
+      };
+      visit(editor);
+
+      for (const field of fields) {
+        if (!visible(field)) continue;
+        const fieldHints = [
+          'aria-label', 'aria-labelledby', 'placeholder', 'name', 'id', 'title'
+        ].map(name => field.getAttribute(name) || '').join(' ').toLowerCase();
+        if (fieldHints.includes('title')) continue;
+
+        const owner = field.closest('[id*="description" i], ytcp-form-input-container, ytcp-textarea, ytcp-mention-textbox');
+        const labelledBy = (field.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+          .map(id => {
+            const root = field.getRootNode();
+            const label = root.getElementById?.(id) || document.getElementById(id);
+            return label?.innerText || label?.textContent || '';
+          }).join(' ');
+        const hints = [
+          fieldHints,
+          labelledBy,
+          owner?.id || '',
+          owner?.getAttribute('aria-label') || '',
+          owner?.innerText || '',
+        ].join(' ').toLowerCase();
+        if (!hints.includes('description')) continue;
+
+        const rect = field.getBoundingClientRect();
+        const value = ('value' in field) ? field.value : (field.innerText || field.textContent || '');
+        return {
+          value: String(value || ''),
+          x: Math.round(rect.left + rect.width / 2),
+          y: Math.round(rect.top + rect.height / 2),
+          tag: field.tagName,
+          id: field.id || '',
+        };
+      }
+    }
+    return null;
+  });
+}
+
+async function readDescriptionField(page) {
+  const field = await inspectDescriptionField(page);
+  return field ? field.value.trim() : null;
+}
+
+/** Fill Studio's description field and verify the text before saving. */
+async function typeDescription(page, description) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const field = await inspectDescriptionField(page);
+    if (!field) throw new Error('Studio description textbox was not recognized');
+
+    await page.mouse.click(field.x, field.y);
+    await sleep(200);
+    await page.keyboard.down('Control');
+    await page.keyboard.press('KeyA');
+    await page.keyboard.up('Control');
+    await page.keyboard.press('Backspace');
+    if (typeof page.keyboard.insertText === 'function') {
+      await page.keyboard.insertText(description);
+    } else {
+      await page.keyboard.type(description, { delay: 0 });
+    }
+    await sleep(500);
+
+    const actual = await readDescriptionField(page);
+    if (normalizeDescriptionText(actual) === normalizeDescriptionText(description)) {
+      log('description_field_verified', 'Studio description field contains the generated description', {
+        charCount: Array.from(actual).length,
+      });
+      return;
+    }
+    log('description_field_mismatch', `Description textbox did not match on attempt ${attempt}`, {
+      expectedChars: Array.from(description).length,
+      actualChars: Array.from(actual || '').length,
+      field: { tag: field.tag, id: field.id },
+    });
+    await sleep(500);
+  }
+  throw new Error('Could not enter the complete generated description after 3 attempts');
+}
+
+/**
+ * Set the description 15 seconds after the title has been saved and verified.
+ * This metadata update is best-effort: a description UI failure must not stop
+ * a stream whose title and startup gates are otherwise healthy.
+ */
+async function setDescriptionAfterTitle(page, description) {
+  if (typeof description !== 'string' || !description.trim()) return;
+
+  log('description_delay_start', 'Waiting 15 seconds after title verification before updating the Studio description');
+  await sleep(15_000);
+
+  let expectedTitle = null;
+  try {
+    await openEditModal(page);
+    expectedTitle = await readTitleField(page);
+    if (expectedTitle === null) throw new Error('Could not read the verified title before editing the description');
+    if (await readDescriptionField(page) === null) throw new Error('Studio description textbox was not recognized');
+
+    await typeDescription(page, description);
+    const titleAfterTyping = await readTitleField(page);
+    if (titleAfterTyping !== expectedTitle) {
+      throw new Error('Title field changed while entering the description; discarding the unsaved metadata edit');
+    }
+
+    await page.evaluate(() => { if (document.activeElement?.blur) document.activeElement.blur(); });
+    await sleep(300);
+    await saveAndVerify(page);
+
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+    await sleep(2500);
+    await openEditModal(page);
+    const persistedTitle = await readTitleField(page);
+    const persistedDescription = await readDescriptionField(page);
+    if (persistedTitle !== expectedTitle) throw new Error('Title changed while saving the Studio description');
+    if (normalizeDescriptionText(persistedDescription) !== normalizeDescriptionText(description)) {
+      throw new Error('Generated Studio description did not persist after reload');
+    }
+    log('description_saved_verified', 'Generated Studio description persisted and the title remained unchanged', {
+      charCount: Array.from(persistedDescription).length,
+    });
+    await closeTitleEditor(page);
+  } catch (err) {
+    log('description_update_failed', 'Description update failed; continuing without blocking stream startup', {
+      error: err?.message || String(err),
+    });
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
+      await sleep(1500);
+    } catch (cleanupErr) {
+      log('description_cleanup_failed', 'Could not reload Studio after the best-effort description update', {
+        error: cleanupErr?.message || String(cleanupErr),
+      });
+    }
+  }
+}
+
 /** STEP 10: Click Save and verify modal closes. Throws if save fails. */
 async function saveAndVerify(page) {
   log('save_start', 'Clicking Save button');
@@ -931,6 +1099,7 @@ async function verifyPersistedTitle(page, expectedTitle, timeZone, configuredBas
 
 async function run() {
   const configBaseTitle = process.env.STUDIO_BASE_TITLE || '';
+  const studioDescription = process.env.STUDIO_DESCRIPTION || '';
   const timeZone        = process.env.STUDIO_TIMEZONE || 'Asia/Kolkata';
   const chromePath      = process.env.CHROME_BIN || '/usr/bin/google-chrome';
   const primaryDir      = process.env.CHROME_USER_DATA_DIR || '/home/ubuntu/.config/google-chrome';
@@ -1177,6 +1346,12 @@ async function run() {
       });
       return;
     }
+
+    // -----------------------------------------------------------------------
+    // STEP 11A: After the title has been persisted, wait 15 seconds and
+    // best-effort save a filename-based description without changing the title.
+    // -----------------------------------------------------------------------
+    await setDescriptionAfterTitle(page, studioDescription);
 
     // -----------------------------------------------------------------------
     // STEP 12: Signal stream-manager, then wait for its verified RTMPS health ack

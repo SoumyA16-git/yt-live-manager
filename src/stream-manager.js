@@ -42,7 +42,12 @@ import { sendLiveFailureEmail, sendLiveStartedEmail } from './email-alerts.js';
 import { sendLiveFailureTelegram, sendLiveStartedTelegram } from './telegram-alerts.js';
 import { isInsideWindow } from './scheduler.js';
 import { prepareYouTubeStudioStream } from './youtube-studio-automator.js';
-import { generateSeoYouTubeTitle, getHumanVideoFilename, resolveStudioTitle } from './gemini-title-generator.js';
+import {
+  generateSeoYouTubeDescription,
+  generateSeoYouTubeTitle,
+  getHumanVideoFilename,
+  resolveStudioTitle,
+} from './gemini-title-generator.js';
 import PATHS from './lib/paths.js';
 
 export const streamEvents = new EventEmitter();
@@ -959,9 +964,12 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         logger.info('stream.studio_auto_invoked', `Starting strict YouTube Studio gates (reason: ${reason})`);
         try {
           const sourceFilename = getHumanVideoFilename(initialPrimary);
-          const generatedTitle = sourceFilename
-            ? await generateSeoYouTubeTitle(sourceFilename)
-            : null;
+          const [generatedTitle, generatedDescription] = sourceFilename
+            ? await Promise.all([
+                generateSeoYouTubeTitle(sourceFilename),
+                generateSeoYouTubeDescription(sourceFilename),
+              ])
+            : [null, null];
           const studioTitle = resolveStudioTitle(generatedTitle, sourceFilename);
           if (generatedTitle) {
             logger.info('studio.title_generated', 'Generated the Studio title from the actual playlist #1 video name', {
@@ -980,11 +988,25 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
               videoId: initialPrimary.id,
             });
           }
+          if (generatedDescription) {
+            logger.info('studio.description_generated', 'Generated a Studio description and relevant hashtags from the actual playlist #1 video name', {
+              videoId: initialPrimary.id,
+              sourceFilename,
+              charCount: Array.from(generatedDescription).length,
+              hashtagCount: [...generatedDescription.matchAll(/#[\p{L}\p{N}_]+/gu)].length,
+            });
+          } else if (sourceFilename) {
+            logger.warn('studio.description_generation_unavailable', 'Gemini did not return a valid description; the existing Studio description will be left unchanged', {
+              videoId: initialPrimary.id,
+              sourceFilename,
+            });
+          }
 
           const startupTimeoutMs = ((settings.stream?.startupTimeoutSeconds ?? 30) * 1000) + 5000;
           const verifiedLaunch = await prepareYouTubeStudioStream({
             settings,
             baseTitleOverride: studioTitle,
+            descriptionOverride: generatedDescription,
             onReadyToStream: async () => {
               const result = await doLaunch();
               if (!result?.started) {

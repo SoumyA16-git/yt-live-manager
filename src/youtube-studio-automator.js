@@ -19,10 +19,12 @@ function asError(message, code = 'E_STUDIO_AUTOMATION') {
 export function getEffectiveStudioTimeoutMs(configuredTimeoutMs) {
   const configured = Number(configuredTimeoutMs);
   if (!Number.isFinite(configured) || configured <= 0) return null;
-  return Math.max(configured, 240_000);
+  // Include the title verification, delayed description save, and strict
+  // Studio preview/LIVE gates without changing the persisted user setting.
+  return Math.max(configured, 300_000);
 }
 
-export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, onReadyToStream }) {
+export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, descriptionOverride, onReadyToStream }) {
   const autoCfg = settings.studioAutomation || {};
   if (autoCfg.enabled === false) {
     throw asError('Studio automation was called while disabled; direct-start is not an automation fallback');
@@ -76,6 +78,7 @@ export async function prepareYouTubeStudioStream({ settings, baseTitleOverride, 
     const workerEnv = {
       ...process.env,
       STUDIO_BASE_TITLE: baseTitle,
+      STUDIO_DESCRIPTION: typeof descriptionOverride === 'string' ? descriptionOverride : '',
       STUDIO_TIMEZONE: timeZone,
       STUDIO_PREVIEW_WAIT_SEC: String(previewWaitSec),
       STUDIO_TIMEOUT_MS: String(timeoutMs),
