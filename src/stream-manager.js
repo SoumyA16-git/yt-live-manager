@@ -964,6 +964,13 @@ export async function startStream({ reason = 'manual_start', clearMaintenance = 
         logger.info('stream.studio_auto_invoked', `Starting strict YouTube Studio gates (reason: ${reason})`);
         try {
           const sourceFilename = getHumanVideoFilename(initialPrimary);
+          logger.info('studio.source_video_selected', 'Resolved the Studio metadata source from the video actually fed first to the stream', {
+            videoId: initialPrimary.id,
+            sourceFilename,
+            originalName: initialPrimary.originalName || null,
+            label: initialPrimary.label || null,
+            storageFilename: initialPrimary.filename || null,
+          });
           const [generatedTitle, generatedDescription] = sourceFilename
             ? await Promise.all([
                 generateSeoYouTubeTitle(sourceFilename),

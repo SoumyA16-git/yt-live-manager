@@ -15,17 +15,17 @@ const VIDEO_EXTENSION_RE = /\.(?:mp4|mkv|mov|m4v|webm|avi|flv|ts|mpeg|mpg|3gp)$/
 const SERVER_ID_RE = /^(?:vid_[0-9a-f]{8}|video[ _-]?[0-9a-f]{8})$/i;
 
 /**
- * Return a human title/name from catalog metadata, never a generated storage
- * ID. The ordering mirrors the dashboard's display-name preference.
+ * Return the selected video's imported filename/name, never a stale derived
+ * title or generated storage ID.
  */
 export function getHumanVideoFilename(video) {
   const videoId = String(video?.id || '').trim();
   const candidates = [
+    video?.originalName,
+    video?.label,
     video?.sourceTitle,
     video?.videoTitle,
     video?.title,
-    video?.label,
-    video?.originalName,
     video?.filename,
   ];
 
