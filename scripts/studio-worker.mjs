@@ -28,6 +28,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 
+const MAX_STUDIO_DESCRIPTION_LENGTH = 3_000;
+
 // ---------------------------------------------------------------------------
 // Logging helpers
 // ---------------------------------------------------------------------------
@@ -891,8 +893,11 @@ async function typeDescription(page, description) {
     await page.keyboard.press('KeyA');
     await page.keyboard.up('Control');
     await page.keyboard.press('Backspace');
-    if (typeof page.keyboard.insertText === 'function') {
-      await page.keyboard.insertText(description);
+    if (typeof page.keyboard.sendCharacter === 'function') {
+      // Puppeteer's sendCharacter maps to one CDP Input.insertText call, so a
+      // long description is inserted at once instead of one awaited event per
+      // character. Keep the old fallback for alternate keyboard providers.
+      await page.keyboard.sendCharacter(description);
     } else {
       await page.keyboard.type(description, { delay: 0 });
     }
@@ -922,6 +927,9 @@ async function typeDescription(page, description) {
  */
 async function setDescriptionAfterTitle(page, description) {
   if (typeof description !== 'string' || !description.trim()) return;
+  // Enforce the limit at the worker boundary so typing and post-save
+  // verification always compare the same exact text.
+  description = Array.from(description).slice(0, MAX_STUDIO_DESCRIPTION_LENGTH).join('');
 
   log('description_delay_start', 'Waiting 15 seconds after title verification before updating the Studio description');
   await sleep(15_000);
