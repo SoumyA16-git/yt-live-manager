@@ -29,6 +29,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 
 const MAX_STUDIO_DESCRIPTION_LENGTH = 3_000;
+const POST_LIVE_METADATA_TIMEOUT_MS = 5 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Logging helpers
@@ -921,18 +922,19 @@ async function typeDescription(page, description) {
 }
 
 /**
- * Set the description 15 seconds after the title has been saved and verified.
- * This metadata update is best-effort: a description UI failure must not stop
- * a stream whose title and startup gates are otherwise healthy.
+ * Best-effort description update after Studio has confirmed LIVE. Keep the
+ * minimum 15-second delay from title verification without putting metadata
+ * editing or Studio reloads on the stream startup critical path.
  */
-async function setDescriptionAfterTitle(page, description) {
+async function setDescriptionAfterTitle(page, description, titleVerifiedAt) {
   if (typeof description !== 'string' || !description.trim()) return;
   // Enforce the limit at the worker boundary so typing and post-save
   // verification always compare the same exact text.
   description = Array.from(description).slice(0, MAX_STUDIO_DESCRIPTION_LENGTH).join('');
 
-  log('description_delay_start', 'Waiting 15 seconds after title verification before updating the Studio description');
-  await sleep(15_000);
+  const remainingDelayMs = Math.max(0, 15_000 - (Date.now() - titleVerifiedAt));
+  log('description_update_start', 'Starting best-effort description update after LIVE', { remainingDelayMs });
+  if (remainingDelayMs > 0) await sleep(remainingDelayMs);
 
   let expectedTitle = null;
   try {
@@ -965,14 +967,14 @@ async function setDescriptionAfterTitle(page, description) {
     });
     await closeTitleEditor(page);
   } catch (err) {
-    log('description_update_failed', 'Description update failed; continuing without blocking stream startup', {
+    log('description_update_failed', 'Description update failed after LIVE; keeping the verified stream active', {
       error: err?.message || String(err),
     });
     try {
       await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
       await sleep(1500);
     } catch (cleanupErr) {
-      log('description_cleanup_failed', 'Could not reload Studio after the best-effort description update', {
+      log('description_cleanup_failed', 'Could not reload Studio after the best-effort post-LIVE description update', {
         error: cleanupErr?.message || String(cleanupErr),
       });
     }
@@ -1335,6 +1337,7 @@ async function run() {
     // STEP 11: Reload and verify title persisted (throws if double-retry fails)
     // -----------------------------------------------------------------------
     await verifyPersistedTitle(page, newTitle, timeZone, configBaseTitle);
+    const titleVerifiedAt = Date.now();
 
     // A standalone title-only simulation must stop here. It must never ask
     // stream-manager to launch FFmpeg, wait for a stream ack, or click Go Live.
@@ -1354,12 +1357,6 @@ async function run() {
       });
       return;
     }
-
-    // -----------------------------------------------------------------------
-    // STEP 11A: After the title has been persisted, wait 15 seconds and
-    // best-effort save a filename-based description without changing the title.
-    // -----------------------------------------------------------------------
-    await setDescriptionAfterTitle(page, studioDescription);
 
     // -----------------------------------------------------------------------
     // STEP 12: Signal stream-manager, then wait for its verified RTMPS health ack
@@ -1419,22 +1416,26 @@ async function run() {
     log('step15_live_verified', 'Studio confirms broadcast is LIVE');
 
     // Once Studio and RTMPS have both verified LIVE, the startup gate has
-    // succeeded. Do not let the startup watchdog terminate the publisher
-    // during the short browser-cleanup phase.
+    // succeeded. Keep post-live metadata work outside the startup timeout; it
+    // must never turn a healthy live stream into a failed start.
     clearTimeout(watchdog);
     watchdog = setTimeout(async () => {
-      log('post_live_cleanup_timeout', 'LIVE was already verified; forcing owned Chrome cleanup without failing the stream');
+      log('post_live_cleanup_timeout', 'LIVE was already verified; forcing owned Chrome cleanup without failing the stream', {
+        timeoutMs: POST_LIVE_METADATA_TIMEOUT_MS,
+      });
       try {
         await Promise.race([browser?.close() || Promise.resolve(), sleep(2000)]);
       } catch {}
       try { chromeProcess?.kill('SIGTERM'); } catch {}
       process.exit(0);
-    }, 30000);
+    }, POST_LIVE_METADATA_TIMEOUT_MS);
     emitEvent('live_verified', { titleVerified: true, liveVerified: true, title: newTitle });
 
     // -----------------------------------------------------------------------
-    // STEP 16: Report success only after title, RTMPS health, and Studio LIVE checks pass
+    // STEP 16: Best-effort description update after LIVE, then report success
     // -----------------------------------------------------------------------
+    await setDescriptionAfterTitle(page, studioDescription, titleVerifiedAt);
+
     log('step16_post_wait', `Waiting ${previewWaitSec}s after verified LIVE before closing Chrome`);
     await sleep(previewWaitSec * 1000);
 
