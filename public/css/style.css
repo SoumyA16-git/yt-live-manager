@@ -3737,6 +3737,40 @@ select.form-control option {
   min-height: 36px;
 }
 
+.scheduled-download-url-batch {
+  height: auto;
+  min-height: 5rem;
+  padding: 0.55rem 0.75rem;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.scheduled-download-batch-hint {
+  color: var(--text-dim);
+  font-size: 0.68rem;
+}
+
+.scheduled-download-batch-status {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.scheduled-download-batch-status.has-error {
+  border-color: rgba(248, 113, 113, 0.35);
+  color: #fca5a5;
+}
+
+.scheduled-download-batch-status[hidden] {
+  display: none;
+}
+
 .scheduled-download-list {
   display: flex;
   flex-direction: column;
@@ -3877,6 +3911,7 @@ select.form-control option {
   }
 
   .scheduled-download-add-row > input:first-child,
+  .scheduled-download-add-row > textarea:first-child,
   .scheduled-download-slot-row > button {
     grid-column: 1 / -1;
   }

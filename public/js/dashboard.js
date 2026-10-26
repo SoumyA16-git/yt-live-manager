@@ -204,6 +204,7 @@ const scheduledDownloadEnabled = document.getElementById('scheduled-download-ena
 const scheduledDownloadQuality = document.getElementById('scheduled-download-quality');
 const scheduledDownloadUrl = document.getElementById('scheduled-download-url');
 const scheduledDownloadLinkType = document.getElementById('scheduled-download-link-type');
+const scheduledDownloadBatchStatus = document.getElementById('scheduled-download-batch-status');
 const scheduledDownloadQueue = document.getElementById('scheduled-download-queue');
 const scheduledDownloadSlots = document.getElementById('scheduled-download-slots');
 const scheduledDownloadActive = document.getElementById('scheduled-download-active');
@@ -2628,32 +2629,95 @@ function setupScheduledDownloads() {
   });
 
   const addLink = async () => {
-    const url = (scheduledDownloadUrl?.value || '').trim();
-    if (!url) {
-      showToast('Paste a YouTube link first.', 'warning', 'Link Required');
+    const pastedLinks = scheduledDownloadUrl?.value || '';
+    const links = pastedLinks.split(/\r?\n/).flatMap(line => {
+      const cleanedLine = line.trim().replace(/^(?:[-*•]\s*|\d+[.)]\s*)/, '');
+      return cleanedLine ? cleanedLine.split(/[\s,|]+/).filter(Boolean) : [];
+    });
+    if (!links.length) {
+      showToast('Paste one or more YouTube links first.', 'warning', 'Links Required');
       scheduledDownloadUrl?.focus();
       return;
     }
     const button = document.getElementById('scheduled-download-add-link');
-    if (button) button.disabled = true;
+    const linkType = scheduledDownloadLinkType?.value || 'long';
+    const queueMode = _scheduledQueueMode;
+    const originalValue = pastedLinks;
+    const failures = [];
+    let added = 0;
+    let duplicates = 0;
+    let failed = 0;
+
+    if (button) {
+      button.disabled = true;
+      button.dataset.idleLabel = button.textContent;
+    }
+    if (scheduledDownloadUrl) scheduledDownloadUrl.disabled = true;
+    if (scheduledDownloadLinkType) scheduledDownloadLinkType.disabled = true;
+    if (scheduledDownloadBatchStatus) {
+      scheduledDownloadBatchStatus.hidden = false;
+      scheduledDownloadBatchStatus.classList.remove('has-error');
+      scheduledDownloadBatchStatus.textContent = `Adding ${links.length} link${links.length === 1 ? '' : 's'} to the ${queueMode} queue…`;
+    }
+
     try {
-      await apiPost('/api/videos/auto-download/links', {
-        mode: _scheduledQueueMode,
-        url,
-        videoType: scheduledDownloadLinkType?.value || 'long',
-      });
-      if (scheduledDownloadUrl) scheduledDownloadUrl.value = '';
-      await fetchScheduledDownloads();
-      showToast('YouTube link added to the scheduled queue.', 'success', 'Link Queued');
-    } catch (err) {
-      showToast(err.message || 'Could not queue this YouTube link.', 'error', 'Queue Failed');
+      for (const [index, url] of links.entries()) {
+        if (button) button.textContent = `Adding ${index + 1}/${links.length}…`;
+        if (scheduledDownloadBatchStatus) {
+          scheduledDownloadBatchStatus.textContent = `Adding link ${index + 1} of ${links.length} to the ${queueMode} queue…`;
+        }
+        try {
+          await apiPost('/api/videos/auto-download/links', {
+            mode: queueMode,
+            url,
+            videoType: linkType,
+          });
+          added += 1;
+        } catch (err) {
+          if (err.code === 'E_QUEUE_DUPLICATE' || err.code === 'E_LIBRARY_DUPLICATE') {
+            duplicates += 1;
+          } else {
+            failed += 1;
+          }
+          if (failures.length < 8) failures.push(`${index + 1}. ${url} — ${err.message || 'Could not add this link.'}`);
+        }
+      }
+
+      if (scheduledDownloadUrl?.value === originalValue) scheduledDownloadUrl.value = '';
+      try {
+        await fetchScheduledDownloads();
+      } catch (err) {
+        failed += 1;
+        failures.push(`Queue refresh failed: ${err.message || 'Could not refresh the list.'}`);
+      }
+
+      const summary = `${added} added, ${duplicates} duplicate${duplicates === 1 ? '' : 's'} skipped, ${failed} failed.`;
+      const detail = failures.length ? `\n${failures.join('\n')}` : '';
+      if (scheduledDownloadBatchStatus) {
+        scheduledDownloadBatchStatus.classList.toggle('has-error', failed > 0 || failures.length > 0);
+        scheduledDownloadBatchStatus.textContent = `${summary}${detail}`;
+      }
+
+      if (failed > 0 || failures.length > 0) {
+        showToast(summary, added > 0 || duplicates > 0 ? 'warning' : 'error', 'Link List Processed');
+      } else if (duplicates > 0) {
+        showToast(summary, added > 0 ? 'success' : 'warning', 'Link List Processed');
+      } else {
+        showToast(summary, 'success', 'Links Queued');
+      }
     } finally {
-      if (button) button.disabled = false;
+      if (button) {
+        button.disabled = false;
+        button.textContent = button.dataset.idleLabel || 'Add links';
+        delete button.dataset.idleLabel;
+      }
+      if (scheduledDownloadUrl) scheduledDownloadUrl.disabled = false;
+      if (scheduledDownloadLinkType) scheduledDownloadLinkType.disabled = false;
     }
   };
   document.getElementById('scheduled-download-add-link')?.addEventListener('click', addLink);
   scheduledDownloadUrl?.addEventListener('keydown', event => {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       void addLink();
     }

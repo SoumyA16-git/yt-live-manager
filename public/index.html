@@ -928,13 +928,15 @@
             </div>
 
             <div class="scheduled-download-add-row">
-              <input id="scheduled-download-url" type="url" class="form-control" placeholder="Paste a YouTube, youtu.be, Shorts, or live link" autocomplete="off" spellcheck="false">
+              <textarea id="scheduled-download-url" class="form-control scheduled-download-url-batch" rows="3" placeholder="Paste YouTube links, one per line" autocomplete="off" spellcheck="false" aria-label="YouTube links to add to the scheduled queue"></textarea>
               <select id="scheduled-download-link-type" class="form-control" aria-label="Queued video type">
                 <option value="long">Long video</option>
                 <option value="short">Short video</option>
               </select>
-              <button id="scheduled-download-add-link" type="button" class="btn btn-primary btn-sm">Add link</button>
+              <button id="scheduled-download-add-link" type="button" class="btn btn-primary btn-sm">Add links</button>
             </div>
+            <div class="scheduled-download-batch-hint">Paste one link per line. Links are added in the pasted order.</div>
+            <div id="scheduled-download-batch-status" class="scheduled-download-batch-status" role="status" aria-live="polite" hidden></div>
             <div id="scheduled-download-queue" class="scheduled-download-list" aria-live="polite"></div>
 
             <div class="scheduled-download-slot-editor">
