@@ -11,6 +11,7 @@ import {
   normalizeYouTubeUrl,
   startYouTubeDownload,
   cancelDownload,
+  checkDuplicateYouTubeVideo,
 } from './ytdlp-manager.js';
 import { logger } from './logger.js';
 
@@ -300,7 +301,7 @@ export function updateScheduledDownloadsPreferences(patch = {}) {
 }
 
 export function addScheduledDownloadLink({ mode, url, videoType }) {
-  return mutateConfig(config => {
+  return mutateConfig(async config => {
     if (!['horizontal', 'vertical'].includes(mode)) throw Object.assign(new Error('Choose a 16:9 or 9:16 queue'), { code: 'E_INVALID_MODE' });
     if (!['long', 'short'].includes(videoType)) throw Object.assign(new Error('Choose Long or Short video type'), { code: 'E_INVALID_VIDEO_TYPE' });
     if (!isValidYouTubeUrl(url)) throw Object.assign(new Error('Enter a supported YouTube video, Shorts, or live URL'), { code: 'E_INVALID_URL' });
@@ -309,6 +310,15 @@ export function addScheduledDownloadLink({ mode, url, videoType }) {
     const duplicate = [...config.queues.horizontal, ...config.queues.vertical]
       .some(item => normalizeYouTubeUrl(item.url) === normalizedUrl);
     if (duplicate) throw Object.assign(new Error('This YouTube link is already in a scheduled queue'), { code: 'E_QUEUE_DUPLICATE' });
+
+    const existingVideo = await checkDuplicateYouTubeVideo(normalizedUrl);
+    if (existingVideo) {
+      const existingName = existingVideo.label || existingVideo.originalName || existingVideo.id;
+      throw Object.assign(new Error(`This video is already in your library: ${existingName}`), {
+        code: 'E_LIBRARY_DUPLICATE',
+        existingVideo,
+      });
+    }
 
     const item = { id: crypto.randomUUID(), url: normalizedUrl, videoType, addedAt: new Date().toISOString() };
     config.queues[mode].push(item);

@@ -231,9 +231,13 @@ export function createVideosRouter() {
       res.status(201).json({ success: true, config, status: getScheduledDownloadsStatus() });
     } catch (err) {
       const statusCode = ['E_INVALID_MODE', 'E_INVALID_VIDEO_TYPE', 'E_INVALID_URL'].includes(err.code) ? 400
-        : err.code === 'E_QUEUE_DUPLICATE' ? 409
+        : ['E_QUEUE_DUPLICATE', 'E_LIBRARY_DUPLICATE'].includes(err.code) ? 409
           : err.code === 'E_VALIDATION' ? 400 : 500;
-      res.status(statusCode).json({ error: err.message, code: err.code || 'E_SCHEDULED_DOWNLOAD' });
+      res.status(statusCode).json({
+        error: err.message,
+        code: err.code || 'E_SCHEDULED_DOWNLOAD',
+        existingVideo: err.existingVideo || null,
+      });
     }
   });
 
