@@ -154,6 +154,13 @@ const SCHEDULER_SCHEMA = {
   // windows — handled specially
 };
 
+const SCHEDULED_DOWNLOADS_SCHEMA = {
+  enabled: { type: 'boolean' },
+  quality: { type: 'string', enum: ['1080p', '720p', '480p'] },
+  queues:  { type: 'object' }, // orientation queues are handled specially
+  slots:   { type: 'array' },
+};
+
 const STUDIO_AUTOMATION_SCHEMA = {
   enabled:       { type: 'boolean' },
   baseTitle:     { type: 'string', maxLen: 256 },
@@ -267,6 +274,83 @@ function validateAutoRecycle(fPath, ar, errors) {
   for (const k of Object.keys(ar)) {
     if (!['enabled', 'maxSessionHours', 'maxSessionMinutes', 'pauseMinutes', 'resumeBookmark'].includes(k))
       errors.push(fieldErr(`${fPath}.${k}`, 'unknown field'));
+  }
+}
+
+function validateScheduledDownloads(fPath, config, errors) {
+  if (!isObject(config)) { errors.push(fieldErr(fPath, 'must be an object')); return; }
+  for (const [key, spec] of Object.entries(SCHEDULED_DOWNLOADS_SCHEMA)) {
+    if (config[key] !== undefined) validateField(`${fPath}.${key}`, config[key], spec, errors);
+  }
+
+  if (config.queues !== undefined) {
+    if (!isObject(config.queues)) {
+      errors.push(fieldErr(`${fPath}.queues`, 'must be an object'));
+    } else {
+      for (const mode of ['horizontal', 'vertical']) {
+        const queue = config.queues[mode];
+        if (queue !== undefined) {
+          if (!isArray(queue)) {
+            errors.push(fieldErr(`${fPath}.queues.${mode}`, 'must be an array'));
+          } else {
+            if (queue.length > 500) errors.push(fieldErr(`${fPath}.queues.${mode}`, 'must have at most 500 links'));
+            queue.forEach((item, index) => {
+              const itemPath = `${fPath}.queues.${mode}[${index}]`;
+              if (!isObject(item)) { errors.push(fieldErr(itemPath, 'must be an object')); return; }
+              const fields = {
+                id: { type: 'string', minLen: 1, maxLen: 64, pattern: /^[a-zA-Z0-9_-]+$/ },
+                url: { type: 'string', minLen: 1, maxLen: 2048 },
+                videoType: { type: 'string', enum: ['long', 'short'] },
+                addedAt: { type: 'string', minLen: 1, maxLen: 40 },
+              };
+              for (const [key, spec] of Object.entries(fields)) {
+                if (item[key] === undefined) errors.push(fieldErr(`${itemPath}.${key}`, 'is required'));
+                else validateField(`${itemPath}.${key}`, item[key], spec, errors);
+              }
+              for (const key of Object.keys(item)) {
+                if (!Object.hasOwn(fields, key)) errors.push(fieldErr(`${itemPath}.${key}`, 'unknown field'));
+              }
+            });
+          }
+        }
+      }
+      for (const key of Object.keys(config.queues)) {
+        if (!['horizontal', 'vertical'].includes(key)) errors.push(fieldErr(`${fPath}.queues.${key}`, 'unknown field'));
+      }
+    }
+  }
+
+  if (config.slots !== undefined) {
+    if (!isArray(config.slots)) {
+      errors.push(fieldErr(`${fPath}.slots`, 'must be an array'));
+    } else {
+      if (config.slots.length > 64) errors.push(fieldErr(`${fPath}.slots`, 'must have at most 64 slots'));
+      config.slots.forEach((slot, index) => {
+        const slotPath = `${fPath}.slots[${index}]`;
+        if (!isObject(slot)) { errors.push(fieldErr(slotPath, 'must be an object')); return; }
+        const fields = {
+          id: { type: 'string', minLen: 1, maxLen: 64, pattern: /^[a-zA-Z0-9_-]+$/ },
+          time: { type: 'string', pattern: /^(?:[01]\d|2[0-3]):[0-5]\d$/ },
+          mode: { type: 'string', enum: ['horizontal', 'vertical'] },
+          videoType: { type: 'string', enum: ['long', 'short'] },
+          enabled: { type: 'boolean' },
+          lastRunDate: { type: 'string', pattern: /^$|^\d{4}-\d{2}-\d{2}$/ },
+        };
+        for (const [key, spec] of Object.entries(fields)) {
+          if (key !== 'lastRunDate' && slot[key] === undefined) errors.push(fieldErr(`${slotPath}.${key}`, 'is required'));
+          else if (slot[key] !== undefined) validateField(`${slotPath}.${key}`, slot[key], spec, errors);
+        }
+        for (const key of Object.keys(slot)) {
+          if (!Object.hasOwn(fields, key)) errors.push(fieldErr(`${slotPath}.${key}`, 'unknown field'));
+        }
+      });
+      const ids = config.slots.map(slot => slot?.id).filter(Boolean);
+      if (new Set(ids).size !== ids.length) errors.push(fieldErr(`${fPath}.slots`, 'slot IDs must be unique'));
+    }
+  }
+
+  for (const key of Object.keys(config)) {
+    if (!Object.hasOwn(SCHEDULED_DOWNLOADS_SCHEMA, key)) errors.push(fieldErr(`${fPath}.${key}`, 'unknown field'));
   }
 }
 
@@ -470,6 +554,11 @@ export function validateSettings(input, { partial = true } = {}) {
         if (!KNOWN_SC.has(k)) errors.push(fieldErr(`scheduler.${k}`, 'unknown field'));
       }
     }
+  }
+
+  // ── scheduled YouTube downloads ──
+  if (input.scheduledDownloads !== undefined) {
+    validateScheduledDownloads('scheduledDownloads', input.scheduledDownloads, errors);
   }
 
   // ── YouTube Studio automation ──

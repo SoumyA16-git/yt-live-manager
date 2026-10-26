@@ -32,6 +32,16 @@ import {
   checkDuplicateYouTubeVideo,
 } from '../ytdlp-manager.js';
 import { logger } from '../logger.js';
+import {
+  addScheduledDownloadLink,
+  addScheduledDownloadSlot,
+  deleteScheduledDownloadLink,
+  deleteScheduledDownloadSlot,
+  getScheduledDownloadsConfig,
+  getScheduledDownloadsStatus,
+  setScheduledDownloadSlotEnabled,
+  updateScheduledDownloadsPreferences,
+} from '../scheduled-downloads.js';
 
 export function createVideosRouter() {
   const router = Router();
@@ -194,6 +204,83 @@ export function createVideosRouter() {
       res.json({ success: true, cancelled });
     } catch (err) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/videos/auto-download — scheduled queues, slots, and active job.
+  router.get('/auto-download', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ config: getScheduledDownloadsConfig(), status: getScheduledDownloadsStatus() });
+  });
+
+  // PUT /api/videos/auto-download/settings
+  router.put('/auto-download/settings', async (req, res) => {
+    try {
+      const updated = await updateScheduledDownloadsPreferences(req.body || {});
+      res.json({ success: true, config: updated, status: getScheduledDownloadsStatus() });
+    } catch (err) {
+      res.status(err.code === 'E_INVALID_SETTINGS' || err.code === 'E_VALIDATION' ? 400 : 500)
+        .json({ error: err.message, code: err.code || 'E_SCHEDULED_DOWNLOAD' });
+    }
+  });
+
+  // POST /api/videos/auto-download/links
+  router.post('/auto-download/links', async (req, res) => {
+    try {
+      const config = await addScheduledDownloadLink(req.body || {});
+      res.status(201).json({ success: true, config, status: getScheduledDownloadsStatus() });
+    } catch (err) {
+      const statusCode = ['E_INVALID_MODE', 'E_INVALID_VIDEO_TYPE', 'E_INVALID_URL'].includes(err.code) ? 400
+        : err.code === 'E_QUEUE_DUPLICATE' ? 409
+          : err.code === 'E_VALIDATION' ? 400 : 500;
+      res.status(statusCode).json({ error: err.message, code: err.code || 'E_SCHEDULED_DOWNLOAD' });
+    }
+  });
+
+  // DELETE /api/videos/auto-download/links/:mode/:id
+  router.delete('/auto-download/links/:mode/:id', async (req, res) => {
+    try {
+      const config = await deleteScheduledDownloadLink(req.params.mode, req.params.id);
+      res.json({ success: true, config, status: getScheduledDownloadsStatus() });
+    } catch (err) {
+      const statusCode = err.code === 'E_NOT_FOUND' ? 404
+        : err.code === 'E_INVALID_MODE' || err.code === 'E_VALIDATION' ? 400 : 500;
+      res.status(statusCode).json({ error: err.message, code: err.code || 'E_SCHEDULED_DOWNLOAD' });
+    }
+  });
+
+  // POST /api/videos/auto-download/slots
+  router.post('/auto-download/slots', async (req, res) => {
+    try {
+      const config = await addScheduledDownloadSlot(req.body || {});
+      res.status(201).json({ success: true, config, status: getScheduledDownloadsStatus() });
+    } catch (err) {
+      const statusCode = ['E_INVALID_TIME', 'E_INVALID_MODE', 'E_INVALID_VIDEO_TYPE', 'E_SLOT_LIMIT', 'E_VALIDATION'].includes(err.code) ? 400 : 500;
+      res.status(statusCode).json({ error: err.message, code: err.code || 'E_SCHEDULED_DOWNLOAD' });
+    }
+  });
+
+  // PUT /api/videos/auto-download/slots/:id
+  router.put('/auto-download/slots/:id', async (req, res) => {
+    try {
+      const config = await setScheduledDownloadSlotEnabled(req.params.id, req.body?.enabled);
+      res.json({ success: true, config, status: getScheduledDownloadsStatus() });
+    } catch (err) {
+      const statusCode = err.code === 'E_NOT_FOUND' ? 404
+        : err.code === 'E_INVALID_SETTINGS' || err.code === 'E_VALIDATION' ? 400 : 500;
+      res.status(statusCode).json({ error: err.message, code: err.code || 'E_SCHEDULED_DOWNLOAD' });
+    }
+  });
+
+  // DELETE /api/videos/auto-download/slots/:id
+  router.delete('/auto-download/slots/:id', async (req, res) => {
+    try {
+      const config = await deleteScheduledDownloadSlot(req.params.id);
+      res.json({ success: true, config, status: getScheduledDownloadsStatus() });
+    } catch (err) {
+      const statusCode = err.code === 'E_NOT_FOUND' ? 404
+        : err.code === 'E_VALIDATION' ? 400 : 500;
+      res.status(statusCode).json({ error: err.message, code: err.code || 'E_SCHEDULED_DOWNLOAD' });
     }
   });
 

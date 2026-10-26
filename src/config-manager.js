@@ -105,6 +105,12 @@ export const DEFAULTS = Object.freeze({
       resumeBookmark: true,
     },
   },
+  scheduledDownloads: {
+    enabled: false,
+    quality: '1080p',
+    queues: { horizontal: [], vertical: [] },
+    slots: [],
+  },
   uploads: {
     maxBytes: 4 * 1024 * 1024 * 1024,  // 4 GiB
     allowedExtensions: ['.mp4', '.mov', '.m4v', '.mkv'],

@@ -64,6 +64,15 @@
     "timezone": "Asia/Kolkata",
     "windows": []
   },
+  "scheduledDownloads": {
+    "enabled": false,
+    "quality": "1080p",
+    "queues": {
+      "horizontal": [],
+      "vertical": []
+    },
+    "slots": []
+  },
   "uploads": {
     "maxBytes": 4294967296,
     "allowedExtensions": [".mp4", ".mov", ".m4v", ".mkv"],

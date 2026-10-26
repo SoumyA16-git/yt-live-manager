@@ -904,6 +904,69 @@
             </div>
           </div>
 
+          <!-- Scheduled YouTube Downloads -->
+          <section id="scheduled-download-panel" class="sched-config-card scheduled-download-card" aria-labelledby="scheduled-download-title">
+            <div class="sched-card-header scheduled-download-header">
+              <div>
+                <div id="scheduled-download-title" class="sched-card-title">Scheduled YouTube Downloads</div>
+                <p class="sched-hint">Queue links ahead of time. Each daily slot downloads the oldest matching Long or Short link.</p>
+              </div>
+              <label class="sched-checkbox-label scheduled-download-toggle">
+                <input id="scheduled-download-enabled" type="checkbox">
+                <span>Automation enabled</span>
+              </label>
+            </div>
+
+            <div id="scheduled-download-status" class="scheduled-download-status" role="status">Loading scheduled download settings…</div>
+            <div class="scheduled-download-quality-note">
+              Scheduled downloads use the same quality selected above: <strong id="scheduled-download-quality">1080p</strong>.
+            </div>
+
+            <div class="playlist-mode-tabs scheduled-download-queue-tabs" role="tablist" aria-label="Scheduled download queue">
+              <button id="scheduled-queue-horizontal-tab" type="button" class="playlist-tab active" role="tab" aria-selected="true">16:9 Horizontal <span id="scheduled-queue-horizontal-count" class="meta-tag">0</span></button>
+              <button id="scheduled-queue-vertical-tab" type="button" class="playlist-tab" role="tab" aria-selected="false">9:16 Vertical <span id="scheduled-queue-vertical-count" class="meta-tag">0</span></button>
+            </div>
+
+            <div class="scheduled-download-add-row">
+              <input id="scheduled-download-url" type="url" class="form-control" placeholder="Paste a YouTube, youtu.be, Shorts, or live link" autocomplete="off" spellcheck="false">
+              <select id="scheduled-download-link-type" class="form-control" aria-label="Queued video type">
+                <option value="long">Long video</option>
+                <option value="short">Short video</option>
+              </select>
+              <button id="scheduled-download-add-link" type="button" class="btn btn-primary btn-sm">Add link</button>
+            </div>
+            <div id="scheduled-download-queue" class="scheduled-download-list" aria-live="polite"></div>
+
+            <div class="scheduled-download-slot-editor">
+              <div class="sched-card-title">Daily time slots</div>
+              <div class="scheduled-download-add-row scheduled-download-slot-row">
+                <label class="scheduled-download-field">
+                  <span>Time</span>
+                  <input id="scheduled-download-slot-time" type="time" class="form-control" value="09:00">
+                </label>
+                <label class="scheduled-download-field">
+                  <span>Queue</span>
+                  <select id="scheduled-download-slot-mode" class="form-control">
+                    <option value="horizontal">16:9 Horizontal</option>
+                    <option value="vertical">9:16 Vertical</option>
+                  </select>
+                </label>
+                <label class="scheduled-download-field">
+                  <span>Video type</span>
+                  <select id="scheduled-download-slot-type" class="form-control">
+                    <option value="long">Long video</option>
+                    <option value="short">Short video</option>
+                  </select>
+                </label>
+                <button id="scheduled-download-add-slot" type="button" class="btn btn-outline btn-sm">Add slot</button>
+              </div>
+              <div id="scheduled-download-slots" class="scheduled-download-list" aria-live="polite"></div>
+              <p class="sched-hint">Uses the dashboard scheduler timezone. Downloads go through the normal metadata cleanup, library registration, orientation detection, and playlist import.</p>
+            </div>
+
+            <div id="scheduled-download-active" class="scheduled-download-active" hidden></div>
+          </section>
+
           <!-- Upload Progress -->
           <div id="upload-progress-box" style="display: none;" class="progress-container">
             <div class="progress-header">

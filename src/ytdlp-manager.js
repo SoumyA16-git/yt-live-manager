@@ -29,6 +29,7 @@ const VM_CHROME_USER_DATA_DIRS = [
 // ─── Module State ─────────────────────────────────────────────────────────────
 
 let _currentJob = null;
+let _jobStarting = false;
 
 const DOWNLOAD_ACTIVE_STAGES = new Set([
   'fetching_info',
@@ -405,8 +406,8 @@ async function _buildYtDlpBaseArgs() {
  *
  * @returns {object}
  */
-export function getDownloadStatus() {
-  if (!_currentJob) {
+function formatDownloadStatus(job) {
+  if (!job) {
     return {
       active: false,
       stage: 'idle',
@@ -424,24 +425,28 @@ export function getDownloadStatus() {
   }
 
   return {
-    active: isDownloadJobActive(_currentJob.stage),
-    jobId: _currentJob.id,
-    url: _currentJob.url,
-    stage: _currentJob.stage,
-    percent: _currentJob.percent,
-    speed: _currentJob.speed || '',
-    eta: _currentJob.eta || '',
-    downloaded: _currentJob.downloaded || '',
-    totalSize: _currentJob.totalSize || '',
-    videoTitle: _currentJob.videoTitle,
-    videoId: _currentJob.videoId,
-    detectedMode: _currentJob.detectedMode || null,
-    resolution: _currentJob.resolution || null,
-    autoSetActive: _currentJob.autoSetActive,
-    error: _currentJob.error,
-    startedAt: _currentJob.startedAt,
-    completedAt: _currentJob.completedAt,
+    active: isDownloadJobActive(job.stage),
+    jobId: job.id,
+    url: job.url,
+    stage: job.stage,
+    percent: job.percent,
+    speed: job.speed || '',
+    eta: job.eta || '',
+    downloaded: job.downloaded || '',
+    totalSize: job.totalSize || '',
+    videoTitle: job.videoTitle,
+    videoId: job.videoId,
+    detectedMode: job.detectedMode || null,
+    resolution: job.resolution || null,
+    autoSetActive: job.autoSetActive,
+    error: job.error,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
   };
+}
+
+export function getDownloadStatus() {
+  return formatDownloadStatus(_currentJob);
 }
 
 /**
@@ -717,9 +722,15 @@ export async function normalizeVideoGop(inputPath, outputPath, jobId = null, pro
  * @param {object} [opts]
  * @param {boolean} [opts.autoSetActive=false]
  * @param {'1080p'|'720p'|'480p'} [opts.quality='1080p']
+ * @param {(status: object) => Promise<void>|void} [opts.onSettled] Internal completion hook
  * @returns {Promise<object>} Status object
  */
-export async function startYouTubeDownload(rawUrl, { autoSetActive = false, quality = '1080p', force = false } = {}) {
+export async function startYouTubeDownload(rawUrl, {
+  autoSetActive = false,
+  quality = '1080p',
+  force = false,
+  onSettled,
+} = {}) {
   const raw = (rawUrl || '').trim();
 
   if (!isValidYouTubeUrl(raw)) {
@@ -728,6 +739,23 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
     });
   }
 
+  // Reserve the shared downloader before async checks, preventing two callers
+  // from racing a manual download against a scheduled slot.
+  if (_jobStarting) {
+    throw Object.assign(new Error('A video download/conversion job is already in progress. Please wait for it to finish or cancel it.'), {
+      code: 'E_JOB_RUNNING',
+    });
+  }
+  _jobStarting = true;
+
+  try {
+    return await startYouTubeDownloadReserved(raw, { autoSetActive, quality, force, onSettled });
+  } finally {
+    _jobStarting = false;
+  }
+}
+
+async function startYouTubeDownloadReserved(raw, { autoSetActive, quality, force, onSettled }) {
   const url = normalizeYouTubeUrl(raw);
 
   // Duplicate check: if already present in library/server, warn user unless force=true
@@ -764,7 +792,7 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
     initialVideoId = u.searchParams.get('v') || null;
   } catch { /* ignore */ }
 
-  _currentJob = {
+  const job = {
     id: jobId,
     url,
     quality: quality || '1080p',
@@ -782,20 +810,42 @@ export async function startYouTubeDownload(rawUrl, { autoSetActive = false, qual
     completedAt: null,
     proc: null,
     tempFiles: [],
+    onSettled: typeof onSettled === 'function' ? onSettled : null,
   };
+  _currentJob = job;
 
-  // Run async pipeline in background
-  _executePipeline(jobId, url, autoSetActive, quality || '1080p').catch(async (err) => {
-    logger.error('ytdlp.pipeline_error', `Pipeline failed for job ${jobId}: ${err.message}`, { error: err.message });
-    if (_currentJob && _currentJob.id === jobId && _currentJob.stage !== 'cancelled') {
-      await cleanupJobTemporaryFiles(_currentJob);
-      _currentJob.stage = 'error';
-      _currentJob.error = err.message || 'Download/conversion failed';
-      _currentJob.completedAt = new Date().toISOString();
+  // Run the same manual download/import pipeline in the background.
+  void (async () => {
+    try {
+      await _executePipeline(jobId, url, autoSetActive, quality || '1080p');
+    } catch (err) {
+      logger.error('ytdlp.pipeline_error', `Pipeline failed for job ${jobId}: ${err.message}`, { error: err.message });
+      if (job.stage !== 'cancelled') {
+        try {
+          await cleanupJobTemporaryFiles(job);
+        } catch (cleanupErr) {
+          logger.warn('ytdlp.cleanup_warning', `Temporary files could not be fully removed for job ${jobId}: ${cleanupErr.message}`);
+        }
+        job.stage = 'error';
+        job.error = err.message || 'Download/conversion failed';
+        job.completedAt = new Date().toISOString();
+      }
+    } finally {
+      if (job.onSettled) {
+        try {
+          await job.onSettled(formatDownloadStatus(job));
+        } catch (err) {
+          logger.error('ytdlp.settled_callback_error', `Download completion callback failed for job ${jobId}: ${err.message}`, {
+            jobId,
+            error: err.message,
+          });
+        }
+      }
+      job.onSettled = null;
     }
-  });
+  })();
 
-  return getDownloadStatus();
+  return formatDownloadStatus(job);
 }
 
 /**

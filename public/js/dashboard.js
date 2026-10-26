@@ -198,6 +198,17 @@ const ytDlFill = document.getElementById('yt-dl-fill');
 const ytDlTitle = document.getElementById('yt-dl-title');
 const ytDlDetails = document.getElementById('yt-dl-details');
 const btnCancelYtDl = document.getElementById('btn-cancel-yt-dl');
+const scheduledDownloadPanel = document.getElementById('scheduled-download-panel');
+const scheduledDownloadStatus = document.getElementById('scheduled-download-status');
+const scheduledDownloadEnabled = document.getElementById('scheduled-download-enabled');
+const scheduledDownloadQuality = document.getElementById('scheduled-download-quality');
+const scheduledDownloadUrl = document.getElementById('scheduled-download-url');
+const scheduledDownloadLinkType = document.getElementById('scheduled-download-link-type');
+const scheduledDownloadQueue = document.getElementById('scheduled-download-queue');
+const scheduledDownloadSlots = document.getElementById('scheduled-download-slots');
+const scheduledDownloadActive = document.getElementById('scheduled-download-active');
+let _scheduledQueueMode = 'horizontal';
+let _scheduledDownloadsSnapshot = null;
 
 // System
 const metricCpu = document.getElementById('metric-cpu');
@@ -1971,6 +1982,10 @@ async function fetchSettings() {
   try {
     const settings = await apiGet('/api/settings');
     _currentSettings = settings;
+    const savedDownloadQuality = settings.scheduledDownloads?.quality;
+    if (ytQualitySelect && ['1080p', '720p', '480p'].includes(savedDownloadQuality)) {
+      ytQualitySelect.value = savedDownloadQuality;
+    }
     updateDeckStreamKeyBadge(settings);
     return settings;
   } catch (err) {
@@ -2379,6 +2394,303 @@ async function _pollYtDownloadStatus() {
   }
 }
 
+function setScheduledModeTab(mode) {
+  _scheduledQueueMode = mode === 'vertical' ? 'vertical' : 'horizontal';
+  const horizontalTab = document.getElementById('scheduled-queue-horizontal-tab');
+  const verticalTab = document.getElementById('scheduled-queue-vertical-tab');
+  for (const [tab, tabMode] of [[horizontalTab, 'horizontal'], [verticalTab, 'vertical']]) {
+    if (!tab) continue;
+    const active = tabMode === _scheduledQueueMode;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  }
+  renderScheduledDownloadQueue();
+}
+
+function scheduledDownloadBadge(label, tone = '') {
+  const badge = document.createElement('span');
+  badge.className = `meta-tag scheduled-download-badge${tone ? ` ${tone}` : ''}`;
+  badge.textContent = label;
+  return badge;
+}
+
+function renderScheduledDownloadQueue() {
+  if (!scheduledDownloadQueue) return;
+  const queue = _scheduledDownloadsSnapshot?.config?.queues?.[_scheduledQueueMode] || [];
+  scheduledDownloadQueue.replaceChildren();
+
+  if (!queue.length) {
+    const empty = document.createElement('div');
+    empty.className = 'scheduled-download-empty';
+    empty.textContent = `No links queued for ${_scheduledQueueMode === 'horizontal' ? '16:9 horizontal' : '9:16 vertical'} downloads.`;
+    scheduledDownloadQueue.append(empty);
+    return;
+  }
+
+  queue.forEach((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'scheduled-download-row';
+    const number = document.createElement('span');
+    number.className = 'scheduled-download-order';
+    number.textContent = String(index + 1).padStart(2, '0');
+    const details = document.createElement('div');
+    details.className = 'scheduled-download-link-details';
+    const url = document.createElement('div');
+    url.className = 'scheduled-download-link-url';
+    url.textContent = item.url;
+    url.title = item.url;
+    const meta = document.createElement('div');
+    meta.className = 'scheduled-download-link-meta';
+    meta.append(scheduledDownloadBadge(item.videoType === 'short' ? 'Short' : 'Long'));
+    const added = document.createElement('span');
+    const date = item.addedAt ? new Date(item.addedAt) : null;
+    added.textContent = date && Number.isFinite(date.getTime()) ? `Added ${date.toLocaleString()}` : 'Queued';
+    meta.append(added);
+    details.append(url, meta);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-outline btn-sm scheduled-download-remove';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove scheduled link ${index + 1}`);
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      try {
+        await apiDelete(`/api/videos/auto-download/links/${_scheduledQueueMode}/${encodeURIComponent(item.id)}`);
+        await fetchScheduledDownloads();
+      } catch (err) {
+        showToast(err.message || 'Could not remove the queued link.', 'error', 'Queue Update Failed');
+        remove.disabled = false;
+      }
+    });
+
+    row.append(number, details, remove);
+    scheduledDownloadQueue.append(row);
+  });
+}
+
+function renderScheduledDownloadSlots() {
+  if (!scheduledDownloadSlots) return;
+  const slots = _scheduledDownloadsSnapshot?.config?.slots || [];
+  const timeZone = _scheduledDownloadsSnapshot?.status?.timezone || 'Asia/Kolkata';
+  scheduledDownloadSlots.replaceChildren();
+
+  if (!slots.length) {
+    const empty = document.createElement('div');
+    empty.className = 'scheduled-download-empty';
+    empty.textContent = 'No daily slots yet. Add a time, queue, and video type above.';
+    scheduledDownloadSlots.append(empty);
+    return;
+  }
+
+  slots.forEach(slot => {
+    const row = document.createElement('div');
+    row.className = `scheduled-download-row scheduled-download-slot${slot.enabled ? '' : ' is-disabled'}`;
+    const time = document.createElement('strong');
+    time.className = 'scheduled-download-slot-time';
+    time.textContent = slot.time;
+    const details = document.createElement('div');
+    details.className = 'scheduled-download-link-details';
+    const title = document.createElement('div');
+    title.className = 'scheduled-download-slot-title';
+    title.textContent = `${slot.mode === 'vertical' ? '9:16 Vertical' : '16:9 Horizontal'} · ${slot.videoType === 'short' ? 'Short' : 'Long'} video`;
+    const meta = document.createElement('div');
+    meta.className = 'scheduled-download-link-meta';
+    meta.append(scheduledDownloadBadge(slot.enabled ? 'Enabled' : 'Paused'));
+    const zone = document.createElement('span');
+    zone.textContent = timeZone;
+    meta.append(zone);
+    if (slot.lastRunDate) {
+      const lastRun = document.createElement('span');
+      lastRun.textContent = `Last run ${slot.lastRunDate}`;
+      meta.append(lastRun);
+    }
+    details.append(title, meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'scheduled-download-row-actions';
+    const toggleLabel = document.createElement('label');
+    toggleLabel.className = 'scheduled-download-mini-toggle';
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.checked = Boolean(slot.enabled);
+    toggle.setAttribute('aria-label', `${slot.enabled ? 'Pause' : 'Enable'} slot at ${slot.time}`);
+    toggle.addEventListener('change', async () => {
+      toggle.disabled = true;
+      try {
+        await apiPut(`/api/videos/auto-download/slots/${encodeURIComponent(slot.id)}`, { enabled: toggle.checked });
+        await fetchScheduledDownloads();
+      } catch (err) {
+        showToast(err.message || 'Could not update the slot.', 'error', 'Slot Update Failed');
+        toggle.checked = !toggle.checked;
+        toggle.disabled = false;
+      }
+    });
+    toggleLabel.append(toggle);
+
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'btn btn-outline btn-sm scheduled-download-remove';
+    remove.textContent = 'Delete';
+    remove.addEventListener('click', async () => {
+      remove.disabled = true;
+      try {
+        await apiDelete(`/api/videos/auto-download/slots/${encodeURIComponent(slot.id)}`);
+        await fetchScheduledDownloads();
+      } catch (err) {
+        showToast(err.message || 'Could not delete the slot.', 'error', 'Slot Update Failed');
+        remove.disabled = false;
+      }
+    });
+    actions.append(toggleLabel, remove);
+    row.append(time, details, actions);
+    scheduledDownloadSlots.append(row);
+  });
+}
+
+function renderScheduledDownloads(snapshot) {
+  if (!scheduledDownloadPanel || !snapshot?.config) return;
+  _scheduledDownloadsSnapshot = snapshot;
+  const { config, status } = snapshot;
+  if (scheduledDownloadEnabled) scheduledDownloadEnabled.checked = Boolean(config.enabled);
+  if (scheduledDownloadQuality) scheduledDownloadQuality.textContent = config.quality || '1080p';
+
+  const horizontalCount = document.getElementById('scheduled-queue-horizontal-count');
+  const verticalCount = document.getElementById('scheduled-queue-vertical-count');
+  if (horizontalCount) horizontalCount.textContent = String(status.queueCounts?.horizontal ?? config.queues?.horizontal?.length ?? 0);
+  if (verticalCount) verticalCount.textContent = String(status.queueCounts?.vertical ?? config.queues?.vertical?.length ?? 0);
+
+  const activeJob = status.activeJob;
+  const download = status.download;
+  if (scheduledDownloadStatus) {
+    if (activeJob) {
+      const stage = download?.stage || 'starting';
+      const progress = Number.isFinite(download?.percent) ? ` · ${Math.round(download.percent)}%` : '';
+      scheduledDownloadStatus.textContent = `Downloading ${activeJob.videoType} video from ${activeJob.mode === 'vertical' ? '9:16 Vertical' : '16:9 Horizontal'} queue · ${stage}${progress}`;
+      scheduledDownloadStatus.classList.remove('has-error');
+      scheduledDownloadStatus.classList.add('is-active');
+    } else if (download?.active) {
+      scheduledDownloadStatus.textContent = `Waiting for the current dashboard download to finish. Scheduled downloads are paused while it runs.`;
+      scheduledDownloadStatus.classList.remove('has-error');
+      scheduledDownloadStatus.classList.add('is-active');
+    } else if (status.lastResult?.status === 'error') {
+      scheduledDownloadStatus.textContent = `Last scheduled attempt failed: ${status.lastResult.error || 'Unknown error'}. The link is still queued.`;
+      scheduledDownloadStatus.classList.remove('is-active');
+      scheduledDownloadStatus.classList.add('has-error');
+    } else {
+      const state = config.enabled ? 'Automation is enabled' : 'Automation is paused';
+      scheduledDownloadStatus.textContent = `${state} · Daily slots use ${status.timezone || 'Asia/Kolkata'}.`;
+      scheduledDownloadStatus.classList.remove('is-active', 'has-error');
+    }
+  }
+
+  if (scheduledDownloadActive) {
+    scheduledDownloadActive.hidden = !activeJob;
+    scheduledDownloadActive.textContent = activeJob
+      ? `${download?.videoTitle || activeJob.url}${download?.eta ? ` · ETA ${download.eta}` : ''}`
+      : '';
+  }
+  renderScheduledDownloadQueue();
+  renderScheduledDownloadSlots();
+}
+
+async function fetchScheduledDownloads() {
+  if (!scheduledDownloadPanel) return;
+  try {
+    renderScheduledDownloads(await apiGet('/api/videos/auto-download'));
+  } catch (err) {
+    if (scheduledDownloadStatus) {
+      scheduledDownloadStatus.textContent = `Could not load scheduled download settings: ${err.message}`;
+      scheduledDownloadStatus.classList.add('has-error');
+    }
+  }
+}
+
+function setupScheduledDownloads() {
+  if (!scheduledDownloadPanel) return;
+  const horizontalTab = document.getElementById('scheduled-queue-horizontal-tab');
+  const verticalTab = document.getElementById('scheduled-queue-vertical-tab');
+  horizontalTab?.addEventListener('click', () => setScheduledModeTab('horizontal'));
+  verticalTab?.addEventListener('click', () => setScheduledModeTab('vertical'));
+
+  scheduledDownloadEnabled?.addEventListener('change', async () => {
+    scheduledDownloadEnabled.disabled = true;
+    try {
+      await apiPut('/api/videos/auto-download/settings', { enabled: scheduledDownloadEnabled.checked });
+      await fetchScheduledDownloads();
+      showToast(scheduledDownloadEnabled.checked ? 'Scheduled downloads enabled.' : 'Scheduled downloads paused.', 'success', 'Settings Saved');
+    } catch (err) {
+      showToast(err.message || 'Could not save scheduled download settings.', 'error', 'Save Failed');
+      scheduledDownloadEnabled.checked = !scheduledDownloadEnabled.checked;
+    } finally {
+      scheduledDownloadEnabled.disabled = false;
+    }
+  });
+
+  const addLink = async () => {
+    const url = (scheduledDownloadUrl?.value || '').trim();
+    if (!url) {
+      showToast('Paste a YouTube link first.', 'warning', 'Link Required');
+      scheduledDownloadUrl?.focus();
+      return;
+    }
+    const button = document.getElementById('scheduled-download-add-link');
+    if (button) button.disabled = true;
+    try {
+      await apiPost('/api/videos/auto-download/links', {
+        mode: _scheduledQueueMode,
+        url,
+        videoType: scheduledDownloadLinkType?.value || 'long',
+      });
+      if (scheduledDownloadUrl) scheduledDownloadUrl.value = '';
+      await fetchScheduledDownloads();
+      showToast('YouTube link added to the scheduled queue.', 'success', 'Link Queued');
+    } catch (err) {
+      showToast(err.message || 'Could not queue this YouTube link.', 'error', 'Queue Failed');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  };
+  document.getElementById('scheduled-download-add-link')?.addEventListener('click', addLink);
+  scheduledDownloadUrl?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void addLink();
+    }
+  });
+
+  const addSlot = async () => {
+    const time = document.getElementById('scheduled-download-slot-time')?.value;
+    const mode = document.getElementById('scheduled-download-slot-mode')?.value;
+    const videoType = document.getElementById('scheduled-download-slot-type')?.value;
+    const button = document.getElementById('scheduled-download-add-slot');
+    if (button) button.disabled = true;
+    try {
+      await apiPost('/api/videos/auto-download/slots', { time, mode, videoType });
+      await fetchScheduledDownloads();
+      showToast('Daily download slot added.', 'success', 'Slot Added');
+    } catch (err) {
+      showToast(err.message || 'Could not add the daily slot.', 'error', 'Slot Failed');
+    } finally {
+      if (button) button.disabled = false;
+    }
+  };
+  document.getElementById('scheduled-download-add-slot')?.addEventListener('click', addSlot);
+
+  ytQualitySelect?.addEventListener('change', async () => {
+    try {
+      await apiPut('/api/videos/auto-download/settings', { quality: ytQualitySelect.value });
+      if (scheduledDownloadQuality) scheduledDownloadQuality.textContent = ytQualitySelect.value;
+      await fetchScheduledDownloads();
+    } catch (err) {
+      showToast(err.message || 'Could not save the shared download quality.', 'error', 'Quality Save Failed');
+      await fetchSettings();
+    }
+  });
+
+  setScheduledModeTab('horizontal');
+}
+
 function setupYouTubeDownload() {
   if (!btnYtDownload) return;
 
@@ -2387,6 +2699,7 @@ function setupYouTubeDownload() {
   const tabYtBtn = document.getElementById('tab-youtube');
   if (tabUploadBtn) tabUploadBtn.addEventListener('click', () => switchIngestTab('upload'));
   if (tabYtBtn) tabYtBtn.addEventListener('click', () => switchIngestTab('youtube'));
+  setupScheduledDownloads();
 
   // Wire VM Chrome Cookie Resync button
   const btnResyncCookies = document.getElementById('btn-resync-cookies');
@@ -2604,6 +2917,7 @@ async function refreshAll() {
   await Promise.all([
     fetchStatus(),
     fetchSettings(),
+    fetchScheduledDownloads(),
     fetchBandwidth(),
     fetchScheduler(),
     fetchSystem(),
@@ -2619,6 +2933,7 @@ function startPolling() {
   _pollSlowTimer = setInterval(() => {
     fetchBandwidth();
     fetchScheduler();
+    fetchScheduledDownloads();
     fetchSystem();
     fetchLogs();
   }, 10000);

@@ -26,6 +26,7 @@ import { createStreamRouter } from './api/stream.routes.js';
 import { createSettingsRouter } from './api/settings.routes.js';
 import { createBandwidthRouter } from './api/bandwidth.routes.js';
 import { createVideosRouter } from './api/videos.routes.js';
+import { startScheduledDownloads, stopScheduledDownloads } from './scheduled-downloads.js';
 import { createSystemRouter } from './api/system.routes.js';
 import { createSchedulerRouter } from './api/scheduler.routes.js';
 import PATHS from './lib/paths.js';
@@ -221,6 +222,7 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
 
     // 5. Start in-process scheduler
     startScheduler();
+    startScheduledDownloads();
 
     // 5b. Recover auto-recycle pause on boot if active
     await initAutoRecycleOnBoot();
@@ -249,6 +251,13 @@ if (process.argv[1] && process.argv[1].endsWith('server.js')) {
     const handleShutdown = async (signal) => {
       logger.info('app.shutdown', `Received ${signal}; initiating graceful shutdown`);
       stopScheduler();
+      try {
+        await stopScheduledDownloads();
+      } catch (err) {
+        logger.warn('scheduled_download.shutdown_warning', 'Scheduled download cleanup failed; continuing application shutdown', {
+          error: err.message,
+        });
+      }
 
       // Gracefully stop FFmpeg and flush all state
       await stopStream({ keepDesiredRunning: true, reason: `system_${signal.toLowerCase()}` });
