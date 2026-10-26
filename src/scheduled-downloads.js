@@ -14,6 +14,9 @@ import {
   checkDuplicateYouTubeVideo,
 } from './ytdlp-manager.js';
 import { logger } from './logger.js';
+import { getDiskMetrics } from './system-monitor.js';
+import { sendDownloadCompletedEmail } from './email-alerts.js';
+import { sendDownloadCompletedTelegram } from './telegram-alerts.js';
 
 const DEFAULT_CONFIG = Object.freeze({
   enabled: false,
@@ -98,10 +101,50 @@ function rememberResult(result) {
   _lastResult = { ...result, at: new Date().toISOString() };
 }
 
+function formatStorageBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return 'Unavailable';
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 2)} ${units[unitIndex]}`;
+}
+
+async function notifyScheduledDownloadCompleted(status) {
+  let disk = null;
+  try {
+    disk = await getDiskMetrics();
+  } catch (err) {
+    logger.warn('scheduled_download.storage_check_failed', `Could not read remaining server storage: ${err.message}`);
+  }
+
+  const details = {
+    videoTitle: status.videoTitle,
+    videoId: status.videoId,
+    mode: status.detectedMode,
+    resolution: status.resolution,
+    completedAt: status.completedAt,
+    storageFree: disk?.totalBytes > 0 ? formatStorageBytes(disk.freeBytes) : 'Unavailable',
+    storageTotal: disk?.totalBytes > 0 ? formatStorageBytes(disk.totalBytes) : '',
+    storageUsedPercent: disk?.totalBytes > 0 ? disk.usedPercent : null,
+  };
+
+  void Promise.all([
+    sendDownloadCompletedEmail(details),
+    sendDownloadCompletedTelegram(details),
+  ]).catch(err => {
+    logger.warn('scheduled_download.notification_dispatch_failed', `Could not dispatch download completion notifications: ${err.message}`);
+  });
+}
+
 async function onScheduledJobSettled(slot, link, status) {
   const successful = status?.stage === 'completed';
   try {
     if (successful) {
+      await notifyScheduledDownloadCompleted(status);
       await removeQueueItem(slot.mode, link.id);
       logger.info('scheduled_download.link_removed', 'Scheduled YouTube link removed after the shared download and import pipeline completed', {
         slotId: slot.id,

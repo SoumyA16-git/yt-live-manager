@@ -103,6 +103,20 @@ function formatStartedMessage(details = {}) {
   ].join('\n').slice(0, 3_900);
 }
 
+function formatDownloadCompletedMessage(details = {}) {
+  return [
+    '✅ Scheduled YouTube download completed',
+    `Time (UTC): ${cleanField(details.completedAt, 40) || new Date().toISOString()}`,
+    `Video: ${cleanField(details.videoTitle, 300) || 'YouTube video'}`,
+    ...(details.videoId ? [`Library ID: ${cleanField(details.videoId, 120)}`] : []),
+    ...(details.mode ? [`Orientation: ${cleanField(details.mode, 40)}`] : []),
+    ...(details.resolution ? [`Resolution: ${cleanField(details.resolution, 40)}`] : []),
+    `Remaining server video storage: ${cleanField(details.storageFree, 80) || 'Unavailable'}`,
+    ...(details.storageTotal ? [`Total video storage: ${cleanField(details.storageTotal, 80)}`] : []),
+    ...(Number.isFinite(details.storageUsedPercent) ? [`Storage used: ${details.storageUsedPercent}%`] : []),
+  ].join('\n').slice(0, 3_900);
+}
+
 async function callTelegram(method, payload, { timeoutMs = 15_000 } = {}) {
   const { config } = getTelegramConfig();
   if (!config.token) throw new Error('Telegram bot token is not configured');
@@ -383,6 +397,29 @@ export async function sendLiveStartedTelegram(details = {}) {
     return { sent: true };
   } catch (err) {
     logger.warn('stream.telegram_started_alert_failed', `Could not send Telegram live-start notification: ${redact(err.message || 'request failed')}`);
+    return { sent: false, error: true };
+  }
+}
+
+export async function sendDownloadCompletedTelegram(details = {}) {
+  const { config, missing } = getTelegramConfig();
+  if (missing.length) {
+    logMissingConfig(missing);
+    return { sent: false, configured: false };
+  }
+
+  try {
+    await sendMessagePaced({
+      chat_id: config.chatId,
+      text: formatDownloadCompletedMessage(details),
+    });
+    logger.info('scheduled_download.alert_telegram_sent', 'Scheduled download completion Telegram alert sent', {
+      chatId: config.chatId,
+      videoId: cleanField(details.videoId, 120) || null,
+    });
+    return { sent: true };
+  } catch (err) {
+    logger.warn('scheduled_download.alert_telegram_failed', `Could not send scheduled download Telegram alert: ${redact(err.message || 'request failed')}`);
     return { sent: false, error: true };
   }
 }

@@ -22,6 +22,7 @@ const FAILURE_ALERT_COOLDOWN_MS = 15 * 60 * 1000;
 
 let _lastFailureAlertAt = 0;
 let _missingConfigLogged = false;
+let _downloadMissingConfigLogged = false;
 let _sendQueue = Promise.resolve();
 
 function getSmtpConfig() {
@@ -214,6 +215,33 @@ function formatMessage({ config, kind, mode, reason, code, phase, studioVerified
   return `${headers.join('\r\n')}\r\n\r\n${body}\r\n`;
 }
 
+function formatDownloadCompletedMessage(config, details = {}) {
+  const fields = [
+    'YT Live Manager scheduled download alert',
+    'Event: DOWNLOAD COMPLETED',
+    `Time (UTC): ${details.completedAt || new Date().toISOString()}`,
+    `Video: ${redact(String(details.videoTitle || 'YouTube video')).replace(/[\0\r\n]/g, ' ').slice(0, 300)}`,
+    ...(details.videoId ? [`Library ID: ${redact(String(details.videoId)).slice(0, 120)}`] : []),
+    ...(details.mode ? [`Orientation: ${redact(String(details.mode)).slice(0, 40)}`] : []),
+    ...(details.resolution ? [`Resolution: ${redact(String(details.resolution)).slice(0, 40)}`] : []),
+    `Remaining server video storage: ${details.storageFree || 'Unavailable'}`,
+    ...(details.storageTotal ? [`Total video storage: ${details.storageTotal}`] : []),
+    ...(Number.isFinite(details.storageUsedPercent) ? [`Storage used: ${details.storageUsedPercent}%`] : []),
+  ].join('\n');
+  const body = Buffer.from(fields, 'utf8').toString('base64').match(/.{1,76}/g)?.join('\r\n') || '';
+  const headers = [
+    `From: <${config.from}>`,
+    `To: <${config.to}>`,
+    `Subject: ${encodeHeader('YouTube scheduled download completed')}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: <${randomUUID()}@yt-live-manager.local>`,
+  ];
+  return `${headers.join('\r\n')}\r\n\r\n${body}\r\n`;
+}
+
 async function deliverSmtp(config, message) {
   const socket = config.secure
     ? tls.connect({ host: config.host, port: config.port, servername: config.host, rejectUnauthorized: true })
@@ -318,4 +346,30 @@ export function sendLiveStartedEmail(details = {}) {
 
 export function sendLiveFailureEmail(details = {}) {
   return enqueueAlert({ ...details, kind: 'failed' });
+}
+
+export function sendDownloadCompletedEmail(details = {}) {
+  const send = async () => {
+    const { config, missing } = getSmtpConfig();
+    if (missing.length) {
+      if (!_downloadMissingConfigLogged) {
+        logger.warn('scheduled_download.alert_email_not_configured', `Download email alerts require valid SMTP settings (${missing.join(', ')})`);
+        _downloadMissingConfigLogged = true;
+      }
+      return { sent: false, configured: false };
+    }
+
+    await deliverSmtp(config, formatDownloadCompletedMessage(config, details));
+    logger.info('scheduled_download.alert_email_sent', 'Scheduled download completion email sent', {
+      recipient: config.to,
+      videoId: details.videoId || null,
+    });
+    return { sent: true };
+  };
+  const queuedSend = () => send().catch(err => {
+    logger.warn('scheduled_download.alert_email_failed', `Could not send scheduled download email: ${redact(err.message || 'SMTP delivery failed')}`);
+    return { sent: false, error: true };
+  });
+  _sendQueue = _sendQueue.then(queuedSend, queuedSend);
+  return _sendQueue;
 }
