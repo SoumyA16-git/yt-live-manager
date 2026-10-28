@@ -197,6 +197,10 @@ export function buildPublisherArgs(settings, secretTarget) {
     '-ac', '2',
     '-af', 'aresample=async=1:first_pts=0',
     '-max_muxing_queue_size', '4096',
+    // The feeder normalizes the MPEG-TS segment timestamps, but AAC encoder priming
+    // can still introduce a negative first packet at the final FLV muxer boundary.
+    // Shift the output timeline as a unit; video remains stream-copied and untouched.
+    '-avoid_negative_ts', 'make_zero',
     '-flvflags', 'no_duration_filesize',
     '-f', 'flv',
     secretTarget,
@@ -1043,7 +1047,12 @@ export async function spawnFfmpeg({
       await releaseLock();
 
       const lastErrLine = _stderrRing.length > 0 ? _stderrRing[_stderrRing.length - 1].line : null;
-      logger.info('ffmpeg.exit', `${_streamMode.toUpperCase()} FFmpeg process PID ${pid} exited with code ${code}, signal ${signal} (expected: ${wasExpected})`);
+      const stderrTail = _stderrRing.slice(-8).map(entry => entry.line).join(' | ') || null;
+      logger.info(
+        'ffmpeg.exit',
+        `${_streamMode.toUpperCase()} FFmpeg process PID ${pid} exited with code ${code}, signal ${signal} (expected: ${wasExpected})`,
+        stderrTail ? { stderrTail } : undefined
+      );
 
       if (typeof onExit === 'function') {
         try {
