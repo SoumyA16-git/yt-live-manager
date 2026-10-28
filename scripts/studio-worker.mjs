@@ -649,10 +649,10 @@ async function dismissModals(page) {
 }
 
 /** STEP 7: Click Edit button. Throws if modal never opens after retries. */
-async function openEditModal(page) {
+async function openEditModal(page, { retryDisabled = false, maxAttempts = 8 } = {}) {
   log('edit_open_start', 'Opening metadata Edit modal');
 
-  for (let attempt = 1; attempt <= 8; attempt++) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     // Detect the editor shell separately from its title field. Studio can
     // change the textbox implementation without changing the modal itself.
     const titleValue = await readTitleField(page);
@@ -702,7 +702,18 @@ async function openEditModal(page) {
 
     if (clicked.clicked) {
       if (clicked.disabled) {
-        throw new Error(`FATAL: Studio Edit button is disabled: ${JSON.stringify(clicked)}`);
+        if (!retryDisabled) {
+          throw new Error(`FATAL: Studio Edit button is disabled: ${JSON.stringify(clicked)}`);
+        }
+        if (attempt === 1 || attempt % 5 === 0 || attempt === maxAttempts) {
+          log('edit_button_disabled_wait', 'Studio has not enabled metadata editing yet; retrying without interrupting the LIVE stream', {
+            attempt,
+            maxAttempts,
+            button: clicked,
+          });
+        }
+        await sleep(1500);
+        continue;
       }
       await page.mouse.click(clicked.x, clicked.y);
       log('edit_button_clicked', `Edit clicked on attempt ${attempt}`, clicked);
@@ -748,7 +759,9 @@ async function openEditModal(page) {
     await sleep(1500);
   }
 
-  throw new Error('FATAL: Could not open Edit modal after 8 attempts — aborting');
+  throw new Error(retryDisabled
+    ? `FATAL: Studio Edit button did not become available after ${maxAttempts} attempts`
+    : `FATAL: Could not open Edit modal after ${maxAttempts} attempts — aborting`);
 }
 
 /** STEP 8+9: Type new title. Throws if content doesn't match after retries. */
@@ -938,7 +951,10 @@ async function setDescriptionAfterTitle(page, description, titleVerifiedAt) {
 
   let expectedTitle = null;
   try {
-    await openEditModal(page);
+    // Studio can briefly disable Edit while it transitions the broadcast to
+    // LIVE. Retry only in this best-effort post-LIVE path; the title/startup
+    // gates retain their existing strict failure behavior.
+    await openEditModal(page, { retryDisabled: true, maxAttempts: 40 });
     expectedTitle = await readTitleField(page);
     if (expectedTitle === null) throw new Error('Could not read the verified title before editing the description');
     if (await readDescriptionField(page) === null) throw new Error('Studio description textbox was not recognized');
@@ -955,7 +971,7 @@ async function setDescriptionAfterTitle(page, description, titleVerifiedAt) {
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
     await sleep(2500);
-    await openEditModal(page);
+    await openEditModal(page, { retryDisabled: true, maxAttempts: 40 });
     const persistedTitle = await readTitleField(page);
     const persistedDescription = await readDescriptionField(page);
     if (persistedTitle !== expectedTitle) throw new Error('Title changed while saving the Studio description');
@@ -970,14 +986,10 @@ async function setDescriptionAfterTitle(page, description, titleVerifiedAt) {
     log('description_update_failed', 'Description update failed after LIVE; keeping the verified stream active', {
       error: err?.message || String(err),
     });
-    try {
-      await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
-      await sleep(1500);
-    } catch (cleanupErr) {
-      log('description_cleanup_failed', 'Could not reload Studio after the best-effort post-LIVE description update', {
-        error: cleanupErr?.message || String(cleanupErr),
-      });
-    }
+    // The stream has already passed the LIVE gate. Reloading Studio here can
+    // hang for 45 seconds and cannot repair a disabled Edit control; leave the
+    // control room alone and let the normal browser cleanup run.
+    log('description_cleanup_skipped', 'Skipped Studio reload after the best-effort description attempt; preserving the verified LIVE session');
   }
 }
 
