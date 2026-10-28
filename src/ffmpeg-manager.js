@@ -177,6 +177,14 @@ export function buildPublisherArgs(settings, secretTarget) {
   const streamCfg = settings?.stream || {};
   const audioRate = Number(streamCfg.audioSampleRate) || 48000;
   const audioKbps = Number(streamCfg.audioBitrateKbps) || 128;
+  // Repair only absent timestamps at the MPEG-TS → FLV boundary. Existing PTS/DTS
+  // remain unchanged, and setts works on packet metadata without decoding video.
+  const missingVideoTimestamp =
+    'if(eq(PREV_OUTDTS\\,NOPTS)\\,N*1/TB/30\\,PREV_OUTDTS+if(gt(PREV_INDURATION\\,0)\\,PREV_INDURATION\\,1/TB/30))';
+  const repairVideoTimestamps = [
+    'setts=pts=if(eq(PTS\\,NOPTS)\\,if(eq(DTS\\,NOPTS)\\,' + missingVideoTimestamp + '\\,DTS)\\,PTS)',
+    'dts=if(eq(DTS\\,NOPTS)\\,if(eq(PTS\\,NOPTS)\\,' + missingVideoTimestamp + '\\,PTS)\\,DTS)',
+  ].join(':');
 
   return [
     '-hide_banner',
@@ -191,6 +199,7 @@ export function buildPublisherArgs(settings, secretTarget) {
     '-probesize', '2000000',
     '-i', 'pipe:0',
     '-c:v', 'copy',
+    '-bsf:v', repairVideoTimestamps,
     '-c:a', 'aac',
     '-b:a', `${audioKbps}k`,
     '-ar', `${audioRate}`,
