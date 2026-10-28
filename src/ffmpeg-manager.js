@@ -178,13 +178,20 @@ export function buildPublisherArgs(settings, secretTarget) {
   const audioRate = Number(streamCfg.audioSampleRate) || 48000;
   const audioKbps = Number(streamCfg.audioBitrateKbps) || 128;
   // Repair only absent timestamps at the MPEG-TS → FLV boundary. Existing PTS/DTS
-  // remain unchanged, and setts works on packet metadata without decoding video.
-  const missingVideoTimestamp =
-    'if(eq(PREV_OUTDTS\\,NOPTS)\\,N*1/TB/30\\,PREV_OUTDTS+if(gt(PREV_INDURATION\\,0)\\,PREV_INDURATION\\,1/TB/30))';
-  const repairVideoTimestamps = [
-    'setts=pts=if(eq(PTS\\,NOPTS)\\,if(eq(DTS\\,NOPTS)\\,' + missingVideoTimestamp + '\\,DTS)\\,PTS)',
-    'dts=if(eq(DTS\\,NOPTS)\\,if(eq(PTS\\,NOPTS)\\,' + missingVideoTimestamp + '\\,PTS)\\,DTS)',
-  ].join(':');
+  // remain unchanged; sgn-based expressions avoid comma parsing in FFmpeg 4.4.
+  const fallbackFps = Number(streamCfg.fps) > 0 ? Number(streamCfg.fps) : 30;
+  const missingFlag = timestamp => '(1-sgn(' + timestamp + '+1))/2';
+  const missingPts = missingFlag('PTS');
+  const missingDts = missingFlag('DTS');
+  const missingPreviousDts = missingFlag('PREV_OUTDTS');
+  const frameStep = '(1/TB/' + fallbackFps + ')';
+  const missingTimestamp =
+    '((PREV_OUTDTS+' + frameStep + ')*(1-' + missingPreviousDts + ')+N*(1/TB/' + fallbackFps + ')*' + missingPreviousDts + ')';
+  const repairVideoTimestamps =
+    'setts=pts=' +
+    '(PTS*(1-' + missingPts + ')+(DTS*(1-' + missingDts + ')+(' + missingTimestamp + ')*' + missingDts + ')*' + missingPts + ')' +
+    ':dts=' +
+    '(DTS*(1-' + missingDts + ')+(PTS*(1-' + missingPts + ')+(' + missingTimestamp + ')*' + missingPts + ')*' + missingDts + ')';
 
   return [
     '-hide_banner',
@@ -206,9 +213,8 @@ export function buildPublisherArgs(settings, secretTarget) {
     '-ac', '2',
     '-af', 'aresample=async=1:first_pts=0',
     '-max_muxing_queue_size', '4096',
-    // The feeder normalizes the MPEG-TS segment timestamps, but AAC encoder priming
-    // can still introduce a negative first packet at the final FLV muxer boundary.
-    // Shift the output timeline as a unit; video remains stream-copied and untouched.
+    // Keep any negative starting timestamps on one non-negative output timeline.
+    // This changes timestamps only; video remains stream-copied and untouched.
     '-avoid_negative_ts', 'make_zero',
     '-flvflags', 'no_duration_filesize',
     '-f', 'flv',
