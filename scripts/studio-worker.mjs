@@ -379,6 +379,45 @@ async function readTitleField(page) {
   });
 }
 
+/** Wait for Studio's asynchronously hydrated title value before reading or editing it. */
+async function waitForTitleFieldHydration(page, { timeoutMs = 20_000, allowEmpty = false } = {}) {
+  let lastValue = null;
+  let stableSamples = 0;
+  const hydrated = await waitFor(async () => {
+    const value = await readTitleField(page);
+    if (value === null) {
+      lastValue = null;
+      stableSamples = 0;
+      return false;
+    }
+    if (!value.trim()) {
+      lastValue = value;
+      stableSamples = 0;
+      return false;
+    }
+    if (value === lastValue) stableSamples++;
+    else {
+      lastValue = value;
+      stableSamples = 1;
+    }
+    return stableSamples >= 3;
+  }, timeoutMs, 300);
+
+  if (hydrated) {
+    log('title_field_hydrated', 'Studio title value is stable and ready', {
+      charCount: Array.from(lastValue || '').length,
+    });
+    return lastValue;
+  }
+
+  const finalValue = await readTitleField(page);
+  if (allowEmpty && finalValue === '') {
+    log('title_field_empty_after_wait', 'Studio title remained blank after the hydration wait; treating it as an untitled broadcast');
+    return finalValue;
+  }
+  throw new Error(`FATAL: Studio title field did not finish loading within ${timeoutMs}ms`);
+}
+
 async function getTitleFieldBox(page) {
   return page.evaluate(() => {
     const visible = el => {
@@ -955,7 +994,7 @@ async function setDescriptionAfterTitle(page, description, titleVerifiedAt) {
     // LIVE. Retry only in this best-effort post-LIVE path; the title/startup
     // gates retain their existing strict failure behavior.
     await openEditModal(page, { retryDisabled: true, maxAttempts: 40 });
-    expectedTitle = await readTitleField(page);
+    expectedTitle = await waitForTitleFieldHydration(page);
     if (expectedTitle === null) throw new Error('Could not read the verified title before editing the description');
     if (await readDescriptionField(page) === null) throw new Error('Studio description textbox was not recognized');
 
@@ -972,7 +1011,7 @@ async function setDescriptionAfterTitle(page, description, titleVerifiedAt) {
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 45000 });
     await sleep(2500);
     await openEditModal(page, { retryDisabled: true, maxAttempts: 40 });
-    const persistedTitle = await readTitleField(page);
+    const persistedTitle = await waitForTitleFieldHydration(page);
     const persistedDescription = await readDescriptionField(page);
     if (persistedTitle !== expectedTitle) throw new Error('Title changed while saving the Studio description');
     if (normalizeDescriptionText(persistedDescription) !== normalizeDescriptionText(description)) {
@@ -1069,7 +1108,7 @@ async function verifyPersistedTitle(page, expectedTitle, timeZone, configuredBas
   await openEditModal(page);
   await sleep(500);
 
-  const persistedTitle = await readTitleField(page);
+  const persistedTitle = await waitForTitleFieldHydration(page);
 
   if (persistedTitle === expectedTitle) {
     log('verify_ok', 'Saved title verified on reload', { savedTitle: persistedTitle });
@@ -1105,7 +1144,7 @@ async function verifyPersistedTitle(page, expectedTitle, timeZone, configuredBas
   await openEditModal(page);
   await sleep(500);
 
-  const finalTitle = await readTitleField(page);
+  const finalTitle = await waitForTitleFieldHydration(page);
 
   if (finalTitle !== retryTitle) {
     throw new Error(`FATAL: Title did not persist after 2 save attempts. Expected: "${retryTitle}", Got: "${finalTitle}"`);
@@ -1312,7 +1351,7 @@ async function run() {
     // STEP 8: Compute target title from current text
     // -----------------------------------------------------------------------
     log('step8_compute_title', 'Reading current title and computing new title');
-    const currentTitle = await readTitleField(page);
+    const currentTitle = await waitForTitleFieldHydration(page, { allowEmpty: true });
 
     if (currentTitle === null) throw new Error('FATAL: Could not read current title from open editor');
     log('step8_current_title', 'Current title read', { currentTitle });
